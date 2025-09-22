@@ -145,11 +145,11 @@ class InteractiveUFFLOWReact:
             current_dir = os.getcwd()
             constraints = {
                 "workspace": current_dir,
-                "max_turns": 25
+                "max_turns": 10
             }
             print(f"\n{Colors.BLUE}🚀 FAST mode: Auto-setting constraints{Colors.RESET}")
             print(f"{Colors.BLUE}   • workspace: {current_dir}{Colors.RESET}")
-            print(f"{Colors.BLUE}   • max_turns: 25{Colors.RESET}")
+            print(f"{Colors.BLUE}   • max_turns: 10{Colors.RESET}")
 
         # Create goal
         goal_id = f"react-goal-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -646,8 +646,8 @@ class InteractiveUFFLOWReact:
 
             # In FAST mode, auto-execute the goal immediately
             if self.fast_mode:
-                print(f"\n{Colors.BLUE}🚀 FAST mode: Auto-executing goal with default settings (25 max turns)...{Colors.RESET}")
-                self.current_execution = self.execute_goal_react(self.current_goal, 25)
+                print(f"\n{Colors.BLUE}🚀 FAST mode: Auto-executing goal with default settings (10 max turns)...{Colors.RESET}")
+                self.current_execution = self.execute_goal_react(self.current_goal, 10)
 
                 if self.current_execution:
                     # Offer to explore the results

@@ -59,19 +59,30 @@ class ToolProvisioningAgent:
             print(f"{Colors.BOLD}Goal:{Colors.RESET} {goal}")
             print(f"{Colors.YELLOW}🔧 Starting tool provisioning with live updates...{Colors.RESET}")
 
-        # Initialize state with shorter turn limit (focused task) - reduced for efficiency
-        state = ReActState(goal=goal, max_turns=6)
+        # Initialize state with turn limit - allow up to 10 turns before requiring approval
+        state = ReActState(goal=goal, max_turns=10)
 
         try:
             # Main provisioning loop
-            while state.turn_count < state.max_turns and not state.is_complete:
+            while not state.is_complete:
                 turn_start = time.time()
                 turn_num = state.turn_count + 1
 
-                logger.info(f"Provisioning turn {turn_num}/{state.max_turns}")
+                # Check if we've exceeded max turns and need user confirmation
+                if turn_num > state.max_turns:
+                    if show_live_updates:
+                        print(f"\n{Colors.YELLOW}⚠️  Reached maximum turns ({state.max_turns}). Continue? (Y/n, Enter=Y): {Colors.RESET}", end="")
+                        response = input().strip().lower()
+                        if response in ['n', 'no']:
+                            logger.info("Tool provisioning stopped by user after max turns")
+                            break
+                        # If Y, yes, or Enter (empty), continue
+
+                logger.info(f"Provisioning turn {turn_num}/{state.max_turns}+" if turn_num > state.max_turns else f"Provisioning turn {turn_num}/{state.max_turns}")
 
                 if show_live_updates:
-                    print(f"\n{Colors.BOLD}{Colors.CYAN}┌─ Turn {turn_num}/{state.max_turns} ─────────────────────────────────────────────────┐{Colors.RESET}")
+                    turn_display = f"{turn_num}/{state.max_turns}+" if turn_num > state.max_turns else f"{turn_num}/{state.max_turns}"
+                    print(f"\n{Colors.BOLD}{Colors.CYAN}┌─ Turn {turn_display} ─────────────────────────────────────────────────┐{Colors.RESET}")
                     print(f"{Colors.BOLD}│ Reasoning...                                              │{Colors.RESET}")
                     print(f"{Colors.BOLD}└───────────────────────────────────────────────────────────┘{Colors.RESET}")
 
