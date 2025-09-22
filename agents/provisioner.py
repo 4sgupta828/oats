@@ -39,7 +39,7 @@ class ToolProvisioningAgent:
         self.registry = registry  # Reference to main registry for dynamic updates
         self.llm_client = OpenAIClientManager()
         # Limited toolset for provisioning - avoid circular dependencies
-        self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "finish"]
+        self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "ask_llm_for_instructions", "finish"]
 
     def run(self, goal: str, show_live_updates: bool = True) -> dict:
         """
@@ -207,7 +207,8 @@ AVAILABLE ACTIONS:
 2. check_command_exists - Verify if a tool is already installed
 3. user_confirm - Ask user for permission before risky operations
 4. user_prompt - Ask user for guidance when stuck or need information
-5. finish - Complete the task with structured results
+5. ask_llm_for_instructions - Get installation instructions from LLM for a specific tool and platform
+6. finish - Complete the task with structured results
 
 RESPONSE FORMAT (MANDATORY):
 Thought: [Your reasoning]
@@ -234,6 +235,10 @@ Thought: Installing the tool
 Intent: provision_tool
 Action: {{"tool_name": "execute_shell", "parameters": {{"command": "brew install ripgrep"}}}}
 
+Thought: Need to understand what type of tool this is and correct installation method
+Intent: provision_tool
+Action: {{"tool_name": "ask_llm_for_instructions", "parameters": {{"tool_name": "scrubcsv", "platform": "macOS"}}}}
+
 Thought: Multiple installation methods failed, need user guidance
 Intent: provision_tool
 Action: {{"tool_name": "user_prompt", "parameters": {{"question": "Failed to install via pip, brew, and apt. Do you have a preferred package manager or should I try building from source?"}}}}
@@ -248,15 +253,21 @@ INSTALLATION STRATEGIES (try in order):
 3. Package managers (prioritize by OS): macOS=brew, Linux=apt/yum, Windows=chocolatey
 4. Language-specific managers: Python=pip/pip3, Node=npm/yarn, Rust=cargo
 5. Alternative package names: try common variations (xsv vs rust-xsv)
-6. **ASK FOR GUIDANCE** if stuck with user_prompt
-7. Direct downloads or source compilation as last resort
-8. Finish with failure and suggest alternatives if all methods fail
+6. **IF STANDARD METHODS FAIL**: Use ask_llm_for_instructions to get tool-specific installation knowledge
+7. **ASK FOR GUIDANCE** if still stuck with user_prompt
+8. Direct downloads or source compilation as last resort
+9. Finish with failure and suggest alternatives if all methods fail
 
 IMPORTANT RULES:
 - ALWAYS start by checking if tool already exists with check_command_exists
+- **LLM KNOWLEDGE GATHERING**:
+  • Use ask_llm_for_instructions when standard package managers fail
+  • This helps identify tools that need special installation patterns (Rust tools, tools with dependencies, etc.)
+  • Extract tool name from goal and current platform info for the query
 - **USER INTERACTION RULES**:
   • Use user_confirm BEFORE installing packages (system changes need permission)
-  • Use user_prompt AFTER 2-3 failed attempts (ask for guidance/preferences)
+  • Use ask_llm_for_instructions BEFORE user_prompt when installations fail
+  • Use user_prompt AFTER LLM instructions fail (ask for guidance/preferences)
   • Use user_prompt when multiple approaches exist (let user choose)
   • Use user_prompt for missing info (API tokens, custom repos, etc.)
 - Some packages provide multiple commands (e.g., csvkit provides csvcut, csvstat, csvlook, csvgrep)
@@ -266,7 +277,8 @@ IMPORTANT RULES:
 - For Python tools: try 'pip install' then 'pip3 install' then 'pip install --user'
 - Verify installation by re-checking command exists after install attempt using the PACKAGE NAME
 - Finish early with success when tool is found/installed successfully
-- After 3 different installation attempts, ask user for guidance before giving up
+- After 2-3 different installation attempts fail, use ask_llm_for_instructions to get tool-specific knowledge
+- If LLM instructions also fail, then ask user for guidance before giving up
 
 LOOP PREVENTION - CRITICAL:
 - NEVER repeat the exact same command that failed before
@@ -275,6 +287,14 @@ LOOP PREVENTION - CRITICAL:
 - Package name variations: tool → py-tool → python-tool → tool-cli → rust-tool
 - If 2+ attempts with same package manager failed, switch to different manager
 - If installation fails but should succeed, check if command now exists anyway
+
+COMMON TOOL INSTALLATION PATTERNS:
+- Rust tools (scrubcsv, ripgrep, fd, exa, bat): brew install rust && cargo install <tool>
+- Go tools: go install github.com/author/<tool>@latest
+- Node tools: npm install -g <tool>
+- Python tools with system deps: brew install <deps> && pip install <tool>
+- Tools with custom installers: curl <url> | sh
+- Language-specific package managers often work better than system ones
 
 FINISH ACTION STRUCTURE:
 Success: {{"tool_name": "finish", "parameters": {{"success": true, "tool_name": "<name>", "installation_method": "<method>", "message": "<details>", "tool_path": "<path>", "verification_command": "<cmd>"}}}}
@@ -327,6 +347,8 @@ Your response:"""
                 return self._execute_user_confirm_action(parameters)
             elif tool_name == "user_prompt":
                 return self._execute_user_prompt_action(parameters)
+            elif tool_name == "ask_llm_for_instructions":
+                return self._execute_ask_llm_for_instructions_action(parameters)
             elif tool_name == "finish":
                 # Finish actions are handled at the loop level
                 return f"FINISH: {parameters}"
@@ -517,6 +539,86 @@ If unsure, return an empty list: []"""
         except Exception as e:
             logger.error(f"User prompt action failed: {e}")
             return f"ERROR: User prompt failed: {str(e)}"
+
+    def _execute_ask_llm_for_instructions_action(self, parameters: Dict[str, Any]) -> str:
+        """Ask LLM for tool-specific installation instructions."""
+        try:
+            tool_name = parameters.get("tool_name", "")
+            platform = parameters.get("platform", "")
+
+            if not tool_name:
+                return "ERROR: No tool_name provided"
+
+            # Detect platform if not provided
+            if not platform:
+                import platform as plat
+                system = plat.system().lower()
+                if system == "darwin":
+                    platform = "macOS"
+                elif system == "linux":
+                    platform = "Linux"
+                elif system == "windows":
+                    platform = "Windows"
+                else:
+                    platform = system
+
+            prompt = f"""How to install tool '{tool_name}' - give me step by step shell commands for platform {platform}
+
+Tool: {tool_name}
+Platform: {platform}
+
+Provide ONLY the shell commands needed to install this tool, one command per line.
+Consider these installation patterns:
+
+RUST TOOLS (like scrubcsv, ripgrep, fd, exa):
+- First install Rust: brew install rust (macOS) or curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+- Then: cargo install {tool_name}
+
+GO TOOLS:
+- go install github.com/author/{tool_name}@latest
+
+NODE TOOLS:
+- npm install -g {tool_name}
+
+PYTHON TOOLS:
+- pip install {tool_name} or pip3 install {tool_name}
+
+NATIVE PACKAGES:
+- macOS: brew install {tool_name}
+- Linux: apt install {tool_name} or yum install {tool_name}
+- Windows: choco install {tool_name}
+
+TOOLS WITH SYSTEM DEPENDENCIES:
+- Install dependencies first, then the tool
+
+Return only the commands, no explanations. If unsure about the tool, provide the most likely installation method."""
+
+            logger.info(f"Asking LLM for installation instructions for {tool_name} on {platform}")
+
+            response = self.llm_client.create_completion_text([{"role": "user", "content": prompt}])
+
+            # Clean up the response to extract commands
+            commands = []
+            for line in response.split('\n'):
+                line = line.strip()
+                if line and not line.startswith('#') and not line.startswith('//'):
+                    # Remove common prefixes that might be in the response
+                    if line.startswith('$ '):
+                        line = line[2:]
+                    elif line.startswith('> '):
+                        line = line[2:]
+                    if line:
+                        commands.append(line)
+
+            if commands:
+                command_list = '\n'.join(commands)
+                return f"LLM_INSTRUCTIONS: Installation commands for {tool_name} on {platform}:\n{command_list}"
+            else:
+                return f"LLM_NO_INSTRUCTIONS: Could not determine installation method for {tool_name}"
+
+        except Exception as e:
+            logger.error(f"LLM instructions action failed: {e}")
+            return f"ERROR: LLM instructions failed: {str(e)}"
 
     def refresh_registry_for_tool(self, tool_name: str):
         """Attempt to discover and register a newly installed tool."""
