@@ -16,7 +16,6 @@ import sys
 import os
 import json
 import argparse
-import tempfile
 from typing import Dict, Any
 from datetime import datetime
 import shutil
@@ -27,7 +26,6 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'
 
 # Import UFFLOW components
 from core.models import Goal
-from core.config import config
 from registry.main import global_registry
 from reactor.agent_controller import AgentController
 from reactor.models import ReActResult

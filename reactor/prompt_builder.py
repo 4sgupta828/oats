@@ -33,8 +33,8 @@ class ReActPromptBuilder:
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
         else:
             self.tokenizer = None
-        self.max_tokens_per_turn = 4000  # Hard limit
-        self.warning_threshold = 3000    # Warning threshold
+        self.max_tokens_per_turn = 8000  # Hard limit (increased for ReAct workflow)
+        self.warning_threshold = 6000    # Warning threshold
 
     def _count_tokens(self, text: str) -> int:
         """Count tokens accurately using the tiktoken library."""
