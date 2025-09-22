@@ -460,20 +460,9 @@ Your response:"""
         if not command_name:
             return "ERROR: No command_name provided"
 
-        # Try goal-aware approach if goal is provided
-        if goal:
-            parsed_goal = self._parse_goal(goal)
-            tool_from_goal = parsed_goal.get("tool")
-
-            # Check if this command matches the tool from goal, or if goal asks for "any tool"
-            if tool_from_goal is None or tool_from_goal == command_name or command_name in str(tool_from_goal):
-                purpose = parsed_goal.get("purpose", "")
-                if purpose:
-                    relevant_commands = self._get_relevant_commands_for_purpose(command_name, purpose)
-                    if relevant_commands:
-                        return self._verify_commands_for_purpose(command_name, relevant_commands, purpose)
-
-        # Fallback: standard single-command check (for backward compatibility or when no goal context)
+        # Always use simple shutil.which check - don't rely on LLM guessing commands
+        # The complex goal-aware approach was causing false positives where LLM would
+        # incorrectly identify standard Unix commands (join, write) as belonging to csvfix
         path = shutil.which(command_name)
         if path:
             return f"SUCCESS: Command '{command_name}' found at: {path}"
@@ -505,57 +494,6 @@ Your response:"""
 
         return {"tool": None, "purpose": goal, "raw_goal": goal}
 
-    def _get_relevant_commands_for_purpose(self, tool_name: str, purpose: str) -> List[str]:
-        """Use LLM to determine which commands from a tool are relevant for a specific purpose."""
-        try:
-            prompt = f"""Given the tool '{tool_name}' and the purpose '{purpose}', what are the most relevant command-line commands that this tool provides?
-
-Tool: {tool_name}
-Purpose: {purpose}
-
-Return only a JSON list of command names (without explanations), for example: ["cmd1", "cmd2", "cmd3"]
-Focus on the 3-5 most commonly used commands for this specific purpose.
-If unsure, return an empty list: []"""
-
-            response = self.llm_client.create_completion_text([{"role": "user", "content": prompt}])
-
-            # Try to extract JSON from response
-            import json
-            import re
-
-            # Look for JSON array in response
-            json_match = re.search(r'\[([^\]]*)\]', response)
-            if json_match:
-                try:
-                    commands = json.loads(json_match.group(0))
-                    if isinstance(commands, list):
-                        return [cmd.strip() for cmd in commands if isinstance(cmd, str)]
-                except json.JSONDecodeError:
-                    pass
-
-            return []
-
-        except Exception as e:
-            logger.warning(f"Failed to get relevant commands via LLM: {e}")
-            return []
-
-    def _verify_commands_for_purpose(self, tool_name: str, commands: List[str], purpose: str) -> str:
-        """Verify specific commands exist for the stated purpose."""
-        found_commands = []
-        missing_commands = []
-
-        for cmd in commands:
-            path = shutil.which(cmd)
-            if path:
-                found_commands.append(f"{cmd} at {path}")
-            else:
-                missing_commands.append(cmd)
-
-        if found_commands:
-            return f"SUCCESS: Tool '{tool_name}' is installed and has the required commands for '{purpose}'. Found: {', '.join(found_commands)}"
-        else:
-            expected_cmds = ', '.join(commands) if commands else f"commands from {tool_name}"
-            return f"NOT_FOUND: Tool '{tool_name}' not found. Expected commands for '{purpose}': {expected_cmds}"
 
     def _execute_user_confirm_action(self, parameters: Dict[str, Any]) -> str:
         """Execute user confirmation for provisioner."""
