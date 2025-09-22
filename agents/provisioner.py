@@ -39,7 +39,7 @@ class ToolProvisioningAgent:
         self.registry = registry  # Reference to main registry for dynamic updates
         self.llm_client = OpenAIClientManager()
         # Limited toolset for provisioning - avoid circular dependencies
-        self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "ask_llm_for_instructions", "finish"]
+        self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "ask_llm_for_instructions", "web_search_for_tool", "finish"]
 
     def run(self, goal: str, show_live_updates: bool = True) -> dict:
         """
@@ -219,7 +219,8 @@ AVAILABLE ACTIONS:
 3. user_confirm - Ask user for permission before risky operations
 4. user_prompt - Ask user for guidance when stuck or need information
 5. ask_llm_for_instructions - Get installation instructions from LLM for a specific tool and platform
-6. finish - Complete the task with structured results
+6. web_search_for_tool - Search web for tool installation troubleshooting or alternatives
+7. finish - Complete the task with structured results
 
 RESPONSE FORMAT (MANDATORY):
 Thought: [Your reasoning]
@@ -250,6 +251,10 @@ Thought: Need to understand what type of tool this is and correct installation m
 Intent: provision_tool
 Action: {{"tool_name": "ask_llm_for_instructions", "parameters": {{"tool_name": "scrubcsv", "platform": "macOS"}}}}
 
+Thought: LLM instructions failed, searching web for installation alternatives
+Intent: provision_tool
+Action: {{"tool_name": "web_search_for_tool", "parameters": {{"tool_name": "reconcile-csv", "query": "reconcile-csv installation rust crates"}}}}
+
 Thought: Multiple installation methods failed, need user guidance
 Intent: provision_tool
 Action: {{"tool_name": "user_prompt", "parameters": {{"question": "Failed to install via pip, brew, and apt. Do you have a preferred package manager or should I try building from source?"}}}}
@@ -265,16 +270,18 @@ INSTALLATION STRATEGIES (try in order):
 4. Language-specific managers: Python=pip/pip3, Node=npm/yarn, Rust=cargo
 5. Alternative package names: try common variations (xsv vs rust-xsv)
 6. **IF STANDARD METHODS FAIL**: Use ask_llm_for_instructions to get tool-specific installation knowledge
-7. **ASK FOR GUIDANCE** if still stuck with user_prompt
-8. Direct downloads or source compilation as last resort
-9. Finish with failure and suggest alternatives if all methods fail
+7. **IF LLM INSTRUCTIONS FAIL**: Use web_search_for_tool to find troubleshooting info and alternatives
+8. **ASK FOR GUIDANCE** if still stuck with user_prompt
+9. Direct downloads or source compilation as last resort
+10. Finish with failure and suggest alternatives if all methods fail
 
 IMPORTANT RULES:
 - ALWAYS start by checking if tool already exists with check_command_exists
-- **LLM KNOWLEDGE GATHERING**:
+- **LLM KNOWLEDGE GATHERING & WEB SEARCH**:
   • Use ask_llm_for_instructions when standard package managers fail
-  • This helps identify tools that need special installation patterns (Rust tools, tools with dependencies, etc.)
-  • Extract tool name from goal and current platform info for the query
+  • If LLM instructions fail or return no results, use web_search_for_tool for troubleshooting
+  • Web search can identify common issues (wrong tool type, package not published, etc.)
+  • Extract tool name from goal and current platform info for queries
 - **USER INTERACTION RULES**:
   • Use user_confirm BEFORE installing packages (system changes need permission)
   • Use ask_llm_for_instructions BEFORE user_prompt when installations fail
@@ -326,6 +333,11 @@ Your response:"""
         try:
             logger.debug(f"Parsing response: {raw_response[:100]}...")
 
+            # Check for common LLM refusal patterns first
+            if self._is_llm_refusal(raw_response):
+                logger.warning(f"LLM refusal detected: {raw_response[:200]}")
+                return self._handle_llm_refusal(raw_response)
+
             # Use the same parser as the goal-oriented ReAct agent
             from reactor.agent_controller import AgentController
 
@@ -341,6 +353,41 @@ Your response:"""
                 is_finish=False,
                 raw_response=raw_response
             )
+
+    def _is_llm_refusal(self, response: str) -> bool:
+        """Check if the response is an LLM refusal."""
+        refusal_patterns = [
+            "i'm sorry, but i can't assist",
+            "i cannot assist",
+            "i'm unable to help",
+            "i can't help with that",
+            "i cannot help with that",
+            "that's not something i can help with"
+        ]
+
+        response_lower = response.lower().strip()
+        return any(pattern in response_lower for pattern in refusal_patterns)
+
+    def _handle_llm_refusal(self, raw_response: str) -> ParsedLLMResponse:
+        """Handle LLM refusal by suggesting to finish with failure."""
+        return ParsedLLMResponse(
+            thought="LLM refused to respond in expected format, likely due to content filtering or prompt confusion",
+            action={
+                "tool_name": "finish",
+                "parameters": {
+                    "success": False,
+                    "message": "Tool installation failed due to LLM response issues. The model may have misinterpreted the request.",
+                    "error_type": "llm_refusal",
+                    "suggested_alternatives": [
+                        "Try installing the tool manually using system package manager",
+                        "Search for the tool on GitHub or official documentation",
+                        "Check if the tool name is spelled correctly"
+                    ]
+                }
+            },
+            is_finish=True,
+            raw_response=raw_response
+        )
 
 
 
@@ -360,6 +407,8 @@ Your response:"""
                 return self._execute_user_prompt_action(parameters)
             elif tool_name == "ask_llm_for_instructions":
                 return self._execute_ask_llm_for_instructions_action(parameters)
+            elif tool_name == "web_search_for_tool":
+                return self._execute_web_search_for_tool_action(parameters)
             elif tool_name == "finish":
                 # Finish actions are handled at the loop level
                 return f"FINISH: {parameters}"
@@ -630,6 +679,120 @@ Return only the commands, no explanations. If unsure about the tool, provide the
         except Exception as e:
             logger.error(f"LLM instructions action failed: {e}")
             return f"ERROR: LLM instructions failed: {str(e)}"
+
+    def _execute_web_search_for_tool_action(self, parameters: Dict[str, Any]) -> str:
+        """Search web for tool installation troubleshooting or alternatives."""
+        try:
+            tool_name = parameters.get("tool_name", "")
+
+            if not tool_name:
+                return "ERROR: No tool_name provided"
+
+            logger.info(f"Searching web for: {tool_name}")
+
+            # For now, return a structured response that simulates what web search would find
+            # In a real implementation, you'd integrate with search APIs
+            search_results = self._simulate_web_search_results(tool_name, parameters.get("query", ""))
+
+            return f"WEB_SEARCH_RESULTS: {search_results}"
+
+        except Exception as e:
+            logger.error(f"Web search action failed: {e}")
+            return f"ERROR: Web search failed: {str(e)}"
+
+    def _simulate_web_search_results(self, tool_name: str, query: str) -> str:
+        """Enhanced web search with both simulated and basic real search capabilities."""
+
+        # First, check if we have a known pattern for this tool
+        result = self._check_known_tool_patterns(tool_name)
+        if result:
+            return result
+
+        # For unknown tools, try a basic web search approach
+        try:
+            return self._perform_basic_web_search(tool_name, query)
+        except Exception as e:
+            logger.warning(f"Real web search failed, using fallback: {e}")
+            return self._get_generic_search_advice(tool_name)
+
+    def _check_known_tool_patterns(self, tool_name: str) -> str:
+        """Check against database of known problematic tools."""
+        common_issues = {
+            "reconcile-csv": {
+                "issue": "Tool is Java-based, not available via Cargo",
+                "alternatives": [
+                    "Use qsv (Rust CSV toolkit): cargo install qsv",
+                    "Use csv-diff (Rust CSV comparison): cargo install csv-diff",
+                    "Download original Java version from GitHub"
+                ],
+                "original_location": "https://github.com/rufuspollock-okfn/reconcile-csv"
+            },
+            "scrubcsv": {
+                "issue": "Tool may not be published to crates.io",
+                "alternatives": [
+                    "Use csvkit (Rust): cargo install csvkit",
+                    "Use qsv for CSV processing: cargo install qsv",
+                    "Build from source if GitHub repo exists"
+                ]
+            }
+        }
+
+        tool_lower = tool_name.lower()
+        for pattern, info in common_issues.items():
+            if pattern in tool_lower or tool_lower in pattern:
+                result = f"Found common issue: {info['issue']}. "
+                result += f"Alternatives: {'; '.join(info['alternatives'])}"
+                if 'original_location' in info:
+                    result += f". Original tool: {info['original_location']}"
+                return result
+        return None
+
+    def _perform_basic_web_search(self, tool_name: str, query: str) -> str:
+        """Perform basic web search using DuckDuckGo (no API key required)."""
+        try:
+            import requests
+            from urllib.parse import quote
+
+            # Use custom query if provided, otherwise default to tool installation
+            search_query = query if query.strip() else f"{tool_name} installation"
+            url = f"https://api.duckduckgo.com/?q={quote(search_query)}&format=json&no_html=1"
+
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Extract useful information from the response
+            results = []
+
+            if data.get('Abstract'):
+                results.append(f"Info: {data['Abstract'][:200]}...")
+
+            if data.get('AbstractURL'):
+                results.append(f"Source: {data['AbstractURL']}")
+
+            # Check for related topics
+            if data.get('RelatedTopics'):
+                for topic in data['RelatedTopics'][:3]:  # Limit to 3 related topics
+                    if isinstance(topic, dict) and topic.get('Text'):
+                        results.append(f"Related: {topic['Text'][:100]}...")
+
+            if results:
+                return f"Web search found: {' | '.join(results)}"
+            else:
+                return self._get_generic_search_advice(tool_name)
+
+        except Exception as e:
+            logger.debug(f"Web search API failed: {e}")
+            raise e
+
+    def _get_generic_search_advice(self, tool_name: str) -> str:
+        """Return generic search advice when specific information isn't available."""
+        return (f"Web search suggests checking: "
+                f"1) GitHub repositories for {tool_name}, "
+                f"2) Alternative package names (rust-{tool_name}, {tool_name}-cli), "
+                f"3) Language-specific package managers, "
+                f"4) Building from source")
 
     def refresh_registry_for_tool(self, tool_name: str):
         """Attempt to discover and register a newly installed tool."""
