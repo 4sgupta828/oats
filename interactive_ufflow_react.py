@@ -31,7 +31,19 @@ from core.config import config
 from registry.main import global_registry
 from reactor.agent_controller import AgentController
 from reactor.models import ReActResult
-from cli_ui import UFFLOWCLI, Colors
+# Terminal colors for output formatting
+class Colors:
+    """ANSI color codes for terminal output."""
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    BLUE = '\033[34m'
+    MAGENTA = '\033[35m'
+    CYAN = '\033[36m'
+    WHITE = '\033[37m'
 
 class InteractiveUFFLOWReact:
     """Interactive UFFLOW React framework with goal creation and execution."""
@@ -520,25 +532,25 @@ class InteractiveUFFLOWReact:
             return None
 
     def explore_execution(self, execution_data: Dict[str, Any]):
-        """Explore execution data using CLI UI."""
-        print(f"\n{Colors.BOLD}{Colors.CYAN}═══ EXPLORING EXECUTION ═══{Colors.RESET}")
+        """Display execution summary (simplified exploration)."""
+        print(f"\n{Colors.BOLD}{Colors.CYAN}═══ EXECUTION SUMMARY ═══{Colors.RESET}")
 
-        # Create temporary file for CLI UI using path manager
-        from core.path_manager import get_tmp_file
-        import uuid
-        temp_filename = f"cli_ui_data_{uuid.uuid4().hex[:8]}"
-        temp_file = get_tmp_file(temp_filename, "json")
+        # Show basic summary info
+        if 'execution_summary' in execution_data:
+            summary = execution_data['execution_summary']
+            print(f"{Colors.BOLD}Result:{Colors.RESET} {summary}")
 
-        with open(temp_file, 'w') as f:
-            json.dump(execution_data, f, indent=2, default=str)
+        # Show goal info
+        if 'goal' in execution_data:
+            goal = execution_data['goal']
+            print(f"{Colors.BOLD}Goal:{Colors.RESET} {goal.get('description', 'N/A')}")
 
-        try:
-            # Create CLI UI instance
-            cli = UFFLOWCLI(temp_file)
-            cli.run_interactive()
-        finally:
-            # Clean up temporary file
-            os.unlink(temp_file)
+        # Show turn count
+        if 'state' in execution_data and 'turn_count' in execution_data['state']:
+            turns = execution_data['state']['turn_count']
+            print(f"{Colors.BOLD}Turns Taken:{Colors.RESET} {turns}")
+
+        print(f"\n{Colors.DIM}Note: For detailed exploration, use the save command to export data{Colors.RESET}")
 
     def display_main_menu(self):
         """Display the main interactive menu."""
@@ -552,7 +564,7 @@ class InteractiveUFFLOWReact:
         print(f"  {Colors.BOLD}create{Colors.RESET}     - Create a new goal (custom)")
         print(f"  {Colors.BOLD}template{Colors.RESET}   - Create goal from template")
         print(f"  {Colors.BOLD}execute{Colors.RESET}    - Execute current goal with ReAct framework")
-        print(f"  {Colors.BOLD}explore{Colors.RESET}    - Explore last execution with CLI UI")
+        print(f"  {Colors.BOLD}explore{Colors.RESET}    - Show summary of last execution")
         print(f"  {Colors.BOLD}save{Colors.RESET}       - Save last execution to file")
         print(f"  {Colors.BOLD}history{Colors.RESET}    - Show execution history")
         print(f"  {Colors.BOLD}status{Colors.RESET}     - Show current status")

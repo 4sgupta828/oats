@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.logging_config import get_logger, UFFlowLogger
 from core.config import config
 from registry.main import Registry
-from planner.main import OpenAIClientManager
+from core.llm import OpenAIClientManager
 from reactor.models import ReActState, ReActResult, ScratchpadEntry, ParsedLLMResponse
 from reactor.prompt_builder import ReActPromptBuilder
 from reactor.tool_executor import ReActToolExecutor

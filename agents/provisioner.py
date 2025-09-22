@@ -10,10 +10,22 @@ from typing import Dict, Any, List
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.logging_config import get_logger
-from planner.main import OpenAIClientManager
+from core.llm import OpenAIClientManager
 from reactor.models import ReActState, ScratchpadEntry, ParsedLLMResponse
 from core.models import UFDescriptor
-from cli_ui import Colors
+# Terminal colors for output formatting
+class Colors:
+    """ANSI color codes for terminal output."""
+    RESET = '\033[0m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    RED = '\033[31m'
+    GREEN = '\033[32m'
+    YELLOW = '\033[33m'
+    BLUE = '\033[34m'
+    MAGENTA = '\033[35m'
+    CYAN = '\033[36m'
+    WHITE = '\033[37m'
 
 logger = get_logger('agents.provisioner')
 
