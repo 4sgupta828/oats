@@ -1,0 +1,11 @@
+id,name,,city
+1,John Doe,29,New York
+"2,Jane Smith,31,Los Angeles
+3,Bob Johnson,27,Chicago,ExtraField
+4,Alice"," Wonderland""",,San Francisco
+5,Charlie Brown,22,Houston
+6,"Mary ""The Hammer"" Lee",35,Dallas
+7,Chris O'Neil,28,Boston
+8,Tommy,23
+,MissingID,30,Miami
+10,Linda,,Seattle

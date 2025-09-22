@@ -260,126 +260,29 @@ Action: {{"tool_name": "check_command_exists", "parameters": {{"command_name": "
 You MUST choose one of the following: {', '.join(canonical_intents)}
 
 RULES FOR SYSTEMATIC EXECUTION:
-1. TOOL SELECTION AND USAGE WORKFLOW:
-   a) First, identify if a dedicated tool exists for your task
-   b) Use `check_command_exists` to verify tool availability
-   c) If tool is missing: Use `provision_tool_agent` with format "I need [tool_name] to do [specific_task]" or "I need any tool to do [specific_task]"
-   d) If tool exists but you need usage help: Use `execute_shell` with "--help" or "man [tool]"
-   e) Apply your built-in knowledge of common tools and their syntax
-   f) Only fall back to custom shell scripts when no suitable tool exists or can be installed
+1. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
 
-   CRITICAL: provision_tool_agent is ONLY for installation, never for learning syntax or usage.
+2. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
 
-2. FILE DISAMBIGUATION STRATEGY:
-   When multiple files with the same name exist (e.g., multiple app.py files), YOU must choose the correct one using context:
+3. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
 
-   a) FIRST: Use `execute_shell` with `find . -name "filename" -type f` to discover ALL matching files
-   b) ANALYZE context clues:
-      • Recently created/modified files (check timestamps with `ls -la`)
-      • Current working directory proximity
-      • Project structure (root vs nested directories)
-      • File size (newly created files are often smaller)
-   c) CHOOSE intelligently and specify the FULL RELATIVE PATH in your tool parameters
-   d) NEVER rely on the system to prompt the user - YOU decide based on context
-
-   EXAMPLES:
-   - If goal mentions "just created app.py", choose the most recently modified one
-   - If working on a main project, prefer ./app.py over ./tests/app.py
-   - Use explicit paths like "./src/app.py" instead of just "app.py"
-
-3. USER INTERACTION STRATEGY - Use These Tools When Needed:
-   a) BEFORE RISKY ACTIONS: Use `user_confirm` before destructive operations
-      • Deleting files (especially large ones or multiple files)
-      • Overwriting important files (configs, .env, package.json)
-      • Making significant code changes (>100 lines)
-      • Installing packages or dependencies
-      • Running commands that modify system state
-
-   b) WHEN STUCK OR FAILED: Use `user_prompt` after exhausting alternatives
-      • Tried 3+ different approaches and all failed
-      • Error messages are unclear and you need guidance
-      • Multiple tools exist but unsure which to use
-
-   c) FOR CRITICAL DECISIONS: Use `user_prompt` when choices have major impact
-      • Multiple implementation approaches with different trade-offs
-      • Ambiguous requirements needing clarification
-      • Missing essential information (API keys, database URLs, etc.)
-
-   d) DECISION PRESENTATION: When asking for choices, always provide:
-      • Clear options with pros/cons
-      • Your recommended option with reasoning
-      • Specific technical implications of each choice
-
-   EXAMPLES:
-   - RISKY: user_confirm("Delete 50 log files (2GB total)?", default_yes=False)
-   - STUCK: user_prompt("Tried pip, conda, and manual install for package X. All failed with permission errors. Any suggestions?")
-   - CHOICE: user_prompt("Choose authentication: A) JWT (fast, complex setup) B) Sessions (simple, requires state) C) OAuth (secure, adds dependency). I recommend B for this project size. Which do you prefer?")
-
-6. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
-7. Be systematic and verify your work before finishing.
-8. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
-9. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
+4. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
+5. Be systematic and verify your work before finishing.
+6. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
+7. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
 EXHAUSTIVE SEARCH STRATEGY:
 For complex search/analysis tasks, use this systematic approach:
 
-PHASE 1 - DISCOVERY: First discover all relevant files/data sources
-• Use 'find' commands to locate all relevant files (e.g., find . -name "*.log" -type f)
-• Get accurate counts and scope before proceeding
-• Save intermediate results to files for reference
+PHASE 1 - DISCOVERY: Use find commands to locate all relevant files (e.g., find . -name "*.log" -type f > found_files.txt)
+PHASE 2 - EXTRACTION: Extract patterns with line numbers (grep -Hn "PATTERN" files) and context (grep -A3 -B3), redirect large outputs to files
+PHASE 3 - CORRELATION: Cross-reference findings (find . -name "*.py" -exec grep -Hn "error" {{}} \\; > code_refs.txt)
+PHASE 4 - VERIFICATION: Confirm all file types searched, patterns comprehensive, correlations accurate before finishing
 
-PHASE 2 - COMPREHENSIVE EXTRACTION: Extract ALL matching patterns
-• Use specific, targeted commands with line numbers: grep -Hn "PATTERN" file1 file2
-• Use context flags for better understanding: grep -A3 -B3 "PATTERN" files
-• Handle large outputs by processing files individually if needed
-• Save all findings to analysis files
-
-PHASE 3 - CORRELATION: Map findings across different sources
-• Search source code systematically: find . -name "*.py" -exec grep -Hn "error|ERROR" {{}} \\;
-• Cross-reference log entries with source code locations
-• Create correlation mappings
-
-PHASE 4 - VERIFICATION: Ensure completeness before finishing
-• Verify all relevant file types were searched
-• Confirm pattern matches are comprehensive
-• Double-check correlations are accurate
-• Only finish when ALL requirements are demonstrably met
-
-SHELL COMMAND BEST PRACTICES:
-• Use file type filters: find . -name "*.log" instead of broad searches
-• Add line numbers: grep -n or grep -Hn for file references
-• Use context: grep -A2 -B2 for surrounding lines
-• Process systematically: handle large outputs by breaking into phases
-• Save intermediate results: create files with findings for later use
-
-TASK INTERPRETATION EXAMPLES:
-When asked to "search all exceptions in py files":
-• CORRECT: Search for "raise " patterns (covers all exception types)
-• INCORRECT: Search only for "Exception" (misses ValueError, TypeError, etc.)
-• EXAMPLE: find . -name "*.py" -exec grep -Hn "raise " {{}} \\; > exceptions.txt
-
-When asked to "find errors in log files":
-• CORRECT: Search for error patterns: grep -i "error|fail|exception" *.log
-• INCORRECT: Search only for "ERROR" (misses case variations)
-
-When asked to "analyze code patterns":
-• CORRECT: Use comprehensive searches covering all relevant patterns
-• INCORRECT: Use narrow searches that miss edge cases
-
-HANDLING LARGE OUTPUTS - CRITICAL:
-When output will be large (>1000 lines), ALWAYS redirect to files directly in shell commands:
-• GOOD: find . -name "*.log" -exec grep -Hn "ERROR" {{}} \\; > error_findings.txt
-• BAD: Using create_file with truncated observation data.
-• Then use read_file to analyze the complete saved results.
+SEARCH PATTERNS: Use comprehensive patterns to avoid missing variations (e.g., 'raise ' not 'Exception', 'error|fail' not 'ERROR', include case variations).
 
 SYSTEM-SPECIFIC COMMANDS:
-{self._get_system_specific_commands()}
-
-EXAMPLE WORKFLOW:
-1. find . -name "*.log" -type f > log_files.txt
-2. grep -Hn "ERROR" $(cat log_files.txt) > error_entries.txt
-3. find . -name "*.py" -exec grep -Hn "raise " {{}} \\; > source_errors.txt
-4. Use read_file to analyze the complete results from files"""
+{self._get_system_specific_commands()}"""
 
     def build_react_prompt(self, state: ReActState, available_tools: List[UFDescriptor]) -> str:
         """Build complete prompt for the current ReAct turn."""
