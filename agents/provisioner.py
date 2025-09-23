@@ -259,6 +259,7 @@ Thought: Multiple installation methods failed, need user guidance
 Intent: provision_tool
 Action: {{"tool_name": "user_prompt", "parameters": {{"question": "Failed to install via pip, brew, and apt. Do you have a preferred package manager or should I try building from source?"}}}}
 
+
 Thought: Task completed successfully
 Intent: provision_tool
 Action: {{"tool_name": "finish", "parameters": {{"success": true, "tool_name": "ripgrep", "message": "Installed via brew"}}}}
@@ -267,16 +268,25 @@ INSTALLATION STRATEGIES (try in order):
 1. First check if tool already exists with check_command_exists
 2. **ASK PERMISSION** before system changes with user_confirm
 3. Package managers (prioritize by OS): macOS=brew, Linux=apt/yum, Windows=chocolatey
-4. Language-specific managers: Python=pip/pip3, Node=npm/yarn, Rust=cargo
-5. Alternative package names: try common variations (xsv vs rust-xsv)
-6. **IF STANDARD METHODS FAIL**: Use ask_llm_for_instructions to get tool-specific installation knowledge
-7. **IF LLM INSTRUCTIONS FAIL**: Use web_search_for_tool to find troubleshooting info and alternatives
-8. **ASK FOR GUIDANCE** if still stuck with user_prompt
-9. Direct downloads or source compilation as last resort
-10. Finish with failure and suggest alternatives if all methods fail
+4. **CLI applications**: pipx install (preferred for Python CLI tools like radon, black, flake8)
+5. Language-specific managers: Python=pip/pip3 (only for project dependencies in venv), Node=npm/yarn, Rust=cargo
+6. Alternative package names: try common variations (xsv vs rust-xsv)
+7. **IF STANDARD METHODS FAIL**: Use ask_llm_for_instructions to get tool-specific installation knowledge
+8. **IF LLM INSTRUCTIONS FAIL**: Use web_search_for_tool to find troubleshooting info and alternatives
+9. **ASK FOR GUIDANCE** if still stuck with user_prompt
+10. Direct downloads or source compilation as last resort
+11. Finish with failure and suggest alternatives if all methods fail
 
 IMPORTANT RULES:
 - ALWAYS start by checking if tool already exists with check_command_exists
+- **CHOOSE INSTALLATION METHOD WISELY**:
+  • CLI tools (radon, black, flake8, pylint, etc.) → Use pipx install
+  • Project dependencies (libraries) → Use pip install in venv
+  • System tools → Use brew/apt/package manager
+- **ENVIRONMENT RULES**:
+  • Virtual environment is automatically created at agent startup
+  • Use pip install (in venv) for project dependencies only
+  • Never use --user --break-system-packages (venv handles isolation)
 - **LLM KNOWLEDGE GATHERING & WEB SEARCH**:
   • Use ask_llm_for_instructions when standard package managers fail
   • If LLM instructions fail or return no results, use web_search_for_tool for troubleshooting
@@ -583,8 +593,11 @@ GO TOOLS:
 NODE TOOLS:
 - npm install -g {tool_name}
 
-PYTHON TOOLS:
-- pip install {tool_name} or pip3 install {tool_name}
+PYTHON CLI TOOLS (radon, black, flake8, pylint):
+- pipx install {tool_name} (preferred for CLI tools)
+
+PYTHON LIBRARIES/DEPENDENCIES:
+- pip install {tool_name} (only in virtual environment)
 
 NATIVE PACKAGES:
 - macOS: brew install {tool_name}
