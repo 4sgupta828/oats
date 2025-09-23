@@ -151,7 +151,7 @@ class UFFlowLogger:
             }
         }
 
-        if result.get("success"):
+        if result.get("status") == "success":
             logger.info(f"Tool execution successful: {tool_name}",
                        extra={"extra_fields": extra_fields})
         else:
