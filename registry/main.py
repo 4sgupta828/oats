@@ -25,7 +25,6 @@ class Registry:
             # For simplicity, we'll just overwrite. In a real system, you might error.
             print(f"Warning: Overwriting UF '{key}' in registry.")
         self._ufs[key] = descriptor
-        print(f"Registered UF: {key}")
 
     def load_ufs_from_directory(self, path: str):
         """Discovers and registers all UFs from a given directory."""

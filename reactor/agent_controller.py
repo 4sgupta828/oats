@@ -51,14 +51,18 @@ class AgentController:
     The main ReAct agent controller that manages the reasoning-action-observation loop.
     """
 
+    _environment_setup_done = False
+
     def __init__(self, registry: Registry):
         self.registry = registry
         self.llm_client = OpenAIClientManager()
         self.tool_executor = ReActToolExecutor(registry)
         self.prompt_builder = ReActPromptBuilder()
 
-        # Setup Python environment at startup
-        self._setup_python_environment()
+        # Setup Python environment at startup (only once)
+        if not AgentController._environment_setup_done:
+            self._setup_python_environment()
+            AgentController._environment_setup_done = True
 
     def execute_goal(self, goal: str, max_turns: Optional[int] = None) -> ReActResult:
         """
@@ -742,8 +746,11 @@ class AgentController:
             # Check if venv exists but isn't active
             venv_path = self._find_venv_path()
             if venv_path:
-                print(f"🐍 Python virtual environment found at {venv_path} but not active")
-                print(f"💡 To activate: source {venv_path}/bin/activate (or Scripts\\activate.bat on Windows)")
+                # Only show venv messages if logging level allows INFO messages
+                root_logger = logging.getLogger()
+                if root_logger.level <= logging.INFO:
+                    print(f"🐍 Python virtual environment found at {venv_path} but not active")
+                    print(f"💡 To activate: source {venv_path}/bin/activate (or Scripts\\activate.bat on Windows)")
                 return
 
             # No venv found - create one automatically

@@ -72,9 +72,7 @@ class InteractiveUFFLOWReact:
             self.agent_controller = AgentController(self.registry)
 
             available_tools = self.registry.list_ufs()
-            print(f"{Colors.GREEN}✅ Loaded {len(available_tools)} tools:{Colors.RESET}")
-            for tool in available_tools:
-                print(f"   - {tool}")
+            print(f"{Colors.GREEN}✅ Loaded {len(available_tools)} tools{Colors.RESET}")
 
             return True
         except Exception as e:
