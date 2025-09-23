@@ -16,6 +16,36 @@ from openai import OpenAI
 # UF generator will be imported on demand
 uf_generator = None
 
+def call_llm(prompt: str, max_tokens: int = 500) -> str:
+    """
+    Simple LLM call for quick analysis tasks.
+
+    Args:
+        prompt: The prompt to send to the LLM
+        max_tokens: Maximum tokens in response
+
+    Returns:
+        LLM response as string
+    """
+    try:
+        client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a precise assistant that responds in the exact format requested."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=max_tokens,
+            temperature=0.1
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        print(f"LLM call failed: {e}")
+        raise
+
 class GenerateTaskScriptInput(UfInput):
     task_description: str = Field(..., description="Description of the task to accomplish.")
     input_data: str = Field(default="", description="Input data or context for the task.")

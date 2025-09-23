@@ -230,6 +230,7 @@ class ReActPromptBuilder:
         """Build the core system prompt with ReAct instructions."""
         canonical_intents = [
             "execute_shell", "read_file", "write_file", "create_file", "list_files",
+            "smart_search", "find_files_by_name", "content_search",
             "provision_tool", "ask_user", "confirm_with_user"
         ]
 
@@ -260,27 +261,36 @@ You MUST choose one of the following: {', '.join(canonical_intents)}
 RULES FOR SYSTEMATIC EXECUTION:
 1. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
 
-2. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
+2. **EFFICIENT SEARCH STRATEGY (CRITICAL)**: ALWAYS use smart search tools BEFORE directory exploration:
+   - **FIRST PRIORITY**: Use `smart_search(pattern, file_types, context_hint)` to find content in files
+   - **SECOND PRIORITY**: Use `find_files_by_name(filename_pattern)` to find files by name
+   - **LAST RESORT**: Only use `list_files()` for understanding directory structure, NEVER for finding specific files
+   - **EXAMPLES**:
+     - Finding CSV with student data: `smart_search("student", file_types=["csv"], context_hint="student data")`
+     - Finding config files: `find_files_by_name("config")`
+     - Finding API references: `smart_search("api", file_types=["py", "js"], context_hint="source code")`
+   - **CRITICAL**: When search results show filenames, use the EXACT filename returned - do NOT modify or guess filenames
+   - **AVOID**: `list_files()` followed by manual file inspection - this is inefficient!
+
+3. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
    - Step 1: Use create_file to write the Python script to a separate .py file
    - Step 2: Use execute_shell to run the file with "python filename.py"
    - NEVER run Python scripts directly on the execute_shell command line as it is error-prone and buggy
 
-3. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
+4. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
 
-4. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
+5. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
 
-5. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
-6. Be systematic and verify your work before finishing.
-7. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
-8. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
+6. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
+7. Be systematic and verify your work before finishing.
+8. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
+9. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
-EXHAUSTIVE SEARCH STRATEGY:
-For complex search/analysis tasks, use this systematic approach:
-
-PHASE 1 - DISCOVERY: Use find commands to locate all relevant files (e.g., find . -name "*.log" -type f > found_files.txt)
-PHASE 2 - EXTRACTION: Extract patterns with line numbers (grep -Hn "PATTERN" files) and context (grep -A3 -B3), redirect large outputs to files
-PHASE 3 - CORRELATION: Cross-reference findings (find . -name "*.py" -exec grep -Hn "error" {{}} \\; > code_refs.txt)
-PHASE 4 - VERIFICATION: Confirm all file types searched, patterns comprehensive, correlations accurate before finishing
+SEARCH EXECUTION PHASES:
+PHASE 1 - SMART DISCOVERY: Use smart_search() or find_files_by_name() as defined in rule #2 above
+PHASE 2 - TARGETED SEARCH: If insufficient, use content_search() with specific regex patterns
+PHASE 3 - FALLBACK SEARCH: Only if smart tools fail, use traditional find/grep commands
+PHASE 4 - VERIFICATION: Confirm comprehensive coverage before finishing
 
 SEARCH PATTERNS: Use comprehensive patterns to avoid missing variations (e.g., 'raise ' not 'Exception', 'error|fail' not 'ERROR', include case variations).
 

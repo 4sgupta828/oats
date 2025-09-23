@@ -1,9 +1,8 @@
 # tools/smart_search.py
 
 import os
-import re
 import subprocess
-from typing import List, Dict, Optional, Tuple, Set
+from typing import List, Optional
 from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
@@ -34,6 +33,16 @@ class SearchQuery:
     case_sensitive: bool = False
     whole_words: bool = False
     multiline: bool = False
+
+@dataclass
+class QueryAnalysis:
+    """Results from LLM query analysis"""
+    search_type: str  # "filename", "content", "extension", "mixed"
+    likely_filename_patterns: List[str]
+    likely_content_patterns: List[str]
+    likely_file_types: List[str]
+    confidence: float
+    reasoning: str
 
 class SmartSearchEngine:
     """
@@ -68,6 +77,102 @@ class SmartSearchEngine:
             'build', 'dist', '.env', 'venv', '*.pyc', '*.log',
             '.DS_Store', 'Thumbs.db', '.pytest_cache', '.mypy_cache'
         ]
+
+    def _analyze_query_with_llm(self, query_text: str, context_hint: str = None) -> QueryAnalysis:
+        """
+        Use LLM to intelligently analyze the search query and determine the best search strategy.
+        """
+        try:
+            from tools.llm_integration import call_llm
+
+            analysis_prompt = f"""Analyze this search query to determine the optimal search strategy.
+
+QUERY: "{query_text}"
+CONTEXT HINT: {context_hint or "None provided"}
+
+Determine:
+1. Is this primarily a FILENAME search, CONTENT search, EXTENSION search, or MIXED?
+2. What filename patterns should be tried?
+3. What content patterns should be searched for?
+4. What file types are most likely relevant?
+
+Examples:
+- "student" + context "csv data" → FILENAME search for files with "student" in name, type csv
+- "api_key" → CONTENT search for "api_key" in configuration files
+- "error logs" → CONTENT search for "error" in .log files
+- "config.json" → FILENAME search for "config" files with .json extension
+
+Respond in this exact JSON format:
+{{
+    "search_type": "filename|content|extension|mixed",
+    "likely_filename_patterns": ["pattern1", "pattern2"],
+    "likely_content_patterns": ["pattern1", "pattern2"],
+    "likely_file_types": ["ext1", "ext2"],
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation of decision"
+}}"""
+
+            response = call_llm(analysis_prompt, max_tokens=500)
+
+            # Parse JSON response
+            import json
+            try:
+                analysis_data = json.loads(response.strip())
+                return QueryAnalysis(
+                    search_type=analysis_data.get("search_type", "mixed"),
+                    likely_filename_patterns=analysis_data.get("likely_filename_patterns", []),
+                    likely_content_patterns=analysis_data.get("likely_content_patterns", []),
+                    likely_file_types=analysis_data.get("likely_file_types", []),
+                    confidence=analysis_data.get("confidence", 0.5),
+                    reasoning=analysis_data.get("reasoning", "LLM analysis completed")
+                )
+            except json.JSONDecodeError as e:
+                print(f"⚠️  LLM response parsing failed: {e}")
+                return self._fallback_query_analysis(query_text, context_hint)
+
+        except Exception as e:
+            print(f"⚠️  LLM query analysis failed: {e}")
+            return self._fallback_query_analysis(query_text, context_hint)
+
+    def _fallback_query_analysis(self, query_text: str, context_hint: str = None) -> QueryAnalysis:
+        """
+        Fallback heuristic analysis if LLM is unavailable.
+        """
+        # Existing heuristic logic as fallback
+        filename_indicators = ['student', 'config', 'log', 'data', 'test', 'main', 'index']
+
+        if query_text.lower() in filename_indicators:
+            search_type = "filename"
+            filename_patterns = [query_text]
+            content_patterns = []
+        elif any(char in query_text for char in ['=', ':', '"', "'", '<', '>', '@']):
+            search_type = "content"
+            filename_patterns = []
+            content_patterns = [query_text]
+        else:
+            search_type = "mixed"
+            filename_patterns = [query_text]
+            content_patterns = [query_text]
+
+        # Infer file types from context
+        file_types = []
+        if context_hint:
+            context_lower = context_hint.lower()
+            if any(word in context_lower for word in ['csv', 'spreadsheet', 'data']):
+                file_types.extend(['csv', 'tsv'])
+            elif any(word in context_lower for word in ['json', 'api']):
+                file_types.extend(['json'])
+            elif any(word in context_lower for word in ['config', 'setting']):
+                file_types.extend(['ini', 'cfg', 'conf', 'toml', 'yaml', 'yml'])
+
+        return QueryAnalysis(
+            search_type=search_type,
+            likely_filename_patterns=filename_patterns,
+            likely_content_patterns=content_patterns,
+            likely_file_types=file_types,
+            confidence=0.7,
+            reasoning="Fallback heuristic analysis"
+        )
 
     def _has_ripgrep(self) -> bool:
         """Check if ripgrep (rg) is available"""
@@ -404,7 +509,7 @@ class SmartSearchEngine:
 
     def smart_search(self, query_text: str, context_hint: str = None) -> List[SearchResult]:
         """
-        Intelligent search that infers file types and patterns from query context.
+        LLM-powered intelligent search that analyzes queries to determine optimal search strategy.
 
         Args:
             query_text: What to search for
@@ -413,25 +518,87 @@ class SmartSearchEngine:
         Returns:
             List of SearchResult objects
         """
-        # Infer file types from context
-        inferred_types = []
+        # Use LLM to analyze the query
+        analysis = self._analyze_query_with_llm(query_text, context_hint)
 
-        if context_hint:
-            context_lower = context_hint.lower()
-            if any(word in context_lower for word in ['csv', 'spreadsheet', 'data']):
-                inferred_types.extend(['csv', 'tsv'])
-            elif any(word in context_lower for word in ['json', 'api']):
-                inferred_types.extend(['json'])
-            elif any(word in context_lower for word in ['config', 'setting']):
-                inferred_types.extend(['ini', 'cfg', 'conf', 'toml', 'yaml', 'yml'])
-            elif any(word in context_lower for word in ['log', 'debug']):
-                inferred_types.extend(['log', 'txt'])
+        print(f"🧠 LLM Analysis: {analysis.search_type} search (confidence: {analysis.confidence:.2f})")
+        print(f"   Reasoning: {analysis.reasoning}")
 
-        # If query contains file extension hints
-        if '.' in query_text and len(query_text.split('.')[-1]) <= 4:
-            potential_ext = query_text.split('.')[-1].lower()
-            if potential_ext in ['csv', 'json', 'txt', 'xml', 'log']:
-                inferred_types.append(potential_ext)
+        results = []
 
-        # Perform progressive search
-        return self.search_progressive(query_text, inferred_types)
+        # Execute search strategy based on LLM analysis
+        if analysis.search_type == "filename" or analysis.search_type == "extension":
+            # Primarily filename-based search
+            for pattern in analysis.likely_filename_patterns:
+                filename_results = self.find_files_by_name(pattern)
+
+                # Filter by file types if specified
+                if analysis.likely_file_types:
+                    filtered_files = []
+                    for file_path in filename_results:
+                        file_ext = os.path.splitext(file_path)[1][1:].lower()
+                        if file_ext in analysis.likely_file_types:
+                            filtered_files.append(file_path)
+                    filename_results = filtered_files
+
+                # Convert to SearchResult format
+                for file_path in filename_results:
+                    results.append(SearchResult(
+                        file_path=file_path,
+                        confidence=analysis.confidence,
+                        search_scope=SearchScope.EXACT_MATCH
+                    ))
+
+                if results:
+                    print(f"✅ Found {len(results)} files by filename pattern '{pattern}'")
+                    return results
+
+        elif analysis.search_type == "content":
+            # Primarily content-based search
+            for pattern in analysis.likely_content_patterns:
+                content_results = self.search_progressive(pattern, analysis.likely_file_types)
+                results.extend(content_results)
+
+                if results:
+                    print(f"✅ Found {len(results)} matches by content pattern '{pattern}'")
+                    return results
+
+        elif analysis.search_type == "mixed":
+            # Try filename first, then content
+            for pattern in analysis.likely_filename_patterns:
+                filename_results = self.find_files_by_name(pattern)
+
+                # Filter by file types if specified
+                if analysis.likely_file_types:
+                    filtered_files = []
+                    for file_path in filename_results:
+                        file_ext = os.path.splitext(file_path)[1][1:].lower()
+                        if file_ext in analysis.likely_file_types:
+                            filtered_files.append(file_path)
+                    filename_results = filtered_files
+
+                # Convert to SearchResult format
+                for file_path in filename_results:
+                    results.append(SearchResult(
+                        file_path=file_path,
+                        confidence=analysis.confidence,
+                        search_scope=SearchScope.EXACT_MATCH
+                    ))
+
+                if results:
+                    print(f"✅ Found {len(results)} files by filename pattern '{pattern}'")
+                    return results
+
+            # If filename search failed, try content search
+            for pattern in analysis.likely_content_patterns:
+                content_results = self.search_progressive(pattern, analysis.likely_file_types)
+                results.extend(content_results)
+
+                if results:
+                    print(f"✅ Found {len(results)} matches by content pattern '{pattern}'")
+                    return results
+
+        # Fallback to original progressive search if nothing found
+        if not results:
+            print("🔄 Falling back to progressive search...")
+            return self.search_progressive(query_text, analysis.likely_file_types)
