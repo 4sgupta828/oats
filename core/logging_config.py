@@ -43,17 +43,23 @@ class UFFlowLogger:
     _instance: Optional['UFFlowLogger'] = None
     _configured: bool = False
 
-    def __new__(cls):
+    def __new__(cls, suppress_info_logs: bool = False):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, suppress_info_logs: bool = False):
         if not self._configured:
-            self._setup_logging()
+            self._setup_logging(suppress_info_logs)
             self._configured = True
 
-    def _setup_logging(self):
+    @classmethod
+    def reset_instance(cls):
+        """Reset the singleton instance to allow reconfiguration."""
+        cls._instance = None
+        cls._configured = False
+
+    def _setup_logging(self, suppress_info_logs: bool = False):
         """Setup logging configuration."""
         # Create logs directory if it doesn't exist
         log_dir = Path("logs")
@@ -68,7 +74,8 @@ class UFFlowLogger:
 
         # Console handler with simple format
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
+        console_level = logging.WARNING if suppress_info_logs else logging.INFO
+        console_handler.setLevel(console_level)
         console_format = logging.Formatter(
             '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
         )
@@ -185,6 +192,7 @@ def get_logger(name: str) -> logging.Logger:
     return UFFlowLogger.get_logger(name)
 
 
-def setup_logging():
+def setup_logging(suppress_info_logs: bool = False):
     """Initialize the logging system."""
-    UFFlowLogger()
+    UFFlowLogger.reset_instance()
+    UFFlowLogger(suppress_info_logs)

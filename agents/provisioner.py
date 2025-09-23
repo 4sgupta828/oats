@@ -137,7 +137,7 @@ class ToolProvisioningAgent:
                     if show_live_updates:
                         print(f"{Colors.DIM}Executing action...{Colors.RESET}")
                     # Execute action
-                    observation = self._execute_provisioner_action(parsed_response.action, goal)
+                    observation = self._execute_provisioner_action(parsed_response.action)
 
                 if show_live_updates:
                     # Display observation with appropriate coloring
@@ -391,7 +391,7 @@ Your response:"""
 
 
 
-    def _execute_provisioner_action(self, action: Dict[str, Any], goal: str = None) -> str:
+    def _execute_provisioner_action(self, action: Dict[str, Any]) -> str:
         """Execute a provisioner action."""
         tool_name = action.get("tool_name")
         parameters = action.get("parameters", {})
@@ -400,7 +400,7 @@ Your response:"""
             if tool_name == "execute_shell":
                 return self._execute_shell_action(parameters)
             elif tool_name == "check_command_exists":
-                return self._execute_check_command_action(parameters, goal)
+                return self._execute_check_command_action(parameters)
             elif tool_name == "user_confirm":
                 return self._execute_user_confirm_action(parameters)
             elif tool_name == "user_prompt":
@@ -430,6 +430,9 @@ Your response:"""
         try:
             logger.info(f"Provisioner executing: {command}")
 
+            # Display command line for transparency like react agent
+            print(f"💻 Command: {command}")
+
             result = subprocess.run(
                 command,
                 shell=True,
@@ -454,7 +457,7 @@ Your response:"""
         except Exception as e:
             return f"ERROR: Command execution failed: {str(e)}"
 
-    def _execute_check_command_action(self, parameters: Dict[str, Any], goal: str = None) -> str:
+    def _execute_check_command_action(self, parameters: Dict[str, Any]) -> str:
         """Execute command existence check for provisioner."""
         command_name = parameters.get("command_name", "")
         if not command_name:

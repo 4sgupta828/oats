@@ -738,9 +738,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python interactive_ufflow_react.py              # Start interactive ReAct session
-  python interactive_ufflow_react.py --fast      # Start in FAST mode (auto-execute)
-  python interactive_ufflow_react.py --help      # Show help
+  python interactive_ufflow_react.py                        # Start interactive ReAct session
+  python interactive_ufflow_react.py --fast                # Start in FAST mode (auto-execute)
+  python interactive_ufflow_react.py --suppress-info       # Hide INFO logs (cleaner output)
+  python interactive_ufflow_react.py --fast --suppress-info # FAST mode with minimal logging
+  python interactive_ufflow_react.py --help                # Show help
 
 ReAct Features:
   • Dynamic reasoning at each step
@@ -748,6 +750,7 @@ ReAct Features:
   • Live reasoning display during execution
   • Compatible with existing CLI explorer
   • FAST mode: Skip prompts and auto-execute with live reasoning
+  • Suppress INFO logs for cleaner console output
         """
     )
 
@@ -757,7 +760,18 @@ ReAct Features:
         help='Enable FAST mode: auto-execute goals without prompts, default to live reasoning'
     )
 
+    parser.add_argument(
+        '--suppress-info',
+        action='store_true',
+        help='Suppress INFO log messages in console output (only show WARNING and ERROR)'
+    )
+
     args = parser.parse_args()
+
+    # Setup logging with suppress INFO flag if specified
+    if args.suppress_info:
+        from core.logging_config import setup_logging
+        setup_logging(suppress_info_logs=True)
 
     # Create and run interactive UFFLOW React
     interactive_ufflow = InteractiveUFFLOWReact(fast_mode=args.fast)
