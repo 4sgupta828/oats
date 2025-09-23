@@ -39,6 +39,8 @@ class ReActToolExecutor:
 
             logger.info(f"Executing action: {tool_name} with params: {parameters}")
 
+            # Python environment setup now handled at agent startup
+
             # Display command line for shell commands to provide transparency
             if tool_name in ["execute_shell"]:
                 command_to_show = None
@@ -199,3 +201,4 @@ class ReActToolExecutor:
         tools = self.registry.list_ufs()
         tool_names = [f"{tool.name}:{tool.version}" for tool in tools]
         return f"Available tools: {', '.join(tool_names)}"
+

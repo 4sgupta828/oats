@@ -57,6 +57,9 @@ class AgentController:
         self.tool_executor = ReActToolExecutor(registry)
         self.prompt_builder = ReActPromptBuilder()
 
+        # Setup Python environment at startup
+        self._setup_python_environment()
+
     def execute_goal(self, goal: str, max_turns: Optional[int] = None) -> ReActResult:
         """
         Execute a goal using the ReAct framework.
@@ -674,6 +677,143 @@ class AgentController:
                 is_finish=False,
                 raw_response=raw_response
             )
+
+    def _setup_python_environment(self):
+        """Setup Python virtual environment at agent startup if needed."""
+        try:
+            # Check if this is a Python project
+            if not self._is_python_project():
+                return
+
+            # Check if venv is already active
+            if self._has_active_venv():
+                logger.info("Python virtual environment already active")
+                return
+
+            # Check if venv exists but isn't active
+            venv_path = self._find_venv_path()
+            if venv_path:
+                print(f"🐍 Python virtual environment found at {venv_path} but not active")
+                print(f"💡 To activate: source {venv_path}/bin/activate (or Scripts\\activate.bat on Windows)")
+                return
+
+            # No venv found - create one automatically
+            print(f"🐍 Python project detected but no virtual environment found")
+            print(f"🔧 Creating virtual environment...")
+
+            success = self._create_and_activate_venv()
+            if success:
+                print(f"✅ Virtual environment created and activated at .venv")
+            else:
+                print(f"⚠️  Could not create venv automatically. Please run:")
+                print(f"   python -m venv .venv && source .venv/bin/activate")
+
+        except Exception as e:
+            logger.warning(f"Error checking Python environment at startup: {e}")
+
+    def _is_python_project(self) -> bool:
+        """Check if current directory is a Python project."""
+        python_files = [
+            "requirements.txt", "pyproject.toml", "setup.py",
+            "setup.cfg", "Pipfile", "poetry.lock"
+        ]
+
+        # Check for Python config files
+        for file in python_files:
+            if os.path.exists(file):
+                return True
+
+        # Check for .py files in current directory
+        try:
+            for item in os.listdir("."):
+                if item.endswith(".py"):
+                    return True
+        except OSError:
+            pass
+
+        return False
+
+    def _has_active_venv(self) -> bool:
+        """Check if a virtual environment is currently active."""
+        return (os.environ.get("VIRTUAL_ENV") is not None or
+                os.environ.get("CONDA_DEFAULT_ENV") is not None)
+
+    def _find_venv_path(self) -> str:
+        """Find existing virtual environment in common locations."""
+        venv_dirs = [
+            ".venv", "venv", "env", ".env",  # Common generic names
+            "virtualenv", ".virtualenv",      # virtualenv tool
+            "venv-dev", "venv-prod",         # Environment-specific
+            ".pyenv", "pyenv-versions",      # pyenv
+            "conda-env", ".conda"            # conda environments (local)
+        ]
+
+        # Add version-specific patterns (e.g., venv38, venv312, py39, python311)
+        current_version = f"{sys.version_info.major}{sys.version_info.minor}"
+        version_patterns = [
+            f"venv{current_version}", f".venv{current_version}",
+            f"py{current_version}", f".py{current_version}",
+            f"python{current_version}", f".python{current_version}"
+        ]
+
+        # Also check common versions even if not current (people switch versions)
+        for version in ["38", "39", "310", "311", "312", "313"]:
+            version_patterns.extend([
+                f"venv{version}", f".venv{version}",
+                f"py{version}", f".py{version}",
+                f"python{version}", f".python{version}"
+            ])
+
+        venv_dirs.extend(version_patterns)
+
+        for venv_dir in venv_dirs:
+            if os.path.isdir(venv_dir):
+                # Check if it's a valid venv (has bin/activate or Scripts/activate.bat)
+                activate_script = os.path.join(venv_dir, "bin", "activate")
+                activate_bat = os.path.join(venv_dir, "Scripts", "activate.bat")
+
+                if os.path.exists(activate_script) or os.path.exists(activate_bat):
+                    return venv_dir
+
+        return ""
+
+    def _create_and_activate_venv(self) -> bool:
+        """Create and activate a virtual environment."""
+        try:
+            import subprocess
+
+            # Create venv using direct subprocess call
+            logger.info("Creating virtual environment at .venv")
+            result = subprocess.run(
+                [sys.executable, "-m", "venv", ".venv"],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
+            if result.returncode == 0:
+                # Activate the venv by setting environment variables
+                venv_path = ".venv"
+                venv_bin = os.path.join(venv_path, "bin" if os.name != "nt" else "Scripts")
+
+                if os.path.exists(venv_bin):
+                    # Set environment variables to activate the venv
+                    os.environ["VIRTUAL_ENV"] = os.path.abspath(venv_path)
+                    os.environ["PATH"] = f"{os.path.abspath(venv_bin)}{os.pathsep}{os.environ.get('PATH', '')}"
+
+                    # Remove PYTHONHOME if it exists (can interfere with venv)
+                    if "PYTHONHOME" in os.environ:
+                        del os.environ["PYTHONHOME"]
+
+                    logger.info(f"Virtual environment created and activated: {os.environ['VIRTUAL_ENV']}")
+                    return True
+            else:
+                logger.error(f"Failed to create venv: {result.stderr}")
+
+        except Exception as e:
+            logger.error(f"Failed to create virtual environment: {e}")
+
+        return False
 
     def _create_error_result(self, state: ReActState, error_message: str) -> ReActResult:
         """Create error result for failed executions."""

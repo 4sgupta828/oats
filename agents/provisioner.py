@@ -427,6 +427,8 @@ Your response:"""
         if not command:
             return "ERROR: No command provided"
 
+        # Python environment setup now handled at agent startup
+
         try:
             logger.info(f"Provisioner executing: {command}")
 
@@ -1026,3 +1028,4 @@ Return only the commands, no explanations. If unsure about the tool, provide the
                     patterns.append("pip_failed")
 
         return list(set(patterns))  # Remove duplicates
+
