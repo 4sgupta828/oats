@@ -104,36 +104,33 @@ def smart_search(inputs: SmartSearchInput) -> dict:
             rel_path = result.file_path
 
         formatted_result = {
-            "file_path": rel_path,
-            "absolute_path": result.file_path,
-            "confidence": result.confidence,
-            "search_scope": result.search_scope.value,
+            "file": rel_path
         }
 
         if result.match_line:
-            formatted_result["line_number"] = result.match_line
+            formatted_result["line"] = result.match_line
         if result.match_content:
-            formatted_result["preview"] = result.match_content[:200] + "..." if len(result.match_content) > 200 else result.match_content
+            # Clean and limit content
+            content = result.match_content.strip().replace('\n', ' ')
+            formatted_result["match"] = content[:100] + "..." if len(content) > 100 else content
 
         formatted_results.append(formatted_result)
 
     # Group results by file type for better presentation
     file_type_groups = {}
     for result in formatted_results:
-        ext = os.path.splitext(result["file_path"])[1][1:] or "no_extension"
+        ext = os.path.splitext(result["file"])[1][1:] or "no_extension"
         if ext not in file_type_groups:
             file_type_groups[ext] = []
         file_type_groups[ext].append(result)
 
-    print(f"✅ Found {len(formatted_results)} matches across {len(file_type_groups)} file types")
-    for file_type, type_results in file_type_groups.items():
-        print(f"   {file_type}: {len(type_results)} files")
+    print(f"✅ Found {len(formatted_results)} matches in {len(file_type_groups)} file types")
 
     # Print explicit filenames to prevent LLM hallucination
     if formatted_results:
         print("📁 Files found:")
         for result in formatted_results[:5]:  # Show first 5
-            print(f"   • {result['file_path']}")
+            print(f"   • {result['file']}")
         if len(formatted_results) > 5:
             print(f"   ... and {len(formatted_results) - 5} more")
 
@@ -143,7 +140,7 @@ def smart_search(inputs: SmartSearchInput) -> dict:
         "results": formatted_results,
         "file_type_breakdown": {ft: len(results) for ft, results in file_type_groups.items()},
         "search_strategy": "progressive_pattern_first",
-        "found_files": [r["file_path"] for r in formatted_results]  # Explicit list for clarity
+        "found_files": [r["file"] for r in formatted_results]  # Explicit list for clarity
     }
 
 @uf(name="find_files_by_name", version="1.0.0", description="Efficiently find files by filename pattern using ripgrep/find instead of recursive directory walking.")
@@ -204,6 +201,7 @@ def find_files_by_name(inputs: FindFilesByNameInput) -> dict:
         file_type_groups[ext].append(result)
 
     print(f"✅ Found {len(formatted_results)} files matching '{inputs.filename_pattern}'")
+
     for file_type, type_results in file_type_groups.items():
         print(f"   .{file_type}: {len(type_results)} files")
 
@@ -261,21 +259,22 @@ def content_search(inputs: ContentSearchInput) -> dict:
             rel_path = result.file_path
 
         formatted_result = {
-            "file_path": rel_path,
-            "absolute_path": result.file_path,
+            "file": rel_path
         }
 
         if result.match_line:
-            formatted_result["line_number"] = result.match_line
+            formatted_result["line"] = result.match_line
         if result.match_content:
-            formatted_result["match_content"] = result.match_content
+            # Make content more concise - strip whitespace, limit length
+            content = result.match_content.strip().replace('\n', ' ')
+            formatted_result["match"] = content[:100] + "..." if len(content) > 100 else content
 
         formatted_results.append(formatted_result)
 
     # Group by file
     file_groups = {}
     for result in formatted_results:
-        file_path = result["file_path"]
+        file_path = result["file"]
         if file_path not in file_groups:
             file_groups[file_path] = []
         file_groups[file_path].append(result)

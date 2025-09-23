@@ -412,19 +412,28 @@ RULES FOR SYSTEMATIC EXECUTION:
    - When search results show filenames, use the EXACT filename returned - do NOT modify or guess filenames
    - **AVOID**: `list_files()` followed by manual file inspection - this is inefficient!
 
-3. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
+3. **EFFICIENCY PRINCIPLE**: For systematic, deterministic tasks across multiple files, consider whether writing a script would be more efficient than manual file reading.
+
+   **Examples where scripts excel**:
+   - "Find all calls to function X" → Script with ast.parse() vs reading each file
+   - "Analyze import dependencies" → Script to extract all imports vs manual search
+   - "Count patterns across codebase" → Script for systematic analysis
+
+   **Key insight**: Code can solve deterministic problems faster than sequential file reading.
+
+4. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
    - Step 1: Use create_file to write the Python script to a separate .py file
    - Step 2: Use execute_shell to run the file with "python filename.py"
    - NEVER run Python scripts directly on the execute_shell command line as it is error-prone and buggy
 
-4. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
+5. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
 
-5. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
+6. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
 
-6. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
-7. Be systematic and verify your work before finishing.
-8. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
-9. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
+7. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
+8. Be systematic and verify your work before finishing.
+9. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
+10. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
 SEARCH EXECUTION PHASES:
 PHASE 1 - SMART DISCOVERY: Use smart_search() or find_files_by_name() as defined in rule #2 above

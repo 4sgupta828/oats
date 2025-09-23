@@ -40,7 +40,7 @@ class FindFunctionInput(UfInput):
     match_type: str = Field("function", description="Type to match: 'function' (def), 'class', or 'any' (both def and class).")
 
 class SearchFunctionsInput(UfInput):
-    function_name: str = Field(..., description="The name or regex pattern of the function/class to search for across all files. Use regex for flexible matching (e.g., 'llm.*' for all functions starting with 'llm').")
+    function_name: str = Field(..., description="JUST the function/class name pattern to search for (e.g., 'my_function', 'MyClass', or '.*' for all). Do NOT include 'def' or 'class' keywords - they are added automatically.")
     match_type: str = Field("function", description="Type to match: 'function' (def), 'class', or 'any' (both def and class).")
     file_extensions: list = Field(default=[".py"], description="File extensions to search in (default: ['.py']).")
     max_results: int = Field(10, description="Maximum number of results to return.")
@@ -353,15 +353,14 @@ def find_function(inputs: FindFunctionInput) -> dict:
         if re.search(pattern, line, re.IGNORECASE):
             line_num = i + 1
             matches.append({
-                "line_number": line_num,
-                "line_content": line.strip(),
-                "match_type": "function" if line.strip().startswith("def") else "class"
+                "file": inputs.filename,
+                "line": line_num,
+                "match": line.strip()
             })
 
     result = {
         "filename": inputs.filename,
         "search_term": inputs.function_name,
-        "match_type": inputs.match_type,
         "matches": matches,
         "total_matches": len(matches)
     }
@@ -369,15 +368,15 @@ def find_function(inputs: FindFunctionInput) -> dict:
     if matches:
         print(f"Found {len(matches)} match(es) for '{inputs.function_name}' in '{inputs.filename}':")
         for match in matches:
-            print(f"  → Line {match['line_number']}: {match['line_content']}")
-        print(f"💡 Use read_file with start_line={matches[0]['line_number']} and context_lines=10 for targeted analysis")
+            print(f"  → Line {match['line']}: {match['match']}")
+        print(f"💡 Use read_file with start_line={matches[0]['line']} and context_lines=10 for targeted analysis")
     else:
         print(f"No matches found for '{inputs.function_name}' in '{inputs.filename}'")
         print(f"💡 Try searching with match_type='any' or check the exact function/class name")
 
     return result
 
-@uf(name="search_functions", version="1.0.0", description="Searches for function or class definitions across the entire codebase. Use this FIRST when you need to find where a function is defined.")
+@uf(name="search_functions", version="1.0.0", description="Searches for function or class definitions across the entire codebase. Use this FIRST when you need to find where a function is defined. IMPORTANT: function_name should be just the name pattern (e.g., 'my_function' or '.*' for all), NOT 'def my_function' or 'class MyClass'. The tool automatically adds 'def'/'class' keywords.")
 def search_functions(inputs: SearchFunctionsInput) -> dict:
     """Searches for function/class definitions across all files in the workspace."""
     from core.workspace_security import validate_workspace_path
@@ -428,12 +427,10 @@ def search_functions(inputs: SearchFunctionsInput) -> dict:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     for line_num, line in enumerate(f, 1):
                         if re.search(pattern, line, re.IGNORECASE):
-                            match_type = "function" if line.strip().startswith("def") else "class"
                             matches.append({
                                 "file": relative_path,
-                                "line_number": line_num,
-                                "line_content": line.strip(),
-                                "match_type": match_type
+                                "line": line_num,
+                                "match": line.strip()
                             })
 
                             # Stop if we hit max results
@@ -451,7 +448,6 @@ def search_functions(inputs: SearchFunctionsInput) -> dict:
 
     result = {
         "search_term": inputs.function_name,
-        "match_type": inputs.match_type,
         "file_extensions": file_extensions,
         "matches": matches,
         "total_matches": len(matches),
@@ -462,7 +458,7 @@ def search_functions(inputs: SearchFunctionsInput) -> dict:
     if matches:
         print(f"🔍 Found {len(matches)} match(es) for '{inputs.function_name}' across {files_searched} files:")
         for match in matches[:5]:  # Show first 5 matches
-            print(f"  → {match['file']}:{match['line_number']} - {match['line_content']}")
+            print(f"  → {match['file']}:{match['line']} - {match['match']}")
 
         if len(matches) > 5:
             print(f"  ... and {len(matches) - 5} more matches")
@@ -472,12 +468,14 @@ def search_functions(inputs: SearchFunctionsInput) -> dict:
 
         print(f"💡 Next steps:")
         print(f"   1. Choose a file from the results above")
-        print(f"   2. Use: read_file('{matches[0]['file']}', start_line={matches[0]['line_number']}, context_lines=10)")
+        print(f"   2. Use: read_file('{matches[0]['file']}', start_line={matches[0]['line']}, context_lines=10)")
     else:
         print(f"❌ No matches found for '{inputs.function_name}' in {files_searched} {file_extensions} files")
         print(f"💡 Try:")
         print(f"   - Check spelling: '{inputs.function_name}'")
+        print(f"   - Use '.*' to find all {inputs.match_type}s")
         print(f"   - Try match_type='any' to search both functions and classes")
+        print(f"   - Remember: use JUST the name (not 'def name' or 'class Name')")
         print(f"   - Add more file extensions: ['.py', '.js', '.ts', etc.]")
 
     return result
