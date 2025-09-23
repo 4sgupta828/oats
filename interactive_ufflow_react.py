@@ -26,9 +26,13 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'
 
 # Import UFFLOW components
 from core.models import Goal
+from core.logging_config import get_logger
 from registry.main import global_registry
 from reactor.agent_controller import AgentController
 from reactor.models import ReActResult
+
+# Initialize logger
+logger = get_logger('interactive_ufflow_react')
 # Terminal colors for output formatting
 class Colors:
     """ANSI color codes for terminal output."""
@@ -550,6 +554,134 @@ class InteractiveUFFLOWReact:
 
         print(f"\n{Colors.DIM}Note: For detailed exploration, use the save command to export data{Colors.RESET}")
 
+    def _prompt_for_next_goal(self):
+        """Prompt user to create and execute next goal after successful completion."""
+        print(f"\n{Colors.GREEN}🎉 Goal completed successfully!{Colors.RESET}")
+
+        # Ask if user wants to create a new goal
+        next_choice = input(f"{Colors.CYAN}Would you like to create a new goal? (Y/n): {Colors.RESET}").strip().lower()
+
+        if next_choice not in ['n', 'no']:
+            print(f"\n{Colors.YELLOW}Creating a new goal...{Colors.RESET}")
+
+            # Reset current state
+            self.current_goal = None
+
+            # Reset the agent controller to ensure fresh state
+            self._reset_agent_controller()
+
+            # Create new goal
+            new_goal = self.create_goal_interactive()
+
+            if new_goal:
+                self.current_goal = new_goal
+                print(f"\n{Colors.GREEN}✅ New goal created!{Colors.RESET}")
+
+                # Ask if they want to execute immediately
+                execute_choice = input(f"{Colors.CYAN}Execute this goal now? (Y/n): {Colors.RESET}").strip().lower()
+
+                if execute_choice not in ['n', 'no']:
+                    # Get max turns
+                    max_turns_input = input(f"{Colors.CYAN}Max turns (default 10): {Colors.RESET}").strip()
+                    try:
+                        max_turns = int(max_turns_input) if max_turns_input else 10
+                    except ValueError:
+                        max_turns = 10
+
+                    # Execute the new goal
+                    self.current_execution = self.execute_goal_react(self.current_goal, max_turns)
+
+                    # Recursively check for next goal if this one completes
+                    if self.current_execution:
+                        summary = self.current_execution.get('execution_summary', {})
+                        if summary.get('goal_achieved', False):
+                            self._prompt_for_next_goal()
+                return True
+            else:
+                print(f"{Colors.YELLOW}Goal creation cancelled. Returning to main menu.{Colors.RESET}")
+                return False
+        else:
+            print(f"{Colors.YELLOW}No new goal created. Returning to main menu.{Colors.RESET}")
+            return False
+
+    def _run_fast_mode_loop(self):
+        """Run continuous goal creation and execution loop for FAST mode."""
+        print(f"\n{Colors.YELLOW}🚀 FAST mode: Continuous goal execution mode!{Colors.RESET}")
+        print(f"{Colors.DIM}Create and execute goals continuously. Press Ctrl+C to exit.{Colors.RESET}")
+
+        while True:
+            try:
+                # Create a new goal
+                print(f"\n{Colors.CYAN}━━━ Creating New Goal ━━━{Colors.RESET}")
+
+                # Reset the agent controller for each new goal in FAST mode
+                self._reset_agent_controller()
+
+                self.current_goal = self.create_goal_interactive()
+
+                if not self.current_goal:
+                    print(f"\n{Colors.RED}❌ Goal creation failed. Exiting FAST mode.{Colors.RESET}")
+                    break
+
+                print(f"\n{Colors.GREEN}✅ Goal created successfully!{Colors.RESET}")
+                print(f"{Colors.BOLD}Goal ID:{Colors.RESET} {self.current_goal.id}")
+                print(f"{Colors.BOLD}Description:{Colors.RESET} {self.current_goal.description}")
+
+                # Auto-execute the goal
+                print(f"\n{Colors.BLUE}🚀 FAST mode: Auto-executing goal with default settings (10 max turns)...{Colors.RESET}")
+                self.current_execution = self.execute_goal_react(self.current_goal, 10)
+
+                if self.current_execution:
+
+                    # Check if goal was completed successfully
+                    summary = self.current_execution.get('execution_summary', {})
+                    if summary.get('goal_achieved', False):
+                        print(f"\n{Colors.GREEN}🎉 Goal completed successfully!{Colors.RESET}")
+
+                        # Ask if they want to continue with another goal
+                        continue_choice = input(f"{Colors.CYAN}Create and execute another goal? (Y/n): {Colors.RESET}").strip().lower()
+                        if continue_choice in ['n', 'no']:
+                            print(f"\n{Colors.GREEN}🎉 FAST mode session completed!{Colors.RESET}")
+                            break
+                        # If yes or Enter, continue the loop
+                    else:
+                        print(f"\n{Colors.YELLOW}⚠️ Goal was not fully completed.{Colors.RESET}")
+                        # Ask if they want to try another goal
+                        retry_choice = input(f"{Colors.CYAN}Try a different goal? (Y/n): {Colors.RESET}").strip().lower()
+                        if retry_choice in ['n', 'no']:
+                            print(f"\n{Colors.YELLOW}Exiting FAST mode.{Colors.RESET}")
+                            break
+                else:
+                    print(f"\n{Colors.RED}❌ Execution failed.{Colors.RESET}")
+                    # Ask if they want to try another goal
+                    retry_choice = input(f"{Colors.CYAN}Try a different goal? (Y/n): {Colors.RESET}").strip().lower()
+                    if retry_choice in ['n', 'no']:
+                        print(f"\n{Colors.RED}Exiting FAST mode.{Colors.RESET}")
+                        break
+
+            except KeyboardInterrupt:
+                print(f"\n\n{Colors.YELLOW}⚠️ FAST mode interrupted by user{Colors.RESET}")
+                break
+            except Exception as e:
+                print(f"\n{Colors.RED}❌ Error in FAST mode: {e}{Colors.RESET}")
+                retry_choice = input(f"{Colors.CYAN}Continue anyway? (Y/n): {Colors.RESET}").strip().lower()
+                if retry_choice in ['n', 'no']:
+                    break
+
+    def _reset_agent_controller(self):
+        """Reset the agent controller to ensure fresh state for new goals."""
+        try:
+            print(f"{Colors.DIM}🔄 Resetting agent state for new goal...{Colors.RESET}")
+
+            # Create a fresh agent controller
+            self.agent_controller = AgentController(self.registry)
+
+            logger.info("Agent controller reset successfully")
+
+        except Exception as e:
+            print(f"{Colors.YELLOW}⚠️ Warning: Could not fully reset agent controller: {e}{Colors.RESET}")
+            logger.warning(f"Agent controller reset failed: {e}")
+
     def display_main_menu(self):
         """Display the main interactive menu."""
         mode_indicator = " - FAST MODE" if self.fast_mode else ""
@@ -635,33 +767,19 @@ class InteractiveUFFLOWReact:
             print(f"\n{Colors.YELLOW}🚀 Let's start by creating a goal for the ReAct framework!{Colors.RESET}")
             print(f"{Colors.DIM}ReAct will reason step-by-step and adapt based on observations.{Colors.RESET}")
 
-        # Go directly to goal creation
+        # In FAST mode, enter a continuous goal creation and execution loop
+        if self.fast_mode:
+            self._run_fast_mode_loop()
+            return
+
+        # Regular mode - Go directly to goal creation
         self.current_goal = self.create_goal_interactive()
         if self.current_goal:
             print(f"\n{Colors.GREEN}✅ Goal created successfully!{Colors.RESET}")
             print(f"{Colors.BOLD}Goal ID:{Colors.RESET} {self.current_goal.id}")
             print(f"{Colors.BOLD}Description:{Colors.RESET} {self.current_goal.description}")
-
-            # In FAST mode, auto-execute the goal immediately
-            if self.fast_mode:
-                print(f"\n{Colors.BLUE}🚀 FAST mode: Auto-executing goal with default settings (10 max turns)...{Colors.RESET}")
-                self.current_execution = self.execute_goal_react(self.current_goal, 10)
-
-                if self.current_execution:
-                    # Offer to explore the results
-                    explore_choice = input(f"\n{Colors.CYAN}Explore execution results? (Y/n): {Colors.RESET}").strip().lower()
-                    if explore_choice != 'n':
-                        self.explore_execution(self.current_execution)
-
-                    # Exit after execution in FAST mode
-                    print(f"\n{Colors.GREEN}🎉 FAST mode execution completed! Use regular mode for further interaction.{Colors.RESET}")
-                    return
-                else:
-                    print(f"\n{Colors.RED}❌ Execution failed in FAST mode.{Colors.RESET}")
         else:
             print(f"\n{Colors.RED}❌ Goal creation failed. You can try again later.{Colors.RESET}")
-            if self.fast_mode:
-                return
 
         while True:
             try:
@@ -696,6 +814,12 @@ class InteractiveUFFLOWReact:
                             max_turns = 10
 
                         self.current_execution = self.execute_goal_react(self.current_goal, max_turns)
+
+                        # Check if goal was completed and prompt for next goal
+                        if self.current_execution:
+                            summary = self.current_execution.get('execution_summary', {})
+                            if summary.get('goal_achieved', False):
+                                self._prompt_for_next_goal()
 
                 elif command == 'explore':
                     if not self.current_execution:
