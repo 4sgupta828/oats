@@ -450,6 +450,7 @@ RULES FOR SYSTEMATIC EXECUTION:
    **CRITICAL RULES**:
    - When search results show filenames, use the EXACT filename returned - do NOT modify or guess filenames
    - **AVOID**: `list_files()` followed by manual file inspection - this is inefficient!
+   - **PRESENT COMPLETE SEARCH RESULTS**: When search tools return comprehensive results that directly answer the user's question (e.g., function names, definitions, locations), present the FULL tool output rather than processing it into summaries
 
 4. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
    - Step 1: Use create_file to write the Python script to a separate .py file
