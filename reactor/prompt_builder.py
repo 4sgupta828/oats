@@ -96,17 +96,50 @@ class ReActPromptBuilder:
 
         return self._apply_aggression_to_scratchpad(current_scratchpad, aggression_level), warning_triggered
 
+    def _format_working_memory(self, working_memory) -> str:
+        """Format current working memory state for prompt."""
+        if not working_memory:
+            return "• No working memory established yet"
+
+        parts = []
+
+        if working_memory.known_facts:
+            facts_str = "\n    ".join([f"- {fact}" for fact in working_memory.known_facts])
+            parts.append(f"• KNOWN FACTS:\n    {facts_str}")
+
+        if working_memory.current_hypothesis:
+            parts.append(f"• CURRENT HYPOTHESIS: {working_memory.current_hypothesis}")
+
+        if working_memory.evidence_gaps:
+            gaps_str = "\n    ".join([f"- {gap}" for gap in working_memory.evidence_gaps])
+            parts.append(f"• EVIDENCE GAPS:\n    {gaps_str}")
+
+        if working_memory.failed_approaches:
+            failed_str = "\n    ".join([f"- {approach}" for approach in working_memory.failed_approaches])
+            parts.append(f"• FAILED APPROACHES:\n    {failed_str}")
+
+        if working_memory.next_priorities:
+            priorities_str = "\n    ".join([f"- {priority}" for priority in working_memory.next_priorities])
+            parts.append(f"• NEXT PRIORITIES:\n    {priorities_str}")
+
+        if working_memory.synthesis_notes:
+            parts.append(f"• SYNTHESIS: {working_memory.synthesis_notes}")
+
+        return "\n".join(parts) if parts else "• Working memory is empty"
+
     def _format_scratchpad_history_with_aggression(self, scratchpad: List[ScratchpadEntry], aggression_level: int) -> str:
         """Format scratchpad with specific aggression level for testing."""
         history_parts = []
 
         for entry in scratchpad:
             history_parts.append(f"Turn {entry.turn}:")
+            if entry.progress_check:
+                history_parts.append(f"Progress Check: {entry.progress_check}")
             history_parts.append(f"Thought: {entry.thought}")
             if entry.intent:
                 history_parts.append(f"Intent: {entry.intent}")
             history_parts.append(f"Action: {entry.action}")
-            truncated_obs = self._truncate_observation(entry.observation, aggression_level)
+            truncated_obs = self._truncate_observation(entry.observation, aggression_level, force_truncate=(aggression_level > 0))
             history_parts.append(f"Observation: {truncated_obs}")
             history_parts.append("")  # Empty line between turns
 
@@ -121,42 +154,48 @@ class ReActPromptBuilder:
         thinned_scratchpad = []
         for entry in scratchpad:
             new_entry = entry.model_copy()
-            new_entry.observation = self._truncate_observation(entry.observation, aggression_level)
+            new_entry.observation = self._truncate_observation(entry.observation, aggression_level, force_truncate=True)
             thinned_scratchpad.append(new_entry)
 
         return thinned_scratchpad
 
-    def _truncate_observation(self, observation: str, aggression_level: int = 0) -> str:
+    def _truncate_observation(self, observation: str, aggression_level: int = 0, force_truncate: bool = False) -> str:
         """Truncate large observations with progressive aggression levels.
 
         Args:
             observation: The original observation text
-            aggression_level: 0=normal, 1=aggressive, 2=minimal
+            aggression_level: 0=light, 1=moderate, 2=aggressive
+            force_truncate: If True, apply truncation even at level 0
 
         Returns:
-            Truncated observation with sampling based on aggression level
+            Truncated observation (or original if level 0 and not forced)
         """
         if not observation or not observation.strip():
+            return observation
+
+        # Level 0 with no forcing = return original (when context has plenty of room)
+        if aggression_level == 0 and not force_truncate:
             return observation
 
         lines = observation.split('\n')
 
         # Progressive settings based on aggression level
-        if aggression_level == 0:  # Normal truncation
-            max_lines, sample_lines, max_line_length = 20, 3, 100
-        elif aggression_level == 1:  # Aggressive truncation
-            max_lines, sample_lines, max_line_length = 10, 2, 80
-        else:  # Minimal truncation (level 2+)
-            max_lines, sample_lines, max_line_length = 6, 1, 60
+        if aggression_level == 0:  # Light truncation (only when forced)
+            max_lines, sample_lines, max_line_length = 30, 4, 200  # Very generous limits
+        elif aggression_level == 1:  # Moderate truncation
+            max_lines, sample_lines, max_line_length = 15, 3, 150
+        else:  # Aggressive truncation (level 2+)
+            max_lines, sample_lines, max_line_length = 8, 2, 100
 
-        # Truncate individual lines first
-        lines = [line[:max_line_length] + ('...' if len(line) > max_line_length else '') for line in lines]
+        # Apply line length limits only for aggressive levels
+        if aggression_level >= 1:
+            lines = [self._smart_truncate_line(line, max_line_length) for line in lines]
 
         # If short enough, return as-is
         if len(lines) <= max_lines:
             return '\n'.join(lines)
 
-        # For aggressive levels, only show start/end (no middle)
+        # For most aggressive levels, only show start/end (no middle)
         if aggression_level >= 2:
             truncated = []
             truncated.extend(lines[:sample_lines])
@@ -164,7 +203,7 @@ class ReActPromptBuilder:
             truncated.extend(lines[-sample_lines:])
             return '\n'.join(truncated)
 
-        # Normal/aggressive: Sample from start, middle, end
+        # Light/moderate: Sample from start, middle, end
         start_lines = lines[:sample_lines]
         middle_idx = len(lines) // 2
         middle_lines = lines[middle_idx-sample_lines//2:middle_idx+sample_lines//2+1]
@@ -173,7 +212,7 @@ class ReActPromptBuilder:
         # Build truncated version
         truncated = []
         truncated.extend(start_lines)
-        if aggression_level == 0:  # Only include middle for normal level
+        if aggression_level == 0:  # Only include middle for light level
             truncated.append(f'... [{len(lines) - 2*sample_lines - len(middle_lines)} lines omitted] ...')
             truncated.extend(middle_lines)
         if middle_lines != end_lines or aggression_level >= 1:
@@ -181,6 +220,61 @@ class ReActPromptBuilder:
             truncated.extend(end_lines)
 
         return '\n'.join(truncated)
+
+    def _smart_truncate_line(self, line: str, max_length: int) -> str:
+        """Smart line truncation that preserves complete file paths and important information."""
+        if len(line) <= max_length:
+            return line
+
+        # Check if line contains file paths (common patterns)
+        file_path_indicators = [
+            '• ', '- ', 'file:', 'path:', '.py', '.js', '.ts', '.json', '.csv', '.txt', '.md',
+            '/', '\\', 'Files found:', 'Found in:', 'matches in'
+        ]
+
+        is_file_line = any(indicator in line for indicator in file_path_indicators)
+
+        if is_file_line:
+            # For file path lines, try to preserve the complete path
+            # Find the actual file path in the line
+            import re
+
+            # Look for common file path patterns
+            file_path_patterns = [
+                r'[•\-]\s+([^\s]+\.[a-zA-Z0-9]+)',  # • filename.ext or - filename.ext
+                r'([a-zA-Z0-9_/\\.-]+\.[a-zA-Z0-9]+)',  # any/path/filename.ext
+                r'([a-zA-Z0-9_/\\.-]+\.py)',  # Python files specifically
+                r'([a-zA-Z0-9_/\\.-]+\.js)',  # JavaScript files
+                r'([a-zA-Z0-9_/\\.-]+\.json)',  # JSON files
+            ]
+
+            for pattern in file_path_patterns:
+                matches = re.findall(pattern, line)
+                if matches:
+                    file_path = matches[0]
+                    # If the file path fits, keep the essential part with file path
+                    if len(file_path) <= max_length - 10:  # Leave room for context
+                        # Extract key parts of the line with the file path
+                        if '• ' in line:
+                            return f"• {file_path}"
+                        elif '- ' in line:
+                            return f"- {file_path}"
+                        else:
+                            # Keep the file path with minimal context
+                            prefix = line[:20] if len(line) > 20 else ""
+                            if len(prefix + file_path) <= max_length:
+                                return f"{prefix}...{file_path}"
+                            else:
+                                return file_path
+
+            # If no clear file path found, truncate more carefully for file-related content
+            if max_length > 20:
+                return line[:max_length-3] + "..."
+            else:
+                return line[:max_length]
+        else:
+            # Regular truncation for non-file lines
+            return line[:max_length] + ('...' if len(line) > max_length else '')
 
     def _get_system_context(self) -> Dict[str, str]:
         """Get system context information for better command generation."""
@@ -242,21 +336,50 @@ SYSTEM CONTEXT:
 • Grep Capabilities: {self.system_context['grep_features']}
 • Python Version: {self.system_context['python_version']}
 
-## INTENT-DRIVEN WORKFLOW
+## STRUCTURED REASONING FRAMEWORK
 
-Your response MUST follow this three-part format exactly:
+Your response MUST follow this enhanced four-part format exactly:
 
-Thought: [Reason about your goal and formulate a plan for the immediate next action.]
-Intent: [Classify your plan into a single intent from the CANONICAL INTENTS LIST below.]
+WORKING MEMORY UPDATE: [How should the working memory be updated based on new information? Format as structured data]
+PROGRESS CHECK: [Am I making progress? Have I seen this before? What patterns am I noticing?]
+Thought: [Reason about your goal using current working memory and formulate next action]
+Intent: [Classify your plan into a single intent from the CANONICAL INTENTS LIST below]
 Action: {{"tool_name": "tool_name", "parameters": {{"param": "value"}}}}
 
+### WORKING MEMORY UPDATE FORMAT:
+Use this structured format for working memory updates:
+```
+NEW_FACTS: ["fact1", "fact2"]
+HYPOTHESIS: "current working theory"
+EVIDENCE_GAPS: ["gap1", "gap2"]
+FAILED_APPROACHES: ["approach that didn't work"]
+NEXT_PRIORITIES: ["priority1", "priority2"]
+SYNTHESIS: "current understanding summary"
+```
+
 ### EXAMPLE:
-Thought: The goal is to check Python files for style errors. I'll first check if a linter like 'ruff' is already on the system before attempting to use it.
-Intent: check_tool_availability
-Action: {{"tool_name": "check_command_exists", "parameters": {{"command_name": "ruff"}}}}
+WORKING MEMORY UPDATE:
+```
+NEW_FACTS: ["call_llm function found in tools/llm_integration.py", "function signature: call_llm(prompt: str, max_tokens: int = 500)"]
+HYPOTHESIS: "Parameters may vary by usage context - need to find actual calls"
+EVIDENCE_GAPS: ["actual parameter values in usage", "how many different usage patterns exist"]
+FAILED_APPROACHES: []
+NEXT_PRIORITIES: ["read tools/smart_search.py to see usage example"]
+SYNTHESIS: "Found function definition, need to analyze usage patterns to compare parameters"
+```
+PROGRESS CHECK: Good progress - have function definition, found potential usage location. Next step is clear.
+Thought: I have the function definition and found a reference to its usage. I should read the smart_search.py file to see the actual parameters being used.
+Intent: read_file
+Action: {{"tool_name": "read_file", "parameters": {{"filename": "tools/smart_search.py"}}}}
 
 ### CANONICAL INTENTS LIST:
 You MUST choose one of the following: {', '.join(canonical_intents)}
+
+## META-COGNITIVE GUIDELINES
+
+LOOP DETECTION: Before each action, check current working memory - are you repeating similar actions without new information?
+SYNTHESIS REQUIREMENT: When working memory shows multiple facts, actively combine and analyze rather than collecting more data.
+WORKING MEMORY FOCUS: Always reference your current working memory state when reasoning about next actions.
 
 RULES FOR SYSTEMATIC EXECUTION:
 1. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
@@ -314,6 +437,9 @@ SYSTEM-SPECIFIC COMMANDS:
             self.system_prompt,
             "",
             f"GOAL: {state.goal}",
+            "",
+            "CURRENT WORKING MEMORY STATE:",
+            self._format_working_memory(state.working_memory),
             "",
             "HARD SECURITY BOUNDARIES:",
             f"• You are working within: {workspace_security.workspace_root}",

@@ -178,14 +178,41 @@ Respond in this exact JSON format:
         """Check if ripgrep (rg) is available"""
         try:
             subprocess.run(['rg', '--version'],
-                         capture_output=True, check=True)
+                         capture_output=True, check=True, timeout=5)
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             return False
+
+    def _should_use_literal_search(self, pattern: str) -> bool:
+        """
+        Determine if pattern should be treated as literal string instead of regex.
+        This prevents regex parsing errors that cause agent loops.
+        """
+        # Common patterns that should be treated as literal
+        problematic_chars = ['(', ')', '[', ']', '{', '}']
+
+        # If pattern contains unescaped problematic characters, use literal search
+        for char in problematic_chars:
+            if char in pattern and f'\\{char}' not in pattern:
+                return True
+
+        return False
+
+    def _escape_regex_pattern(self, pattern: str) -> str:
+        """
+        Safely escape special regex characters to prevent parsing errors.
+        This prevents the agent loops caused by malformed regex.
+        """
+        # For simple cases, return the pattern as-is to use with --fixed-strings
+        return pattern
 
     def _build_ripgrep_command(self, query: SearchQuery) -> List[str]:
         """Build ripgrep command with appropriate flags"""
         cmd = ['rg']
+
+        # Use literal search for problematic patterns
+        if self._should_use_literal_search(query.pattern):
+            cmd.append('--fixed-strings')  # Treat pattern as literal string
 
         # Add pattern first (required position)
         cmd.append(query.pattern)
@@ -226,6 +253,10 @@ Respond in this exact JSON format:
         """Fallback to standard grep if ripgrep unavailable"""
         cmd = ['grep', '-r', '-n']  # recursive, line numbers
 
+        # Use literal search for problematic patterns
+        if self._should_use_literal_search(query.pattern):
+            cmd.append('-F')  # Fixed strings (literal)
+
         if not query.case_sensitive:
             cmd.append('-i')
 
@@ -264,6 +295,7 @@ Respond in this exact JSON format:
                                   capture_output=True,
                                   text=True,
                                   check=False,
+                                  timeout=30,  # 30 second timeout
                                   cwd=str(self.workspace_root))
 
             if result.returncode == 0:
@@ -277,6 +309,9 @@ Respond in this exact JSON format:
                 print(f"Error: {result.stderr}")
                 return []
 
+        except subprocess.TimeoutExpired:
+            print(f"⚠️  Search timed out after 30 seconds: {' '.join(cmd[:3])}")
+            return []
         except Exception as e:
             print(f"Error executing search: {e}")
             return []

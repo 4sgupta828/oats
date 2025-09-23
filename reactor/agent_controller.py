@@ -111,6 +111,10 @@ class AgentController:
                     # B. Reason: Parse the response
                     parsed_response = self._parse_llm_response(raw_response)
 
+                    # B.1. Update working memory if response contains updates
+                    if parsed_response.working_memory_update:
+                        self._update_working_memory(state, parsed_response.working_memory_update.dict())
+
                     # C. Check for goal achievement
                     if parsed_response.is_finish:
                         logger.info("Agent indicated goal completion")
@@ -132,6 +136,7 @@ class AgentController:
                                 intent=parsed_response.intent,
                                 action=parsed_response.action,
                                 observation=f"FINISH: {completion_reason}\nVERIFICATION: {verification_result['message']}\nFINAL RESULTS SAVED: {final_results_file}",
+                                progress_check=parsed_response.progress_check,
                                 duration_ms=turn_duration
                             )
                             state.scratchpad.append(final_scratchpad_entry)
@@ -148,6 +153,7 @@ class AgentController:
                                 intent=parsed_response.intent,
                                 action=parsed_response.action,
                                 observation=f"INCOMPLETE GOAL: {verification_result['message']}\nContinue working to complete all requirements.",
+                                progress_check=parsed_response.progress_check,
                                 duration_ms=turn_duration
                             )
                             state.scratchpad.append(incomplete_entry)
@@ -166,6 +172,7 @@ class AgentController:
                         intent=parsed_response.intent,
                         action=parsed_response.action,
                         observation=observation,
+                        progress_check=parsed_response.progress_check,
                         duration_ms=turn_duration
                     )
 
@@ -341,10 +348,22 @@ class AgentController:
                 # Check if this is a finish action
                 is_finish = validated_response.action.tool_name == "finish"
 
+                from reactor.models import WorkingMemoryUpdate
+
+                # Convert dict to WorkingMemoryUpdate if present
+                wm_update = None
+                if parsed_data.get("working_memory_update"):
+                    try:
+                        wm_update = WorkingMemoryUpdate(**parsed_data["working_memory_update"])
+                    except Exception as e:
+                        logger.warning(f"Failed to create WorkingMemoryUpdate: {e}")
+
                 return ParsedLLMResponse(
                     thought=validated_response.thought,
                     intent=parsed_data.get("intent"),
                     action=validated_response.action.dict(),
+                    working_memory_update=wm_update,
+                    progress_check=parsed_data.get("progress_check"),
                     is_finish=is_finish,
                     raw_response=raw_response
                 )
@@ -461,7 +480,24 @@ class AgentController:
 
     def _extract_thought_intent_and_action(self, raw_response: str) -> Optional[Dict[str, Any]]:
         """Extract thought, intent, and action from raw response using multiple strategies."""
-        # Strategy 1: Standard regex extraction with intent support
+
+        # Extract WORKING MEMORY UPDATE (new structured format)
+        working_memory_update = None
+        memory_match = re.search(r'WORKING MEMORY UPDATE:\s*(.*?)(?=PROGRESS CHECK:|Thought:|Intent:|Action:|$)', raw_response, re.DOTALL | re.IGNORECASE)
+        if memory_match:
+            memory_content = memory_match.group(1).strip()
+            working_memory_update = self._parse_working_memory_update(memory_content)
+            if working_memory_update:
+                logger.debug(f"Extracted working memory update with {len(working_memory_update.get('new_facts', []))} new facts")
+
+        # Extract PROGRESS CHECK (new field)
+        progress_check = None
+        progress_match = re.search(r'PROGRESS CHECK:\s*(.*?)(?=Thought:|Intent:|Action:|$)', raw_response, re.DOTALL | re.IGNORECASE)
+        if progress_match:
+            progress_check = progress_match.group(1).strip()
+            logger.debug(f"Extracted progress check: {progress_check[:100]}...")
+
+        # Strategy 1: Enhanced regex extraction with new format
         thought_match = re.search(r'Thought:\s*(.*?)(?=Intent:|Action:|$)', raw_response, re.DOTALL | re.IGNORECASE)
 
         if not thought_match:
@@ -499,8 +535,102 @@ class AgentController:
 
         if intent:
             result["intent"] = intent
+        if working_memory_update:
+            result["working_memory_update"] = working_memory_update
+        if progress_check:
+            result["progress_check"] = progress_check
 
         return result
+
+    def _parse_working_memory_update(self, memory_content: str) -> Optional[Dict[str, Any]]:
+        """Parse structured working memory update from agent response."""
+        try:
+            update = {}
+
+            # Extract NEW_FACTS
+            facts_match = re.search(r'NEW_FACTS:\s*\[(.*?)\]', memory_content, re.DOTALL | re.IGNORECASE)
+            if facts_match:
+                facts_str = facts_match.group(1)
+                # Parse list of quoted strings
+                facts = re.findall(r'"([^"]*)"', facts_str)
+                update['new_facts'] = facts
+
+            # Extract HYPOTHESIS
+            hypothesis_match = re.search(r'HYPOTHESIS:\s*"([^"]*)"', memory_content, re.IGNORECASE)
+            if hypothesis_match:
+                update['updated_hypothesis'] = hypothesis_match.group(1)
+
+            # Extract EVIDENCE_GAPS
+            gaps_match = re.search(r'EVIDENCE_GAPS:\s*\[(.*?)\]', memory_content, re.DOTALL | re.IGNORECASE)
+            if gaps_match:
+                gaps_str = gaps_match.group(1)
+                gaps = re.findall(r'"([^"]*)"', gaps_str)
+                update['new_gaps'] = gaps
+
+            # Extract FAILED_APPROACHES
+            failed_match = re.search(r'FAILED_APPROACHES:\s*\[(.*?)\]', memory_content, re.DOTALL | re.IGNORECASE)
+            if failed_match:
+                failed_str = failed_match.group(1)
+                if failed_str.strip():  # Only if not empty
+                    failed = re.findall(r'"([^"]*)"', failed_str)
+                    if failed:
+                        update['failed_approach'] = failed[0]  # Take first one
+
+            # Extract NEXT_PRIORITIES
+            priorities_match = re.search(r'NEXT_PRIORITIES:\s*\[(.*?)\]', memory_content, re.DOTALL | re.IGNORECASE)
+            if priorities_match:
+                priorities_str = priorities_match.group(1)
+                priorities = re.findall(r'"([^"]*)"', priorities_str)
+                update['next_actions'] = priorities
+
+            # Extract SYNTHESIS
+            synthesis_match = re.search(r'SYNTHESIS:\s*"([^"]*)"', memory_content, re.IGNORECASE)
+            if synthesis_match:
+                update['synthesis_update'] = synthesis_match.group(1)
+
+            return update if update else None
+
+        except Exception as e:
+            logger.warning(f"Failed to parse working memory update: {e}")
+            return None
+
+    def _update_working_memory(self, state: ReActState, memory_update: Dict[str, Any]) -> None:
+        """Update the state's working memory based on parsed update."""
+        try:
+            # Add new facts
+            if 'new_facts' in memory_update:
+                for fact in memory_update['new_facts']:
+                    if fact and fact not in state.working_memory.known_facts:
+                        state.working_memory.known_facts.append(fact)
+
+            # Update hypothesis
+            if 'updated_hypothesis' in memory_update:
+                state.working_memory.current_hypothesis = memory_update['updated_hypothesis']
+
+            # Add new evidence gaps
+            if 'new_gaps' in memory_update:
+                for gap in memory_update['new_gaps']:
+                    if gap and gap not in state.working_memory.evidence_gaps:
+                        state.working_memory.evidence_gaps.append(gap)
+
+            # Add failed approach
+            if 'failed_approach' in memory_update:
+                approach = memory_update['failed_approach']
+                if approach and approach not in state.working_memory.failed_approaches:
+                    state.working_memory.failed_approaches.append(approach)
+
+            # Update next priorities (replace, don't append)
+            if 'next_actions' in memory_update:
+                state.working_memory.next_priorities = memory_update['next_actions']
+
+            # Update synthesis notes
+            if 'synthesis_update' in memory_update:
+                state.working_memory.synthesis_notes = memory_update['synthesis_update']
+
+            logger.debug(f"Updated working memory: {len(state.working_memory.known_facts)} facts, {len(state.working_memory.evidence_gaps)} gaps")
+
+        except Exception as e:
+            logger.error(f"Failed to update working memory: {e}")
 
     def _extract_action_json(self, raw_response: str) -> Optional[Dict[str, Any]]:
         """Extract action JSON using multiple robust strategies."""
@@ -658,10 +788,21 @@ class AgentController:
 
                 is_finish = action["tool_name"] == "finish"
 
+                # Handle working memory update in fallback
+                wm_update = None
+                if parsed_data.get("working_memory_update"):
+                    try:
+                        from reactor.models import WorkingMemoryUpdate
+                        wm_update = WorkingMemoryUpdate(**parsed_data["working_memory_update"])
+                    except Exception:
+                        pass
+
                 return ParsedLLMResponse(
                     thought=parsed_data.get("thought", "Unable to extract thought"),
                     intent=parsed_data.get("intent"),
                     action=action,
+                    working_memory_update=wm_update,
+                    progress_check=parsed_data.get("progress_check"),
                     is_finish=is_finish,
                     raw_response=raw_response
                 )

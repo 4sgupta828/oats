@@ -4,19 +4,30 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
+class WorkingMemory(BaseModel):
+    """Agent's current understanding and state - evolves across turns."""
+    known_facts: List[str] = Field(default_factory=list, description="Established facts from observations")
+    current_hypothesis: Optional[str] = Field(None, description="Current working theory about the solution")
+    evidence_gaps: List[str] = Field(default_factory=list, description="What information is still needed")
+    failed_approaches: List[str] = Field(default_factory=list, description="Approaches that didn't work")
+    next_priorities: List[str] = Field(default_factory=list, description="What should be done next")
+    synthesis_notes: Optional[str] = Field(None, description="Current synthesis of findings")
+
 class ScratchpadEntry(BaseModel):
-    """Single entry in the ReAct scratchpad history."""
+    """Single entry in the ReAct scratchpad history - pure historical record."""
     turn: int = Field(..., description="Turn number in the conversation")
     thought: str = Field(..., description="Agent's reasoning for this turn")
     intent: Optional[str] = Field(None, description="Agent's classified intent for this turn")
     action: Dict[str, Any] = Field(..., description="Tool action taken")
     observation: str = Field(..., description="Result of the action")
+    progress_check: Optional[str] = Field(None, description="Agent's progress assessment for this turn")
     timestamp: datetime = Field(default_factory=datetime.now)
     duration_ms: Optional[int] = None
 
 class ReActState(BaseModel):
     """Complete state of the ReAct agent execution."""
     goal: str = Field(..., description="High-level user objective")
+    working_memory: WorkingMemory = Field(default_factory=WorkingMemory, description="Agent's evolving understanding")
     scratchpad: List[ScratchpadEntry] = Field(default_factory=list, description="History of all turns")
     turn_count: int = Field(default=0, description="Current turn number")
     max_turns: int = Field(default=10, description="Maximum allowed turns")
@@ -29,6 +40,7 @@ class ReActState(BaseModel):
     def reset_for_new_goal(self, new_goal: str) -> None:
         """Reset state for a completely new goal, clearing all history."""
         self.goal = new_goal
+        self.working_memory = WorkingMemory()  # Reset working memory
         self.scratchpad.clear()
         self.turn_count = 0
         self.is_complete = False
@@ -42,11 +54,22 @@ class ReActState(BaseModel):
         # Simple string comparison - could be enhanced with semantic similarity
         return self.goal.strip().lower() == other_goal.strip().lower()
 
+class WorkingMemoryUpdate(BaseModel):
+    """Structured update to working memory from agent response."""
+    new_facts: List[str] = Field(default_factory=list, description="New facts discovered this turn")
+    updated_hypothesis: Optional[str] = Field(None, description="Updated working theory")
+    new_gaps: List[str] = Field(default_factory=list, description="New information gaps identified")
+    failed_approach: Optional[str] = Field(None, description="Approach that failed this turn")
+    next_actions: List[str] = Field(default_factory=list, description="Suggested next priorities")
+    synthesis_update: Optional[str] = Field(None, description="Updated synthesis of findings")
+
 class ParsedLLMResponse(BaseModel):
     """Structured representation of LLM response."""
     thought: str = Field(..., description="Agent's reasoning")
     intent: Optional[str] = Field(None, description="Agent's classified intent")
     action: Dict[str, Any] = Field(..., description="Tool action to execute")
+    working_memory_update: Optional[WorkingMemoryUpdate] = Field(None, description="How to update working memory")
+    progress_check: Optional[str] = Field(None, description="Agent's progress assessment")
     is_finish: bool = Field(default=False, description="Whether this is a finish action")
     raw_response: str = Field(..., description="Original LLM response")
 

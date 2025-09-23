@@ -325,7 +325,7 @@ class InteractiveUFFLOWReact:
                 # If Y, yes, or Enter (empty), continue
 
             print(f"\n{Colors.BOLD}{Colors.CYAN}┌─ Turn {turn_num}/{state.max_turns}+ ─────────────────────────────────────────────────┐{Colors.RESET}" if turn_num > state.max_turns else f"\n{Colors.BOLD}{Colors.CYAN}┌─ Turn {turn_num}/{state.max_turns} ─────────────────────────────────────────────────┐{Colors.RESET}")
-            print(f"{Colors.BOLD}│ Reasoning...                                              │{Colors.RESET}")
+            print(f"{Colors.BOLD}│ {Colors.YELLOW}**Reasoning...**{Colors.RESET}{Colors.BOLD}                                      │{Colors.RESET}")
             print(f"{Colors.BOLD}└───────────────────────────────────────────────────────────┘{Colors.RESET}")
 
             try:
@@ -336,9 +336,17 @@ class InteractiveUFFLOWReact:
                 # Parse response
                 parsed_response = self.agent_controller._parse_llm_response(raw_response)
 
-                # Display reasoning
-                print(f"{Colors.YELLOW}💭 Thought:{Colors.RESET} {parsed_response.thought}")
-                print(f"{Colors.BLUE}🛠️  Action:{Colors.RESET} {parsed_response.action}")
+                # Display enhanced reasoning
+                if parsed_response.working_memory_update:
+                    wm = parsed_response.working_memory_update
+                    if wm.new_facts:
+                        print(f"{Colors.CYAN}🧠 {Colors.BOLD}**New Facts:**{Colors.RESET} {', '.join(wm.new_facts[:2])}{'...' if len(wm.new_facts) > 2 else ''}")
+                    if wm.updated_hypothesis:
+                        print(f"{Colors.CYAN}💡 {Colors.BOLD}**Hypothesis:**{Colors.RESET} {wm.updated_hypothesis[:100]}...")
+                if parsed_response.progress_check:
+                    print(f"{Colors.MAGENTA}📊 {Colors.BOLD}**Progress Check:**{Colors.RESET} {parsed_response.progress_check}")
+                print(f"{Colors.YELLOW}💭 {Colors.BOLD}**Thought:**{Colors.RESET} {parsed_response.thought}")
+                print(f"{Colors.BLUE}🛠️  {Colors.BOLD}**Action:**{Colors.RESET} {parsed_response.action}")
 
                 # Check for goal completion
                 if parsed_response.is_finish:
@@ -351,7 +359,8 @@ class InteractiveUFFLOWReact:
                         turn=turn_num,
                         thought=parsed_response.thought,
                         action=parsed_response.action,
-                        observation=f"FINISH: {parsed_response.action.get('reason', 'Goal completed')}"
+                        observation=f"FINISH: {parsed_response.action.get('reason', 'Goal completed')}",
+                        progress_check=parsed_response.progress_check
                     )
                     state.scratchpad.append(final_entry)
                     state.turn_count += 1
@@ -361,14 +370,14 @@ class InteractiveUFFLOWReact:
                     break
 
                 # Execute action
-                print(f"{Colors.DIM}Executing action...{Colors.RESET}")
+                print(f"{Colors.CYAN}{Colors.BOLD}**Executing Action:**{Colors.RESET} {Colors.DIM}{parsed_response.action.get('tool_name', 'unknown')} with parameters {parsed_response.action.get('parameters', {})}{Colors.RESET}")
                 observation = self.agent_controller.tool_executor.execute_action(parsed_response.action)
 
                 # Display observation
                 if observation.startswith("ERROR"):
-                    print(f"{Colors.RED}👀 Observation:{Colors.RESET} {observation}")
+                    print(f"{Colors.RED}👀 {Colors.BOLD}**Observation:**{Colors.RESET} {self._format_observation_output(observation)}")
                 else:
-                    print(f"{Colors.GREEN}👀 Observation:{Colors.RESET} {observation}")
+                    print(f"{Colors.GREEN}👀 {Colors.BOLD}**Observation:**{Colors.RESET} {self._format_observation_output(observation)}")
 
                 # Update state
                 from reactor.models import ScratchpadEntry
@@ -376,7 +385,8 @@ class InteractiveUFFLOWReact:
                     turn=turn_num,
                     thought=parsed_response.thought,
                     action=parsed_response.action,
-                    observation=observation
+                    observation=observation,
+                    progress_check=parsed_response.progress_check
                 )
                 state.scratchpad.append(entry)
                 state.turn_count += 1
@@ -443,6 +453,49 @@ class InteractiveUFFLOWReact:
                 print(f"\n{Colors.BOLD}Tools Used:{Colors.RESET} {', '.join(unique_tools)}")
 
         print(f"\n{Colors.BOLD}Summary:{Colors.RESET} {result.execution_summary}")
+
+    def _format_observation_output(self, observation: str) -> str:
+        """Format observation output with proper code/JSON formatting."""
+        try:
+            # Check if observation contains JSON
+            import re
+            json_pattern = r'\{[^{}]*\}'
+            json_matches = re.findall(json_pattern, observation)
+
+            formatted_obs = observation
+
+            # Format JSON objects
+            for json_match in json_matches:
+                try:
+                    import json
+                    parsed = json.loads(json_match)
+                    pretty_json = json.dumps(parsed, indent=2)
+                    # Add code block formatting
+                    formatted_json = f"\n```json\n{pretty_json}\n```"
+                    formatted_obs = formatted_obs.replace(json_match, formatted_json)
+                except json.JSONDecodeError:
+                    continue
+
+            # Check if observation contains code output (shell commands, etc.)
+            if 'stdout:' in observation:
+                # Extract stdout content and format it
+                stdout_match = re.search(r'stdout:\s*([^|]+)', observation)
+                if stdout_match:
+                    stdout_content = stdout_match.group(1).strip()
+                    # Check if it looks like code or structured output
+                    if any(keyword in stdout_content.lower() for keyword in ['def ', 'class ', 'import ', 'function', 'const ', 'var ', '#!/']):
+                        # Format as code block
+                        formatted_stdout = f"\n```\n{stdout_content}\n```"
+                        formatted_obs = formatted_obs.replace(stdout_content, formatted_stdout)
+                    elif stdout_content.count('\n') > 3:  # Multi-line output
+                        # Format as code block for readability
+                        formatted_stdout = f"\n```\n{stdout_content}\n```"
+                        formatted_obs = formatted_obs.replace(stdout_content, formatted_stdout)
+
+            return formatted_obs
+        except Exception:
+            # If formatting fails, return original observation
+            return observation
 
     def _convert_react_to_execution_data(self, goal: Goal, result: ReActResult) -> Dict[str, Any]:
         """Convert ReAct result to format compatible with CLI explorer."""
