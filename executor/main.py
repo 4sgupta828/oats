@@ -44,8 +44,14 @@ def _validate_inputs(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> Any
             raise ExecutionError(f"Missing required fields: {missing_fields}", "validation")
 
         for field_name, field_def in schema_properties.items():
-            field_type = field_def.get('type', 'string')
-            python_type = type_mapping.get(field_type, str)
+            # Handle anyOf (Union types)
+            if 'anyOf' in field_def:
+                # For anyOf, we'll be more permissive and use Any type
+                from typing import Any
+                python_type = Any
+            else:
+                field_type = field_def.get('type', 'string')
+                python_type = type_mapping.get(field_type, str)
 
             is_required = field_name in required_fields
 

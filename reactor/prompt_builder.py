@@ -3,7 +3,6 @@
 import sys
 import os
 import platform
-import subprocess
 import logging
 # Use tiktoken for accurate token counting with OpenAI models (optional)
 try:
@@ -324,7 +323,7 @@ class ReActPromptBuilder:
         """Build the core system prompt with ReAct instructions."""
         canonical_intents = [
             "execute_shell", "read_file", "write_file", "create_file", "list_files",
-            "smart_search", "find_files_by_name", "content_search",
+            "smart_search", "find_files_by_name", "content_search", "find_function", "search_functions",
             "provision_tool", "ask_user", "confirm_with_user"
         ]
 
@@ -360,17 +359,17 @@ SYNTHESIS: "current understanding summary"
 ### EXAMPLE:
 WORKING MEMORY UPDATE:
 ```
-NEW_FACTS: ["call_llm function found in tools/llm_integration.py", "function signature: call_llm(prompt: str, max_tokens: int = 500)"]
-HYPOTHESIS: "Parameters may vary by usage context - need to find actual calls"
-EVIDENCE_GAPS: ["actual parameter values in usage", "how many different usage patterns exist"]
+NEW_FACTS: ["Goal is to find 'llm calls' - need to discover what LLM functions exist in codebase"]
+HYPOTHESIS: "LLM functions likely contain 'llm' in their name or are related to language models"
+EVIDENCE_GAPS: ["what specific function names are used for LLM calls", "where these functions are defined"]
 FAILED_APPROACHES: []
-NEXT_PRIORITIES: ["read tools/smart_search.py to see usage example"]
-SYNTHESIS: "Found function definition, need to analyze usage patterns to compare parameters"
+NEXT_PRIORITIES: ["search broadly for 'llm' patterns to discover function names"]
+SYNTHESIS: "Starting discovery phase to identify LLM-related functions before searching for specific calls"
 ```
-PROGRESS CHECK: Good progress - have function definition, found potential usage location. Next step is clear.
-Thought: I have the function definition and found a reference to its usage. I should read the smart_search.py file to see the actual parameters being used.
-Intent: read_file
-Action: {{"tool_name": "read_file", "parameters": {{"filename": "tools/smart_search.py"}}}}
+PROGRESS CHECK: Initial step, need to discover LLM functions before I can find their calls.
+Thought: I need to find "llm calls" but don't know the specific function names yet. I should start with a broad search to discover what LLM-related functions exist in this codebase.
+Intent: smart_search
+Action: {{"tool_name": "smart_search", "parameters": {{"pattern": "llm", "file_types": ["py"], "context_hint": "function definitions and calls"}}}}
 
 ### CANONICAL INTENTS LIST:
 You MUST choose one of the following: {', '.join(canonical_intents)}
@@ -384,15 +383,33 @@ WORKING MEMORY FOCUS: Always reference your current working memory state when re
 RULES FOR SYSTEMATIC EXECUTION:
 1. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
 
-2. **EFFICIENT SEARCH STRATEGY (CRITICAL)**: ALWAYS use smart search tools BEFORE directory exploration:
+2. **EFFICIENT SEARCH & CODE DISCOVERY STRATEGY (CRITICAL)**:
+   **SEARCH PRIORITIES**: ALWAYS use smart search tools BEFORE directory exploration:
    - **FIRST PRIORITY**: Use `smart_search(pattern, file_types, context_hint)` to find content in files
    - **SECOND PRIORITY**: Use `find_files_by_name(filename_pattern)` to find files by name
    - **LAST RESORT**: Only use `list_files()` for understanding directory structure, NEVER for finding specific files
-   - **EXAMPLES**:
-     - Finding CSV with student data: `smart_search("student", file_types=["csv"], context_hint="student data")`
-     - Finding config files: `find_files_by_name("config")`
-     - Finding API references: `smart_search("api", file_types=["py", "js"], context_hint="source code")`
-   - **CRITICAL**: When search results show filenames, use the EXACT filename returned - do NOT modify or guess filenames
+
+   **MAXIMIZE DISCOVERY WITH BROAD REGEX PATTERNS**:
+   - Use `.*{{term}}.*` patterns to catch ALL variations (e.g., `.*llm.*` finds get_llm_response, llm_call, my_llm_helper)
+   - Start broad, then narrow down if needed
+   - Better to find too much than miss important matches
+
+   **TARGETED CODE READING**:
+   - **Don't read entire files** - use targeted reading to focus on what you need
+   - **Discovery workflow**: `smart_search(".*pattern.*", ["py"])` → find relevant code → `read_file(file, start_line=X, context_lines=10)`
+   - **Function analysis**: `search_functions(".*name.*", "function", use_regex=True)` → get exact location → read with context
+   - **Expand context as needed**: Start with 10 lines, increase to 20-30 for larger functions or classes
+
+   **EXAMPLES**:
+   - Finding CSV with student data: `smart_search(".*student.*", file_types=["csv"], context_hint="student data")`
+   - Finding config files: `find_files_by_name(".*config.*")`
+   - Finding API references: `smart_search(".*api.*", file_types=["py", "js"], context_hint="source code")`
+   - Finding exact function: `search_functions("my_function", "function")`
+   - Finding ALL functions containing term: `search_functions(".*llm.*", "function", use_regex=True)` to catch get_llm, llm_call, my_llm_helper, etc.
+   - Finding ALL classes containing term: `search_functions(".*handler.*", "class", use_regex=True)` to catch FileHandler, DataHandler, MyHandler, etc.
+
+   **CRITICAL RULES**:
+   - When search results show filenames, use the EXACT filename returned - do NOT modify or guess filenames
    - **AVOID**: `list_files()` followed by manual file inspection - this is inefficient!
 
 3. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:

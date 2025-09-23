@@ -5,13 +5,13 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pydantic import Field
-from typing import Any, Optional
+from typing import Any, Optional, Union, List
 from core.sdk import uf, UfInput
 from .smart_search import SmartSearchEngine
 
 class SmartSearchInput(UfInput):
     pattern: str = Field(..., description="The search pattern or text to find.")
-    file_types: Optional[Any] = Field(None, description="File extensions - accepts list ['csv', 'json'] or string 'csv,json'. If not specified, will search all relevant file types.")
+    file_types: Optional[Union[str, List[str]]] = Field(None, description="File extensions - accepts list ['csv', 'json'] or string 'csv,json'. If not specified, will search all relevant file types.")
     context_hint: Optional[str] = Field(None, description="Optional context hint about the type of data being searched (e.g., 'csv data', 'config file', 'log data').")
     max_results: int = Field(50, description="Maximum number of results to return.")
 
@@ -21,7 +21,7 @@ class FindFilesByNameInput(UfInput):
 
 class ContentSearchInput(UfInput):
     pattern: str = Field(..., description="Text pattern to search for within files.")
-    file_types: Optional[Any] = Field(None, description="File extensions - accepts list ['csv', 'txt'] or string 'csv,txt'.")
+    file_types: Optional[Union[str, List[str]]] = Field(None, description="File extensions - accepts list ['csv', 'txt'] or string 'csv,txt'.")
     case_sensitive: bool = Field(False, description="Whether to perform case-sensitive search.")
     whole_words: bool = Field(False, description="Whether to match whole words only.")
 
