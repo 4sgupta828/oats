@@ -229,10 +229,8 @@ class ReActPromptBuilder:
     def _build_system_prompt(self) -> str:
         """Build the core system prompt with ReAct instructions."""
         canonical_intents = [
-            "lint_code", "format_code", "run_tests", "install_dependencies",
-            "parse_structured_data", "check_for_secrets", "search_codebase",
-            "read_file", "write_file", "list_files", "provision_tool", "check_tool_availability",
-            "ask_user", "confirm_with_user"
+            "execute_shell", "read_file", "write_file", "create_file", "list_files",
+            "provision_tool", "ask_user", "confirm_with_user"
         ]
 
         return f"""You are an autonomous AI agent that accomplishes complex goals by reasoning step-by-step and using available tools.

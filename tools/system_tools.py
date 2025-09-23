@@ -12,16 +12,6 @@ from core.sdk import uf, UfInput
 
 logger = logging.getLogger(__name__)
 
-class CheckCommandInput(UfInput):
-    command_name: str = Field(..., description="Name of the command to check for existence")
-
-    @field_validator('command_name')
-    @classmethod
-    def validate_command_name(cls, v):
-        if not v or not v.strip():
-            raise ValueError("Command name cannot be empty")
-        return v.strip()
-
 class ProvisionToolInput(UfInput):
     goal: str = Field(..., description="Description of what tool is needed and why")
 
@@ -31,38 +21,6 @@ class ProvisionToolInput(UfInput):
         if not v or not v.strip():
             raise ValueError("Goal cannot be empty")
         return v.strip()
-
-@uf(name="check_command_exists", version="1.0.0", description="Check if a command/tool exists on the system using cross-platform detection.")
-def check_command_exists(inputs: CheckCommandInput) -> dict:
-    """Check if a command exists on the system using shutil.which() for cross-platform compatibility."""
-    try:
-        logger.info(f"Checking if command '{inputs.command_name}' exists")
-
-        # Use shutil.which for cross-platform command detection
-        command_path = shutil.which(inputs.command_name)
-        exists = command_path is not None
-
-        result = {
-            "exists": exists,
-            "path": command_path,
-            "command_name": inputs.command_name
-        }
-
-        if exists:
-            logger.info(f"Command '{inputs.command_name}' found at: {command_path}")
-        else:
-            logger.info(f"Command '{inputs.command_name}' not found on system")
-
-        return result
-
-    except Exception as e:
-        logger.error(f"Error checking command existence: {e}")
-        return {
-            "exists": False,
-            "path": None,
-            "command_name": inputs.command_name,
-            "error": str(e)
-        }
 
 @uf(name="provision_tool_agent", version="1.0.0", description="ONLY for installing missing tools. Use format: 'I need [tool] to do [task]' or 'I need any tool to do [task]'. Do NOT use for learning tool usage or syntax - use --help flags or built-in knowledge instead.")
 def provision_tool_agent(inputs: ProvisionToolInput) -> dict:
