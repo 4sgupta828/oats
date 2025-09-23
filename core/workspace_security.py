@@ -43,8 +43,8 @@ class WorkspaceSecurity:
 
     def _find_file_recursive(self, filename: str) -> Optional[str]:
         """
-        Recursively search for a file starting from workspace root.
-        If multiple files are found, consult user to choose, unless it's a specific path.
+        Efficiently search for a file using smart search engine when available.
+        Falls back to traditional recursive search if needed.
 
         Args:
             filename: Name of file to search for (can be relative path)
@@ -67,7 +67,24 @@ class WorkspaceSecurity:
                 # Path specified but doesn't exist
                 return None
 
-        # Find all matches for simple filenames
+        # Try efficient search first
+        try:
+            from tools.smart_search import SmartSearchEngine
+            search_engine = SmartSearchEngine(str(self.workspace_root))
+            matches = search_engine.find_files_by_name(filename)
+
+            if matches:
+                print(f"🚀 Smart search found {len(matches)} matches for '{filename}'")
+                if len(matches) == 1:
+                    return matches[0]
+                else:
+                    # Multiple matches found - consult user or use LLM
+                    return self._consult_user_for_file_choice(filename, matches)
+        except ImportError:
+            # Smart search not available, fall back to traditional method
+            pass
+
+        # Fallback to traditional recursive search
         matches = self._find_all_files_recursive(filename)
 
         if not matches:
