@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 class ProvisionToolInput(UfInput):
     goal: str = Field(..., description="Description of what tool is needed and why")
+    auto_mode: bool = Field(default=True, description="Skip user confirmations and automatically approve installations")
 
     @field_validator('goal')
     @classmethod
@@ -31,7 +32,7 @@ def provision_tool_agent(inputs: ProvisionToolInput) -> dict:
         from registry.main import global_registry
 
         # Create and run the Tool Provisioning Agent with live updates
-        agent = ToolProvisioningAgent(registry=global_registry)
+        agent = ToolProvisioningAgent(registry=global_registry, auto_mode=inputs.auto_mode)
         result = agent.run(inputs.goal, show_live_updates=True)
 
         # If tool was successfully installed, attempt to refresh registry

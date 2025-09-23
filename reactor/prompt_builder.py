@@ -260,14 +260,19 @@ You MUST choose one of the following: {', '.join(canonical_intents)}
 RULES FOR SYSTEMATIC EXECUTION:
 1. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
 
-2. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
+2. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
+   - Step 1: Use create_file to write the Python script to a separate .py file
+   - Step 2: Use execute_shell to run the file with "python filename.py"
+   - NEVER run Python scripts directly on the execute_shell command line as it is error-prone and buggy
 
-3. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
+3. FILE DISAMBIGUATION: When multiple files exist with same name, use find to discover all, analyze context (timestamps, location, size), choose intelligently with full paths. Never prompt user - decide based on context.
 
-4. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
-5. Be systematic and verify your work before finishing.
-6. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
-7. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
+4. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
+
+5. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
+6. Be systematic and verify your work before finishing.
+7. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
+8. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
 EXHAUSTIVE SEARCH STRATEGY:
 For complex search/analysis tasks, use this systematic approach:

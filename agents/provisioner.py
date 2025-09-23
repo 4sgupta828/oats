@@ -35,13 +35,14 @@ class ToolProvisioningAgent:
     Operates its own ReAct loop focused solely on tool provisioning.
     """
 
-    def __init__(self, registry=None):
+    def __init__(self, registry=None, auto_mode=False):
         self.registry = registry  # Reference to main registry for dynamic updates
         self.llm_client = OpenAIClientManager()
+        self.auto_mode = auto_mode  # Skip user confirmations when True
         # Limited toolset for provisioning - avoid circular dependencies
         self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "ask_llm_for_instructions", "web_search_for_tool", "finish"]
 
-    def run(self, goal: str, show_live_updates: bool = True) -> dict:
+    def run(self, goal: str, show_live_updates: bool = True, auto_mode: bool = None) -> dict:
         """
         Run the Tool Provisioning Agent's ReAct loop.
 
@@ -54,10 +55,15 @@ class ToolProvisioningAgent:
         start_time = time.time()
         logger.info(f"Tool Provisioning Agent starting: {goal}")
 
+        # Use auto_mode from parameter if provided, otherwise use instance setting
+        if auto_mode is not None:
+            self.auto_mode = auto_mode
+
         if show_live_updates:
             print(f"\n{Colors.BOLD}{Colors.BLUE}═══ TOOL PROVISIONING AGENT ═══{Colors.RESET}")
             print(f"{Colors.BOLD}Goal:{Colors.RESET} {goal}")
-            print(f"{Colors.YELLOW}🔧 Starting tool provisioning with live updates...{Colors.RESET}")
+            auto_status = " (AUTO MODE)" if self.auto_mode else ""
+            print(f"{Colors.YELLOW}🔧 Starting tool provisioning with live updates...{auto_status}{Colors.RESET}")
 
         # Initialize state with turn limit - allow up to 10 turns before requiring approval
         state = ReActState(goal=goal, max_turns=10)
@@ -70,13 +76,18 @@ class ToolProvisioningAgent:
 
                 # Check if we've exceeded max turns and need user confirmation
                 if turn_num > state.max_turns:
-                    if show_live_updates:
-                        print(f"\n{Colors.YELLOW}⚠️  Reached maximum turns ({state.max_turns}). Continue? (Y/n, Enter=Y): {Colors.RESET}", end="")
-                        response = input().strip().lower()
-                        if response in ['n', 'no']:
-                            logger.info("Tool provisioning stopped by user after max turns")
-                            break
-                        # If Y, yes, or Enter (empty), continue
+                    if self.auto_mode:
+                        if show_live_updates:
+                            print(f"\n{Colors.YELLOW}⚠️  Reached maximum turns ({state.max_turns}). Auto mode: continuing...{Colors.RESET}")
+                        logger.info("Auto mode: continuing past max turns")
+                    else:
+                        if show_live_updates:
+                            print(f"\n{Colors.YELLOW}⚠️  Reached maximum turns ({state.max_turns}). Continue? (Y/n, Enter=Y): {Colors.RESET}", end="")
+                            response = input().strip().lower()
+                            if response in ['n', 'no']:
+                                logger.info("Tool provisioning stopped by user after max turns")
+                                break
+                            # If Y, yes, or Enter (empty), continue
 
                 logger.info(f"Provisioning turn {turn_num}/{state.max_turns}+" if turn_num > state.max_turns else f"Provisioning turn {turn_num}/{state.max_turns}")
 
@@ -216,7 +227,7 @@ GOAL: {goal}
 AVAILABLE ACTIONS:
 1. execute_shell - Run shell commands to install tools
 2. check_command_exists - Verify if a tool is already installed
-3. user_confirm - Ask user for permission before risky operations
+3. user_confirm - Ask user for permission before risky operations (auto-approved in auto mode)
 4. user_prompt - Ask user for guidance when stuck or need information
 5. ask_llm_for_instructions - Get installation instructions from LLM for a specific tool and platform
 6. web_search_for_tool - Search web for tool installation troubleshooting or alternatives
@@ -266,7 +277,7 @@ Action: {{"tool_name": "finish", "parameters": {{"success": true, "tool_name": "
 
 INSTALLATION STRATEGIES (try in order):
 1. First check if tool already exists with check_command_exists
-2. **ASK PERMISSION** before system changes with user_confirm
+2. **ASK PERMISSION** before system changes with user_confirm (automatically approved in auto mode)
 3. Package managers (prioritize by OS): macOS=brew, Linux=apt/yum, Windows=chocolatey
 4. **CLI applications**: pipx install (preferred for Python CLI tools like radon, black, flake8)
 5. Language-specific managers: Python=pip/pip3 (only for project dependencies in venv), Node=npm/yarn, Rust=cargo
@@ -515,6 +526,12 @@ Your response:"""
         from tools.file_system import user_confirm, UserConfirmInput
 
         try:
+            # In auto mode, automatically approve all confirmations
+            if self.auto_mode:
+                message = parameters.get("message", "Proceed?")
+                logger.info(f"Auto mode: automatically approving: {message}")
+                return f"AUTO_CONFIRMED: {message}"
+
             inputs = UserConfirmInput(
                 message=parameters.get("message", "Proceed?"),
                 default_yes=parameters.get("default_yes", True)
