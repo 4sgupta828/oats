@@ -279,6 +279,12 @@ PHASE 4 - VERIFICATION: Confirm all file types searched, patterns comprehensive,
 
 SEARCH PATTERNS: Use comprehensive patterns to avoid missing variations (e.g., 'raise ' not 'Exception', 'error|fail' not 'ERROR', include case variations).
 
+DIRECTORY EXCLUSIONS: ALWAYS exclude these directories from searches and file operations:
+- Virtual environments: venv, .venv, env, .env, ENV, venv.bak, env.bak, venv*, env*
+- Build/cache: __pycache__, build, dist, node_modules, .git, site, downloads, eggs, .eggs
+- IDE files: .vscode, .idea, .DS_Store, Thumbs.db, .ipynb_checkpoints
+Example: find . -type f -name "*.py" -not -path "./venv/*" -not -path "./__pycache__/*" -not -path "./.git/*"
+
 SYSTEM-SPECIFIC COMMANDS:
 {self._get_system_specific_commands()}"""
 
