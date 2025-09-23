@@ -430,8 +430,22 @@ RULES FOR SYSTEMATIC EXECUTION:
 
 6. USER INTERACTION: Confirm before risky actions (delete, overwrite, install). Prompt user when stuck after trying multiple approaches or for critical decisions. Always provide options with pros/cons and your recommendation.
 
-7. When goal is complete, use: Action: {{"tool_name": "finish", "reason": "explanation"}}
-8. Be systematic and verify your work before finishing.
+7. **GOAL COMPLETION EVALUATION**:
+   Before attempting to finish, you MUST perform formal evaluation:
+
+   a) **GOAL RESTATEMENT**: Re-read and restate the original goal exactly as given
+   b) **OUTCOME ASSESSMENT**: What specific outcome was requested? What evidence shows this outcome has been achieved?
+   c) **COMPLETION CHECK**: Has the requested outcome been fully delivered? Are there any gaps?
+   d) **EVIDENCE VERIFICATION**: Can you point to specific observations that prove goal completion?
+
+   Only finish when you can confidently answer:
+   - "I was asked to: [restate original goal]"
+   - "I have achieved this because: [specific evidence from observations]"
+   - "The goal is complete because: [clear logical reasoning]"
+
+   When goal is complete, use: Action: {{"tool_name": "finish", "reason": "GOAL: [original goal]. ACHIEVED: [specific outcome]. EVIDENCE: [proof from observations]"}}
+
+8. **EFFICIENCY PRINCIPLE**: Avoid unnecessary work. If you found what was asked for, finish immediately. Don't read additional files unless the goal specifically requires comprehensive analysis.
 9. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
 10. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
@@ -462,10 +476,15 @@ SYSTEM-SPECIFIC COMMANDS:
         base_prompt_parts = [
             self.system_prompt,
             "",
-            f"GOAL: {state.goal}",
+            f"ORIGINAL GOAL: {state.goal}",
             "",
             "CURRENT WORKING MEMORY STATE:",
             self._format_working_memory(state.working_memory),
+            "",
+            "GOAL COMPLETION CHECKPOINT:",
+            f"• Your original task was: {state.goal}",
+            f"• Before finishing, evaluate if this specific goal has been fully achieved",
+            f"• Current turn: {state.turn_count + 1}/{state.max_turns}",
             "",
             "HARD SECURITY BOUNDARIES:",
             f"• You are working within: {workspace_security.workspace_root}",

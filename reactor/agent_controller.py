@@ -119,47 +119,28 @@ class AgentController:
                     if parsed_response.is_finish:
                         logger.info("Agent indicated goal completion")
 
-                        # Perform completeness verification for analysis tasks
                         completion_reason = parsed_response.action.get("reason", "Goal completed")
-                        verification_result = self._verify_goal_completeness(state, completion_reason)
-
-                        # Add the final reasoning turn to scratchpad
                         turn_duration = int((time.time() - turn_start_time) * 1000)
 
-                        if verification_result['is_complete']:
-                            # Save final results to file before finishing
-                            final_results_file = self._save_final_results(state, completion_reason)
+                        # Save final results to file before finishing
+                        final_results_file = self._save_final_results(state, completion_reason)
 
-                            final_scratchpad_entry = ScratchpadEntry(
-                                turn=state.turn_count + 1,
-                                thought=parsed_response.thought,
-                                intent=parsed_response.intent,
-                                action=parsed_response.action,
-                                observation=f"FINISH: {completion_reason}\nVERIFICATION: {verification_result['message']}\nFINAL RESULTS SAVED: {final_results_file}",
-                                progress_check=parsed_response.progress_check,
-                                duration_ms=turn_duration
-                            )
-                            state.scratchpad.append(final_scratchpad_entry)
-                            state.turn_count += 1
+                        # Trust the agent's completion decision
+                        final_scratchpad_entry = ScratchpadEntry(
+                            turn=state.turn_count + 1,
+                            thought=parsed_response.thought,
+                            intent=parsed_response.intent,
+                            action=parsed_response.action,
+                            observation=f"FINISH: {completion_reason}\nFINAL RESULTS SAVED: {final_results_file}",
+                            progress_check=parsed_response.progress_check,
+                            duration_ms=turn_duration
+                        )
+                        state.scratchpad.append(final_scratchpad_entry)
+                        state.turn_count += 1
 
-                            state.is_complete = True
-                            state.completion_reason = completion_reason
-                            break
-                        else:
-                            # Goal not actually complete - continue with verification feedback
-                            incomplete_entry = ScratchpadEntry(
-                                turn=state.turn_count + 1,
-                                thought=parsed_response.thought,
-                                intent=parsed_response.intent,
-                                action=parsed_response.action,
-                                observation=f"INCOMPLETE GOAL: {verification_result['message']}\nContinue working to complete all requirements.",
-                                progress_check=parsed_response.progress_check,
-                                duration_ms=turn_duration
-                            )
-                            state.scratchpad.append(incomplete_entry)
-                            state.turn_count += 1
-                            logger.warning(f"Goal completion rejected: {verification_result['message']}")
-                            continue
+                        state.is_complete = True
+                        state.completion_reason = completion_reason
+                        break
 
                     # D. Act: Execute the action
                     observation = self.tool_executor.execute_action(parsed_response.action)
@@ -404,79 +385,6 @@ class AgentController:
             summary += f"\nActions used: {', '.join(unique_actions)}"
 
         return summary
-
-    def _verify_goal_completeness(self, state: ReActState, completion_reason: str) -> Dict[str, Any]:
-        """
-        Verify if the goal is truly complete based on the execution history.
-        This helps prevent premature completion of complex analysis tasks.
-        """
-        goal = state.goal.lower()
-        completion_reason = completion_reason.lower()
-
-        # Check if this is a search/analysis goal
-        analysis_keywords = ["search", "find", "analyze", "correlate", "map", "identify", "extract", "discover"]
-        is_analysis_goal = any(keyword in goal for keyword in analysis_keywords)
-
-        if not is_analysis_goal:
-            # For non-analysis goals, trust the agent's completion decision
-            return {"is_complete": True, "message": "Goal completion accepted"}
-
-        # For analysis goals, perform stricter verification
-        issues = []
-
-        # Check if comprehensive search was performed
-        shell_actions = [entry for entry in state.scratchpad if entry.action.get("tool_name") == "execute_shell"]
-        file_actions = [entry for entry in state.scratchpad if entry.action.get("tool_name") in ["create_file", "read_file"]]
-
-        # Verify discovery phase
-        find_commands = [entry for entry in shell_actions if "find" in str(entry.action.get("parameters", {})).lower()]
-        if not find_commands and "find" in goal:
-            issues.append("No discovery phase detected - missing 'find' commands to locate all relevant files")
-
-        # Verify extraction phase for error analysis
-        if "error" in goal and "log" in goal:
-            grep_commands = [entry for entry in shell_actions if "grep" in str(entry.action.get("parameters", {})).lower()]
-            if not grep_commands:
-                issues.append("No extraction phase detected - missing 'grep' commands to extract error patterns")
-            else:
-                # Check if grep included line numbers and context
-                has_line_numbers = any("-n" in str(entry.action.get("parameters", {})) or "-H" in str(entry.action.get("parameters", {})) for entry in grep_commands)
-                if not has_line_numbers:
-                    issues.append("Grep commands should include line numbers (-n or -H) for proper correlation")
-
-        # Verify correlation phase
-        if "correlate" in goal or "map" in goal or ("source" in goal and "code" in goal):
-            py_searches = [entry for entry in shell_actions if "*.py" in str(entry.action.get("parameters", {})) or "python" in str(entry.action.get("parameters", {})).lower()]
-            if not py_searches:
-                issues.append("No correlation phase detected - missing source code searches in Python files")
-
-        # Verify results were saved for analysis
-        if len(shell_actions) > 3 and not file_actions:  # If complex analysis but no file operations
-            issues.append("Complex analysis should save intermediate results to files for verification")
-
-        # Check for shell redirection usage (proper way to handle large outputs)
-        redirect_commands = [entry for entry in shell_actions if ">" in str(entry.action.get("parameters", {}))]
-        large_output_commands = [entry for entry in shell_actions if "grep" in str(entry.action.get("parameters", {})).lower() or "find" in str(entry.action.get("parameters", {})).lower()]
-
-        if len(large_output_commands) >= 2 and len(redirect_commands) == 0:
-            issues.append("Large search outputs should use shell redirection (> filename.txt) to avoid truncation")
-
-        # Check if completion reason demonstrates understanding
-        superficial_reasons = ["done", "complete", "finished", "found errors", "searched files"]
-        if any(reason in completion_reason for reason in superficial_reasons) and len(completion_reason) < 50:
-            issues.append("Completion reason is too brief - should demonstrate comprehensive understanding of findings")
-
-        # Determine completeness
-        if issues:
-            return {
-                "is_complete": False,
-                "message": f"Goal verification failed: {'; '.join(issues)}"
-            }
-        else:
-            return {
-                "is_complete": True,
-                "message": "Goal completion verified - all analysis phases detected"
-            }
 
     def _extract_thought_intent_and_action(self, raw_response: str) -> Optional[Dict[str, Any]]:
         """Extract thought, intent, and action from raw response using multiple strategies."""
