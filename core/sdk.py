@@ -5,6 +5,9 @@ from pydantic import BaseModel, create_model
 import inspect
 
 from .models import UFDescriptor, InputResolver, Invocation
+from .logging_config import get_logger
+
+logger = get_logger('sdk')
 
 # A clear alias for developers to use as a base class for their input schemas.
 UfInput = BaseModel
@@ -27,20 +30,26 @@ def uf(
         # Input schema is derived from the first argument's type hint.
         # It must be a Pydantic model subclassed from UfInput.
         if not sig.parameters:
-            raise TypeError(f"UF function '{name}' must have at least one argument for inputs.")
-        
+            error_msg = f"UF function '{name}' must have at least one argument for inputs."
+            logger.error(error_msg)
+            raise TypeError(error_msg)
+
         input_param_name = next(iter(sig.parameters))
         input_schema_type: Type[BaseModel] = sig.parameters[input_param_name].annotation
-        
+
         if not issubclass(input_schema_type, BaseModel):
-            raise TypeError(f"The first argument of '{name}' must be type-hinted with a Pydantic model.")
+            error_msg = f"The first argument of '{name}' must be type-hinted with a Pydantic model."
+            logger.error(error_msg)
+            raise TypeError(error_msg)
 
         input_schema = input_schema_type.model_json_schema()
 
         # Output schema is derived from the return type hint.
         output_schema_type = sig.return_annotation
         if output_schema_type is inspect.Signature.empty:
-            raise TypeError(f"UF function '{name}' must have a return type hint.")
+            error_msg = f"UF function '{name}' must have a return type hint."
+            logger.error(error_msg)
+            raise TypeError(error_msg)
         
         # Create a temporary Pydantic model to generate the JSON schema for the output.
         from pydantic import RootModel
@@ -75,8 +84,9 @@ def uf(
             output_schema=output_schema,
             resolver_template=resolver_template,
         )
-        
+
         setattr(func, '_uf_descriptor', descriptor)
-        
+        logger.debug(f"Registered UF: {name} v{version} from {func.__module__}.{func.__name__}")
+
         return func
     return decorator

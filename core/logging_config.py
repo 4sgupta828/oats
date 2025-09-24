@@ -10,6 +10,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
+from .config import UFFlowConfig
 
 
 class StructuredFormatter(logging.Formatter):
@@ -65,16 +66,17 @@ class UFFlowLogger:
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
 
-        # Root logger configuration
+        # Root logger configuration with level from config
+        log_level = getattr(logging, UFFlowConfig.LOG_LEVEL.upper(), logging.INFO)
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
+        root_logger.setLevel(log_level)
 
         # Clear any existing handlers
         root_logger.handlers.clear()
 
         # Console handler with simple format
         console_handler = logging.StreamHandler(sys.stdout)
-        console_level = logging.WARNING if suppress_info_logs else logging.INFO
+        console_level = logging.WARNING if suppress_info_logs else log_level
         console_handler.setLevel(console_level)
         console_format = logging.Formatter(
             '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'

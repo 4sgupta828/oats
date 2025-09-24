@@ -2,6 +2,9 @@
 
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Literal, Optional
+from .logging_config import get_logger
+
+logger = get_logger('models')
 
 # --- Foundational Data Models ---
 
