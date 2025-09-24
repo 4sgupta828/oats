@@ -101,9 +101,14 @@ class ReActToolExecutor:
 
         if result.status == "failure":
             error_msg = result.error or 'Unknown error'
-            # Provide enhanced feedback for shell command failures
-            if tool_name == "execute_shell" and "truncated" in error_msg.lower():
+            
+            # Provide enhanced feedback for different error types
+            if "Missing required fields" in error_msg:
+                # Add specific guidance for missing parameter errors
+                error_msg += "\n\nGUIDANCE: When calling a tool, you must provide all required parameters in the 'parameters' object. Review the tool's schema and provide the missing fields."
+            elif tool_name == "execute_shell" and "truncated" in error_msg.lower():
                 error_msg += "\nSUGGESTION: Output was truncated. Try breaking the command into smaller parts or save results to files."
+            
             return f"ERROR ({tool_name}): {error_msg}"
 
         # Format successful result

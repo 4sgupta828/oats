@@ -353,6 +353,8 @@ Thought: [Reason about your goal using current working memory and formulate next
 Intent: [Classify your plan into a single intent from the CANONICAL INTENTS LIST below]
 Action: {{"tool_name": "tool_name", "parameters": {{"param": "value"}}}}
 
+NOTE: You MUST provide ALL required parameters for each tool. Check the AVAILABLE TOOLS section above for the exact schema.
+
 ### WORKING MEMORY UPDATE FORMAT:
 Use this structured format for working memory updates:
 ```
@@ -545,6 +547,9 @@ SYSTEM-SPECIFIC COMMANDS:
         base_prompt_parts = [
             self.system_prompt,
             "",
+            "AVAILABLE TOOLS:",
+            self._format_tool_descriptions(available_tools),
+            "",
             f"ORIGINAL GOAL: {state.goal}",
             "",
             "CURRENT WORKING MEMORY STATE:",
@@ -560,9 +565,6 @@ SYSTEM-SPECIFIC COMMANDS:
             f"• All file operations must stay within this directory.",
             f"• Use relative paths when possible (e.g., './logs/error.log').",
             f"• CRITICAL: Any attempt to access, modify, or list files outside of this workspace will result in immediate termination of the task.",
-            "",
-            "AVAILABLE TOOLS:",
-            self._format_tool_descriptions(available_tools),
             "",
         ]
 
@@ -604,7 +606,7 @@ SYSTEM-SPECIFIC COMMANDS:
         return final_prompt
 
     def _format_tool_descriptions(self, tools: List[UFDescriptor]) -> str:
-        """Format available tools for the prompt."""
+        """Format available tools for the prompt with enhanced visibility."""
         tool_descriptions = []
 
         for tool in tools:
@@ -620,8 +622,14 @@ SYSTEM-SPECIFIC COMMANDS:
                 required_marker = " (required)" if param_name in required else " (optional)"
                 params.append(f"  - {param_name} ({param_type}){required_marker}: {param_desc}")
 
+            # Add warning for tools with required parameters
+            required_warning = ""
+            if required:
+                required_list = ", ".join(required)
+                required_warning = f"\n  REQUIRED: {required_list}"
+
             tool_desc = f"""- {tool.name}:{tool.version}
-  Description: {tool.description}
+  Description: {tool.description}{required_warning}
   Parameters:
 {chr(10).join(params) if params else "  None"}"""
 

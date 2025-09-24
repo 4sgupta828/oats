@@ -41,7 +41,21 @@ def _validate_inputs(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> Any
         # Validate that all required fields are present
         missing_fields = [field for field in required_fields if field not in inputs]
         if missing_fields:
-            raise ExecutionError(f"Missing required fields: {missing_fields}", "validation")
+            # Provide more helpful error message with tool context
+            error_msg = f"Missing required fields: {missing_fields}"
+            if schema_properties:
+                # Add field descriptions to help the LLM understand what's needed
+                field_descriptions = []
+                for field in missing_fields:
+                    field_def = schema_properties.get(field, {})
+                    description = field_def.get('description', 'No description available')
+                    field_type = field_def.get('type', 'unknown')
+                    field_descriptions.append(f"- {field} ({field_type}): {description}")
+                
+                if field_descriptions:
+                    error_msg += f"\n\nRequired field details:\n" + "\n".join(field_descriptions)
+            
+            raise ExecutionError(error_msg, "validation")
 
         for field_name, field_def in schema_properties.items():
             # Handle anyOf (Union types)
