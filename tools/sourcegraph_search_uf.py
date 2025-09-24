@@ -7,7 +7,13 @@ while preserving all existing search tools unchanged.
 
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure we use the correct oats directory and tools directory
+oats_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+tools_dir = os.path.dirname(os.path.abspath(__file__))
+if oats_root not in sys.path:
+    sys.path.insert(0, oats_root)
+if tools_dir not in sys.path:
+    sys.path.insert(0, tools_dir)
 
 # Set up Sourcegraph environment variables at module level
 os.environ['SRC_ENDPOINT'] = 'http://localhost:7080'
@@ -45,16 +51,14 @@ def sourcegraph_search(inputs: SourcegraphSearchInput) -> dict:
     print(f"🔍 Sourcegraph search: '{inputs.query}'")
 
     try:
-        # Set up Sourcegraph environment variables
+        # Always ensure Sourcegraph environment variables are set
         import os
         os.environ['SRC_ENDPOINT'] = 'http://localhost:7080'
-        if 'SRC_ACCESS_TOKEN' not in os.environ:
-            # Try to get token from zshrc or set a default for local development
-            token = os.environ.get('SRC_ACCESS_TOKEN', 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d')
-            os.environ['SRC_ACCESS_TOKEN'] = token
+        # Always set the access token to ensure it's available
+        os.environ['SRC_ACCESS_TOKEN'] = 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d'
 
         # Try Sourcegraph first
-        from .sourcegraph_search import SourcegraphSearchEngine
+        from sourcegraph_search import SourcegraphSearchEngine
 
         engine = SourcegraphSearchEngine(workspace_root)
 

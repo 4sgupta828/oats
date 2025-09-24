@@ -116,14 +116,22 @@ class SourcegraphSearchEngine:
 
     def _check_src_cli(self) -> bool:
         """Check if Sourcegraph CLI is available"""
-        try:
-            result = subprocess.run(['src', 'version'],
-                                  capture_output=True,
-                                  text=True,
-                                  timeout=5)
-            return result.returncode == 0
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+        # Try multiple possible locations for src CLI
+        src_commands = ['src', '/opt/homebrew/bin/src', '/usr/local/bin/src']
+
+        for src_cmd in src_commands:
+            try:
+                result = subprocess.run([src_cmd, 'version'],
+                                      capture_output=True,
+                                      text=True,
+                                      timeout=5)
+                cli_available = result.returncode == 0
+                if cli_available:
+                    return True
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+        return False
 
     def analyze_user_query(self, query: str, context_hint: Optional[str] = None) -> Tuple[SearchType, LanguageType, str]:
         """
@@ -167,40 +175,28 @@ class SourcegraphSearchEngine:
         """Detect the type of search based on query patterns"""
         combined_text = f"{query} {context_hint or ''}".lower()
 
-        # Check for explicit type requests
+        # Check for explicit type requests - but fallback to text search
         if any(word in combined_text for word in ['function', 'method', 'def ']):
-            return SearchType.FUNCTION
+            return SearchType.TEXT  # Use text search for functions too
         elif any(word in combined_text for word in ['class', 'struct', 'interface']):
-            return SearchType.CLASS
+            return SearchType.TEXT  # Use text search for classes too
         elif any(word in combined_text for word in ['import', 'require', 'include']):
-            return SearchType.IMPORT
+            return SearchType.TEXT  # Use text search for imports too
         elif any(word in combined_text for word in ['symbol', 'definition', 'declaration']):
-            return SearchType.SYMBOL
+            return SearchType.TEXT  # Use text search for symbols too
         elif any(word in combined_text for word in ['variable', 'var', 'const', 'let']):
-            return SearchType.VARIABLE
+            return SearchType.TEXT  # Use text search for variables too
 
         # For multi-word descriptive queries, default to text search first
         if len(query.split()) > 1 and not re.search(r'^[A-Z][a-z]+[A-Z]', query):  # Not PascalCase like ClassName
             return SearchType.TEXT
 
-        # Pattern-based detection for single words or PascalCase
-        search_type_mapping = {
-            'function': SearchType.FUNCTION,
-            'class': SearchType.CLASS,
-            'import': SearchType.IMPORT,
-            'variable': SearchType.VARIABLE
-        }
-
-        for search_type, patterns in self.search_patterns.items():
-            if any(re.search(pattern, query, re.IGNORECASE) for pattern in patterns):
-                return search_type_mapping.get(search_type, SearchType.SYMBOL)
-
         # Check if query looks like structural search (code blocks)
         if any(char in query for char in ['{', '}', '(', ')', '[', ']']) and len(query.split()) > 2:
             return SearchType.STRUCTURAL
 
-        # Default to symbol search for better semantic understanding
-        return SearchType.SYMBOL
+        # Default to text search for simplicity and reliability
+        return SearchType.TEXT
 
     def _extract_search_pattern(self, query: str, search_type: SearchType) -> str:
         """Extract clean search pattern from user query"""
@@ -266,9 +262,19 @@ class SourcegraphSearchEngine:
             raise RuntimeError("Sourcegraph CLI not available. Please install src CLI.")
 
         try:
+            # Find the src command
+            src_cmd = 'src'
+            for possible_src in ['src', '/opt/homebrew/bin/src', '/usr/local/bin/src']:
+                try:
+                    subprocess.run([possible_src, 'version'], capture_output=True, timeout=1, check=True)
+                    src_cmd = possible_src
+                    break
+                except:
+                    continue
+
             # Execute src search command with local endpoint
             cmd = [
-                'src', 'search',
+                src_cmd, 'search',
                 '-json',  # Get JSON output for easier parsing
                 f'-display={max_results}',
                 query
@@ -280,7 +286,7 @@ class SourcegraphSearchEngine:
             # Keep existing SRC_ACCESS_TOKEN if available
             if 'SRC_ACCESS_TOKEN' not in env:
                 # Try to get from environment or use default if testing locally
-                env['SRC_ACCESS_TOKEN'] = os.environ.get('SRC_ACCESS_TOKEN', '')
+                env['SRC_ACCESS_TOKEN'] = os.environ.get('SRC_ACCESS_TOKEN', 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d')
 
             result = subprocess.run(
                 cmd,
@@ -312,7 +318,7 @@ class SourcegraphSearchEngine:
         try:
             data = json.loads(json_output)
 
-            for item in data.get('Results', []):
+            for item in data.get('Results', data.get('results', [])):
                 if 'file' in item:
                     file_info = item['file']
 
