@@ -323,7 +323,7 @@ class ReActPromptBuilder:
         """Build the core system prompt with ReAct instructions."""
         canonical_intents = [
             "execute_shell", "read_file", "write_file", "create_file", "list_files",
-            "smart_search", "find_files_by_name", "content_search", "find_function", "search_functions",
+            "sourcegraph_search", "smart_search", "find_files_by_name", "content_search", "find_function", "search_functions",
             "provision_tool", "ask_user", "confirm_with_user"
         ]
 
@@ -367,9 +367,9 @@ NEXT_PRIORITIES: ["search broadly for 'llm' patterns to discover function names"
 SYNTHESIS: "Starting discovery phase to identify LLM-related functions before searching for specific calls"
 ```
 PROGRESS CHECK: Initial step, need to discover LLM functions before I can find their calls.
-Thought: I need to find "llm calls" but don't know the specific function names yet. I should start with a broad search to discover what LLM-related functions exist in this codebase.
-Intent: smart_search
-Action: {{"tool_name": "smart_search", "parameters": {{"pattern": "llm", "file_types": ["py"], "context_hint": "function definitions and calls"}}}}
+Thought: I need to find "llm calls" but don't know the specific function names yet. I should start with semantic search to discover what LLM-related functions exist in this codebase.
+Intent: sourcegraph_search
+Action: {{"tool_name": "sourcegraph_search", "parameters": {{"query": "llm function calls", "language": "python"}}}}
 
 ### CANONICAL INTENTS LIST:
 You MUST choose one of the following: {', '.join(canonical_intents)}
@@ -429,8 +429,9 @@ RULES FOR SYSTEMATIC EXECUTION:
 3. **EFFICIENT CODE DISCOVERY STRATEGY (CRITICAL)**:
    **FOR SYSTEMATIC TASKS**: Write self-contained scripts (see rule #1)
    **FOR SPECIFIC SEARCHES**: Use search tools in this priority order:
-   - **FIRST PRIORITY**: Use `smart_search(pattern, file_types, context_hint)` to find content in files
-   - **SECOND PRIORITY**: Use `find_files_by_name(filename_pattern)` to find files by name
+   - **FIRST PRIORITY (CODE SEARCH)**: Use `sourcegraph_search(query, language)` for semantic code understanding (functions, classes, symbols)
+   - **SECOND PRIORITY (PATTERN SEARCH)**: Use `smart_search(pattern, file_types, context_hint)` for text/pattern matching in files
+   - **THIRD PRIORITY (FILENAME SEARCH)**: Use `find_files_by_name(filename_pattern)` to find files by name
    - **LAST RESORT**: Only use `list_files()` for understanding directory structure, NEVER for finding specific files
 
    **MAXIMIZE DISCOVERY WITH BROAD REGEX PATTERNS**:
@@ -444,10 +445,16 @@ RULES FOR SYSTEMATIC EXECUTION:
    - **Function analysis**: `search_functions(".*name.*", "function", use_regex=True)` → get exact location → read with context
    - **Expand context as needed**: Start with 10 lines, increase to 20-30 for larger functions or classes
 
-   **EXAMPLES**:
+   **EXAMPLES - CODE SEARCH (Semantic Understanding)**:
+   - Finding function definitions: `sourcegraph_search("login function", language="python")`
+   - Finding class definitions: `sourcegraph_search("PathManager class", language="python")`
+   - Finding import statements: `sourcegraph_search("import pandas")`
+   - Understanding symbol usage: `sourcegraph_search("oauth config setup")`
+
+   **EXAMPLES - PATTERN SEARCH (Text Matching)**:
    - Finding CSV with student data: `smart_search(".*student.*", file_types=["csv"], context_hint="student data")`
    - Finding config files: `find_files_by_name(".*config.*")`
-   - Finding API references: `smart_search(".*api.*", file_types=["py", "js"], context_hint="source code")`
+   - Finding text patterns: `smart_search(".*error.*", file_types=["log"], context_hint="error logs")`
    - Finding exact function location: `search_functions("my_specific_function", "function")` (for single function only)
    - NOTE: For finding ALL/multiple functions, classes, or systematic code analysis, you MUST write a script instead
 
@@ -487,10 +494,16 @@ RULES FOR SYSTEMATIC EXECUTION:
 10. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
 SEARCH EXECUTION PHASES:
-PHASE 1 - SMART DISCOVERY: Use smart_search() or find_files_by_name() as defined in rule #2 above
-PHASE 2 - TARGETED SEARCH: If insufficient, use content_search() with specific regex patterns
-PHASE 3 - FALLBACK SEARCH: Only if smart tools fail, use traditional find/grep commands
-PHASE 4 - VERIFICATION: Confirm comprehensive coverage before finishing
+PHASE 1 - SEMANTIC CODE SEARCH: For code-related queries, use sourcegraph_search() first (understands functions, classes, symbols)
+PHASE 2 - PATTERN DISCOVERY: If sourcegraph unavailable or insufficient, use smart_search() or find_files_by_name()
+PHASE 3 - TARGETED SEARCH: Use content_search() with specific regex patterns for precise text matching
+PHASE 4 - FALLBACK SEARCH: Only if semantic/smart tools fail, use traditional find/grep commands
+PHASE 5 - VERIFICATION: Confirm comprehensive coverage before finishing
+
+**WHEN TO USE SOURCEGRAPH vs PATTERN SEARCH**:
+- **USE sourcegraph_search**: For code elements (functions, classes, imports, symbols, API usage)
+- **USE smart_search**: For data files, config files, logs, general text patterns
+- **FALLBACK**: If sourcegraph_search returns no results, automatically try smart_search with same query
 
 SEARCH PATTERNS: Use comprehensive patterns to avoid missing variations (e.g., 'raise ' not 'Exception', 'error|fail' not 'ERROR', include case variations).
 
