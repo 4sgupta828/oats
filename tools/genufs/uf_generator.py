@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from core.sdk import uf, UfInput
+from core.path_manager import get_tmp_file
 
 class UFGenerator:
     """Generates reusable UFs from script content."""
@@ -62,10 +63,10 @@ class UFGenerator:
         """
         # Generate unique UF ID
         uf_id = self.generate_uf_id(script_content, task_description)
-        
-        # Create script file path
-        script_file = os.path.join(self.gen_dir, f"{uf_id}.sh")
-        test_file = os.path.join(self.tests_dir, f"{uf_id}_test.sh")
+
+        # Create script file path using tmp directory
+        script_file = get_tmp_file(f"{uf_id}", "sh")
+        test_file = get_tmp_file(f"{uf_id}_test", "sh") if test_content else None
         
         # Check if the script already has complete headers (from LLM)
         has_shebang = script_content.startswith('#!/bin/bash')
@@ -99,7 +100,7 @@ class UFGenerator:
         os.chmod(script_file, 0o755)  # Make executable
         
         # Write the test file
-        if test_content:
+        if test_content and test_file:
             test_with_metadata = f"""#!/bin/bash
 # Test for UF: {uf_id}
 # Description: {task_description}

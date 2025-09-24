@@ -81,3 +81,6 @@ logs/
 
 # Text files
 *.txt
+
+# Temporary files directory
+tmp/
