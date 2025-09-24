@@ -400,31 +400,35 @@ RULES FOR SYSTEMATIC EXECUTION:
 
    **KEY PRINCIPLE**: If the task needs to be comprehensive and systematic across the codebase, write a script. Search tools are only for finding specific single items or initial discovery.
 
-   **CRITICAL: USE EXISTING SEARCH TOOLS FOR FILE DISCOVERY**:
-   Instead of implementing directory exclusions manually, ALWAYS use existing search tools to get the list of files to process, then write a script to analyze those files.
+   **CRITICAL: WRITE SELF-CONTAINED SCRIPTS WITH BUILT-IN FILE DISCOVERY**:
+   For systematic tasks, write Python scripts that include their own file discovery logic with proper exclusions. This eliminates unnecessary search tool calls and reduces REACT turns.
 
-   **RECOMMENDED APPROACH**:
-   1. Use `find_files_by_name("*.py")` or `smart_search()` to get list of relevant files (these tools already respect exclusions)
-   2. Write a script that processes the file list returned by the search tool
-   3. Use AST parsing on each file in the list
+   **OPTIMIZED APPROACH**:
+   1. Write a single Python script that discovers files AND analyzes them
+   2. Include exclusion patterns directly in the script
+   3. Use efficient file discovery (pathlib.rglob) with filtering
 
-   Example workflow:
-   ```
-   Step 1: Use find_files_by_name("*.py") → gets list of Python files (excluding .venv, __pycache__, etc.)
-   Step 2: Write script that takes this file list and runs AST analysis on each file
-   ```
+   **STANDARD EXCLUSION PATTERNS** (use these in scripts):
 
-   This approach:
-   - Leverages existing exclusion logic (no duplication)
-   - Ensures consistency with other tools
-   - Simplifies script writing
+   Template for self-contained file discovery:
+   - EXCLUDED_DIRS: {'.git', '__pycache__', 'node_modules', '.vscode', '.idea', 'build', 'dist', '.env', 'venv', '.pytest_cache', '.mypy_cache', 'Thumbs.db', '.DS_Store'}
+   - EXCLUDED_EXTENSIONS: {'.pyc', '.log'}
+   - Use pathlib.Path(root_dir).rglob(pattern) with exclusion filtering
+   - Example patterns: '*.py' for Python files, '*.json' for JSON files, '*' for all files
 
-   **ONLY use search tools for**: Finding specific single items or initial discovery before script writing.
+   **EFFICIENCY BENEFITS**:
+   - Eliminates intermediate search tool calls
+   - Reduces token consumption (no search result processing)
+   - Fewer REACT turns (direct execution)
+   - Self-contained scripts are easier to understand and debug
+
+   **ONLY use search tools for**: Finding specific single items or initial discovery of unknown patterns.
 
 2. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
 
-3. **EFFICIENT SEARCH & CODE DISCOVERY STRATEGY (CRITICAL)**:
-   **SEARCH PRIORITIES**: ALWAYS use smart search tools BEFORE directory exploration:
+3. **EFFICIENT CODE DISCOVERY STRATEGY (CRITICAL)**:
+   **FOR SYSTEMATIC TASKS**: Write self-contained scripts (see rule #1)
+   **FOR SPECIFIC SEARCHES**: Use search tools in this priority order:
    - **FIRST PRIORITY**: Use `smart_search(pattern, file_types, context_hint)` to find content in files
    - **SECOND PRIORITY**: Use `find_files_by_name(filename_pattern)` to find files by name
    - **LAST RESORT**: Only use `list_files()` for understanding directory structure, NEVER for finding specific files
@@ -447,10 +451,12 @@ RULES FOR SYSTEMATIC EXECUTION:
    - Finding exact function location: `search_functions("my_specific_function", "function")` (for single function only)
    - NOTE: For finding ALL/multiple functions, classes, or systematic code analysis, you MUST write a script instead
 
-   **CRITICAL RULES**:
+   **CRITICAL RULES FOR SEARCH TOOLS** (when not using scripts):
    - When search results show filenames, use the EXACT filename returned - do NOT modify or guess filenames
    - **AVOID**: `list_files()` followed by manual file inspection - this is inefficient!
    - **PRESENT COMPLETE SEARCH RESULTS**: When search tools return comprehensive results that directly answer the user's question (e.g., function names, definitions, locations), present the FULL tool output rather than processing it into summaries
+
+   **REMINDER**: For systematic analysis tasks, prefer writing scripts over using search tools (see rule #1)
 
 4. PYTHON SCRIPT EXECUTION: When you need to run custom Python scripts, ALWAYS follow this 2-step process:
    - Step 1: Use create_file to write the Python script to a separate .py file
