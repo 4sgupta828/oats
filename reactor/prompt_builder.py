@@ -172,6 +172,14 @@ class ReActPromptBuilder:
         if not observation or not observation.strip():
             return observation
 
+        # Check if this observation contains React UI elements that should not be trimmed
+        react_ui_elements = ["**New Facts:**", "**Hypothesis:**", "**Progress Check:**", "**Thought:**", "**Executing Action:**", "**Observation:**"]
+        has_react_elements = any(element in observation for element in react_ui_elements)
+
+        if has_react_elements:
+            # Don't truncate if it contains React UI elements
+            return observation
+
         # Level 0 with no forcing = return original (when context has plenty of room)
         if aggression_level == 0 and not force_truncate:
             return observation

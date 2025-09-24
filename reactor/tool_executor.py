@@ -121,39 +121,62 @@ class ReActToolExecutor:
                         self._last_full_stdout = value
 
                         # Special handling for shell command stdout
-                        lines = value.count('\n')
-                        if lines > 100:  # Very many lines - show sample
-                            key_info.append(f"{key}: {lines+1} lines of output")
-                            # Show first few lines as sample
-                            first_lines = '\n'.join(value.split('\n')[:5])
-                            key_info.append(f"Sample: {first_lines}...")
-                        elif lines > 30:  # Many lines - show more but still truncate
-                            key_info.append(f"{key}: {lines+1} lines of output")
-                            # Show first 15 lines for meaningful results
-                            first_lines = '\n'.join(value.split('\n')[:15])
-                            key_info.append(f"First 15 lines: {first_lines}...")
-                            if lines <= 60:  # Also show last few lines if not too many
-                                last_lines = '\n'.join(value.split('\n')[-3:])
-                                key_info.append(f"Last 3 lines: ...{last_lines}")
-                        elif len(value) > 1000:  # Long output
-                            key_info.append(f"{key}: {value[:500]}... (truncated - {len(value)} chars total)")
-                        else:
+                        # Check if this output contains React UI elements that should not be trimmed
+                        react_ui_elements = ["**New Facts:**", "**Hypothesis:**", "**Progress Check:**", "**Thought:**", "**Executing Action:**", "**Observation:**"]
+                        has_react_elements = any(element in value for element in react_ui_elements)
+
+                        if has_react_elements:
+                            # Don't truncate if it contains React UI elements
                             key_info.append(f"{key}: {value}")
+                        else:
+                            lines = value.count('\n')
+                            if lines > 100:  # Very many lines - show sample
+                                key_info.append(f"{key}: {lines+1} lines of output")
+                                # Show first few lines as sample
+                                first_lines = '\n'.join(value.split('\n')[:5])
+                                key_info.append(f"Sample: {first_lines}...")
+                            elif lines > 30:  # Many lines - show more but still truncate
+                                key_info.append(f"{key}: {lines+1} lines of output")
+                                # Show first 15 lines for meaningful results
+                                first_lines = '\n'.join(value.split('\n')[:15])
+                                key_info.append(f"First 15 lines: {first_lines}...")
+                                if lines <= 60:  # Also show last few lines if not too many
+                                    last_lines = '\n'.join(value.split('\n')[-3:])
+                                    key_info.append(f"Last 3 lines: ...{last_lines}")
+                            elif len(value) > 1000:  # Long output
+                                key_info.append(f"{key}: {value[:500]}... (truncated - {len(value)} chars total)")
+                            else:
+                                key_info.append(f"{key}: {value}")
                     elif isinstance(value, str) and len(value) > 200:
-                        key_info.append(f"{key}: {value[:200]}... (truncated)")
+                        # Check if this value contains React UI elements that should not be trimmed
+                        react_ui_elements = ["**New Facts:**", "**Hypothesis:**", "**Progress Check:**", "**Thought:**", "**Executing Action:**", "**Observation:**"]
+                        has_react_elements = any(element in value for element in react_ui_elements)
+
+                        if has_react_elements:
+                            key_info.append(f"{key}: {value}")
+                        else:
+                            key_info.append(f"{key}: {value[:200]}... (truncated)")
                     else:
                         key_info.append(f"{key}: {value}")
                 observation_parts.append(" | ".join(key_info))
             elif isinstance(result.output, str):
-                # For string output, provide better truncation feedback
-                lines = result.output.count('\n')
-                if len(result.output) > 2000:
-                    observation_parts.append(f"{result.output[:1000]}... (showing first 1000 chars of {len(result.output)} total, {lines+1} lines)")
-                elif lines > 20:
-                    first_lines = '\n'.join(result.output.split('\n')[:10])
-                    observation_parts.append(f"{first_lines}... (showing first 10 lines of {lines+1} total)")
-                else:
+                # Check if this output contains React UI elements that should not be trimmed
+                react_ui_elements = ["**New Facts:**", "**Hypothesis:**", "**Progress Check:**", "**Thought:**", "**Executing Action:**", "**Observation:**"]
+                has_react_elements = any(element in result.output for element in react_ui_elements)
+
+                if has_react_elements:
+                    # Don't truncate if it contains React UI elements
                     observation_parts.append(result.output)
+                else:
+                    # For string output, provide better truncation feedback
+                    lines = result.output.count('\n')
+                    if len(result.output) > 2000:
+                        observation_parts.append(f"{result.output[:1000]}... (showing first 1000 chars of {len(result.output)} total, {lines+1} lines)")
+                    elif lines > 20:
+                        first_lines = '\n'.join(result.output.split('\n')[:10])
+                        observation_parts.append(f"{first_lines}... (showing first 10 lines of {lines+1} total)")
+                    else:
+                        observation_parts.append(result.output)
             else:
                 observation_parts.append(str(result.output))
 
