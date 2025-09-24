@@ -9,6 +9,11 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Set up Sourcegraph environment variables at module level
+os.environ['SRC_ENDPOINT'] = 'http://localhost:7080'
+if 'SRC_ACCESS_TOKEN' not in os.environ:
+    os.environ['SRC_ACCESS_TOKEN'] = os.environ.get('SRC_ACCESS_TOKEN', 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d')
+
 from pydantic import Field
 from typing import Optional
 from core.sdk import uf, UfInput
@@ -40,6 +45,14 @@ def sourcegraph_search(inputs: SourcegraphSearchInput) -> dict:
     print(f"🔍 Sourcegraph search: '{inputs.query}'")
 
     try:
+        # Set up Sourcegraph environment variables
+        import os
+        os.environ['SRC_ENDPOINT'] = 'http://localhost:7080'
+        if 'SRC_ACCESS_TOKEN' not in os.environ:
+            # Try to get token from zshrc or set a default for local development
+            token = os.environ.get('SRC_ACCESS_TOKEN', 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d')
+            os.environ['SRC_ACCESS_TOKEN'] = token
+
         # Try Sourcegraph first
         from .sourcegraph_search import SourcegraphSearchEngine
 
@@ -53,8 +66,8 @@ def sourcegraph_search(inputs: SourcegraphSearchInput) -> dict:
                 max_results=inputs.max_results
             )
 
+            formatted_results = []
             if results:
-                formatted_results = []
                 for result in results:
                     formatted_results.append({
                         "file": result.file_path,
@@ -65,18 +78,18 @@ def sourcegraph_search(inputs: SourcegraphSearchInput) -> dict:
                         "confidence": result.confidence
                     })
 
-                return {
-                    "success": True,
-                    "search_engine": "sourcegraph",
-                    "query": inputs.query,
-                    "total_results": len(formatted_results),
-                    "results": formatted_results,
-                    "advantages": [
-                        "Semantic code understanding vs text matching",
-                        "Symbol-aware search with precise definitions",
-                        "Cross-language symbol resolution"
-                    ]
-                }
+            return {
+                "success": True,
+                "search_engine": "sourcegraph",
+                "query": inputs.query,
+                "total_results": len(formatted_results),
+                "results": formatted_results,
+                "advantages": [
+                    "Semantic code understanding vs text matching",
+                    "Symbol-aware search with precise definitions",
+                    "Cross-language symbol resolution"
+                ]
+            }
 
         print("⚠️  Sourcegraph CLI not available, use existing search tools")
 

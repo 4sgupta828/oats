@@ -14,6 +14,11 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+# Set up Sourcegraph environment variables at module level
+os.environ['SRC_ENDPOINT'] = 'http://localhost:7080'
+if 'SRC_ACCESS_TOKEN' not in os.environ:
+    os.environ['SRC_ACCESS_TOKEN'] = os.environ.get('SRC_ACCESS_TOKEN', 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d')
+
 class SearchType(Enum):
     """Types of code search supported by Sourcegraph"""
     TEXT = "text"
@@ -101,6 +106,7 @@ class SourcegraphSearchEngine:
 
         # Sourcegraph query templates for different search types
         self.query_templates = {
+            SearchType.TEXT: '{pattern}',  # Plain text search
             SearchType.SYMBOL: 'type:symbol {pattern}',
             SearchType.FUNCTION: 'type:symbol select:symbol.function {pattern}',
             SearchType.CLASS: 'type:symbol select:symbol.class {pattern}',
@@ -173,7 +179,11 @@ class SourcegraphSearchEngine:
         elif any(word in combined_text for word in ['variable', 'var', 'const', 'let']):
             return SearchType.VARIABLE
 
-        # Pattern-based detection
+        # For multi-word descriptive queries, default to text search first
+        if len(query.split()) > 1 and not re.search(r'^[A-Z][a-z]+[A-Z]', query):  # Not PascalCase like ClassName
+            return SearchType.TEXT
+
+        # Pattern-based detection for single words or PascalCase
         search_type_mapping = {
             'function': SearchType.FUNCTION,
             'class': SearchType.CLASS,
@@ -256,7 +266,7 @@ class SourcegraphSearchEngine:
             raise RuntimeError("Sourcegraph CLI not available. Please install src CLI.")
 
         try:
-            # Execute src search command
+            # Execute src search command with local endpoint
             cmd = [
                 'src', 'search',
                 '-json',  # Get JSON output for easier parsing
@@ -264,12 +274,21 @@ class SourcegraphSearchEngine:
                 query
             ]
 
+            # Set environment to use local Sourcegraph instance
+            env = os.environ.copy()
+            env['SRC_ENDPOINT'] = 'http://localhost:7080'
+            # Keep existing SRC_ACCESS_TOKEN if available
+            if 'SRC_ACCESS_TOKEN' not in env:
+                # Try to get from environment or use default if testing locally
+                env['SRC_ACCESS_TOKEN'] = os.environ.get('SRC_ACCESS_TOKEN', '')
+
             result = subprocess.run(
                 cmd,
                 cwd=str(self.workspace_root),
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=30,
+                env=env
             )
 
             if result.returncode != 0:
@@ -293,7 +312,7 @@ class SourcegraphSearchEngine:
         try:
             data = json.loads(json_output)
 
-            for item in data.get('results', []):
+            for item in data.get('Results', []):
                 if 'file' in item:
                     file_info = item['file']
 
@@ -391,6 +410,14 @@ def search_code_with_sourcegraph(
     Preferred over basic grep/regex search tools.
     """
     try:
+        # Set up Sourcegraph environment variables
+        import os
+        os.environ['SRC_ENDPOINT'] = 'http://localhost:7080'
+        if 'SRC_ACCESS_TOKEN' not in os.environ:
+            # Try to get token from environment or set default for local development
+            token = os.environ.get('SRC_ACCESS_TOKEN', 'sgp_local_4de83dcc83243ccace746332bc8408e1ca48e89d')
+            os.environ['SRC_ACCESS_TOKEN'] = token
+
         engine = SourcegraphSearchEngine()
 
         if not engine.src_cli_available:
