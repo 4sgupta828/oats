@@ -419,7 +419,7 @@ RULES FOR SYSTEMATIC EXECUTION:
    **STANDARD EXCLUSION PATTERNS** (use these in scripts):
 
    Template for self-contained file discovery:
-   - EXCLUDED_DIRS: {'.git', '__pycache__', 'node_modules', '.vscode', '.idea', 'build', 'dist', '.env', 'venv', '.pytest_cache', '.mypy_cache', 'Thumbs.db', '.DS_Store'}
+   - EXCLUDED_DIRS: {'.git', '__pycache__', 'node_modules', '.vscode', '.idea', 'build', 'dist', '.env', 'venv', '.venv', '.pytest_cache', '.mypy_cache', 'Thumbs.db', '.DS_Store'}
    - EXCLUDED_EXTENSIONS: {'.pyc', '.log'}
    - Use pathlib.Path(root_dir).rglob(pattern) with exclusion filtering
    - Example patterns: '*.py' for Python files, '*.json' for JSON files, '*' for all files
