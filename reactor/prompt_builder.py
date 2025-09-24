@@ -432,20 +432,38 @@ RULES FOR SYSTEMATIC EXECUTION:
 
    **ONLY use search tools for**: Finding specific single items or initial discovery of unknown patterns.
 
-2. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed. provision_tool_agent is ONLY for installation.
+2. TOOL SELECTION: Use appropriate tools for tasks. Check availability first, install if missing, consult help if needed.
 
-3. **EFFICIENT CODE DISCOVERY STRATEGY (CRITICAL)**:
+3. **SEARCH MENTAL MODEL (CRITICAL)**:
+   **User queries describe WHAT to find, not HOW it's implemented.**
+   - When user asks "search for X", treat X as a concept/pattern to discover
+   - Don't assume specific function/class names until you've searched
+   - Always start broad, then narrow based on actual findings
+
+4. **SEARCH DISCOVERY STRATEGY (CRITICAL)**:
    **FOR SYSTEMATIC TASKS**: Write self-contained scripts (see rule #1)
-   **FOR SPECIFIC SEARCHES**: Use search tools in this priority order:
-   - **FIRST PRIORITY (CODE SEARCH)**: Use `sourcegraph_search(query, language)` for semantic code understanding (functions, classes, symbols)
-   - **SECOND PRIORITY (PATTERN SEARCH)**: Use `smart_search(pattern, file_types, context_hint)` for text/pattern matching in files
-   - **THIRD PRIORITY (FILENAME SEARCH)**: Use `find_files_by_name(filename_pattern)` to find files by name
-   - **LAST RESORT**: Only use `list_files()` for understanding directory structure, NEVER for finding specific files
+   **FOR SPECIFIC SEARCHES**: Use this 3-step pattern:
 
-   **MAXIMIZE DISCOVERY WITH BROAD REGEX PATTERNS**:
-   - Use `.*{{term}}.*` patterns to catch ALL variations (e.g., `.*llm.*` finds get_llm_response, llm_call, my_llm_helper)
-   - Start broad, then narrow down if needed
-   - Better to find too much than miss important matches
+   **1. SEMANTIC FIRST**: `sourcegraph_search("user concept as natural language", "python")`
+   **2. BROAD PATTERNS**: `smart_search(".*term1.*term2.*", file_types, context)` - catch all variations
+   **3. NARROW DOWN**: Use specific names/patterns discovered in steps 1-2
+
+   **EXAMPLES**:
+   ```
+   User: "search for provision tool usage"
+   ✓ Step 1: sourcegraph_search("tool provisioning", "python")
+   ✓ Step 2: smart_search(".*provision.*tool.*", ["py"], "tool provisioning")
+   ✓ Step 3: search_functions("ToolProvisioningAgent", "class") # found in step 2
+   ✗ Wrong: smart_search("provision_tool_agent", ["py"]) # assumes specifics
+
+   User: "find logging calls"
+   ✓ Step 1: sourcegraph_search("logging function calls", "python")
+   ✓ Step 2: smart_search(".*log.*", ["py"], "logging functionality")
+   ✓ Step 3: read_file("utils/logger.py", context_lines=10) # found in step 2
+   ✗ Wrong: smart_search("logging.info", ["py"]) # too specific
+   ```
+
+   **BROAD PATTERNS**: Use `.*{{term}}.*` to catch ALL variations (e.g., `.*llm.*` finds get_llm_response, llm_call, my_llm_helper)
 
    **TARGETED CODE READING**:
    - **Don't read entire files** - use targeted reading to focus on what you need
@@ -501,17 +519,10 @@ RULES FOR SYSTEMATIC EXECUTION:
 9. NEVER include any text outside the three-part format - no analysis, explanations, or commentary.
 10. If errors occur, structure your Thought as: Error Analysis (what happened), Root Cause (why), Correction Plan (next action).
 
-SEARCH EXECUTION PHASES:
-PHASE 1 - SEMANTIC CODE SEARCH: For code-related queries, use sourcegraph_search() first (understands functions, classes, symbols)
-PHASE 2 - PATTERN DISCOVERY: If sourcegraph unavailable or insufficient, use smart_search() or find_files_by_name()
-PHASE 3 - TARGETED SEARCH: Use content_search() with specific regex patterns for precise text matching
-PHASE 4 - FALLBACK SEARCH: Only if semantic/smart tools fail, use traditional find/grep commands
-PHASE 5 - VERIFICATION: Confirm comprehensive coverage before finishing
-
-**WHEN TO USE SOURCEGRAPH vs PATTERN SEARCH**:
-- **USE sourcegraph_search**: For code elements (functions, classes, imports, symbols, API usage)
-- **USE smart_search**: For data files, config files, logs, general text patterns
-- **FALLBACK**: If sourcegraph_search returns no results, automatically try smart_search with same query
+**SEARCH TOOL PRIORITY**:
+- **sourcegraph_search**: Best for understanding code concepts, functions, classes, imports
+- **smart_search**: Best for pattern matching across files, catching variations
+- **Fallback**: If sourcegraph unavailable, go directly to broad smart_search patterns
 
 SEARCH PATTERNS: Use comprehensive patterns to avoid missing variations (e.g., 'raise ' not 'Exception', 'error|fail' not 'ERROR', include case variations).
 
