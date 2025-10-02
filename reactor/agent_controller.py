@@ -15,7 +15,7 @@ from core.logging_config import get_logger, UFFlowLogger
 from core.config import config
 from registry.main import Registry
 from core.llm import OpenAIClientManager
-from reactor.models import ReActState, ReActResult, ScratchpadEntry, ParsedLLMResponse
+from reactor.models import ReActState, ReActResult, TranscriptEntry, ParsedLLMResponse
 from reactor.prompt_builder import ReActPromptBuilder
 from reactor.tool_executor import ReActToolExecutor
 
@@ -115,31 +115,31 @@ class AgentController:
                     # B. Reason: Parse the response
                     parsed_response = self._parse_llm_response(raw_response)
 
-                    # B.1. Update working memory if response contains updates
-                    if parsed_response.working_memory_update:
-                        self._update_working_memory(state, parsed_response.working_memory_update.dict())
+                    # B.1. Update state from response
+                    state.state = parsed_response.state
 
                     # C. Check for goal achievement
                     if parsed_response.is_finish:
                         logger.info("Agent indicated goal completion")
 
-                        completion_reason = parsed_response.action.get("reason", "Goal completed")
+                        completion_reason = parsed_response.act.params.get("reason", "Goal completed")
                         turn_duration = int((time.time() - turn_start_time) * 1000)
 
                         # Save final results to file before finishing
                         final_results_file = self._save_final_results(state, completion_reason)
 
                         # Trust the agent's completion decision
-                        final_scratchpad_entry = ScratchpadEntry(
+                        from reactor.models import TranscriptEntry
+                        final_transcript_entry = TranscriptEntry(
                             turn=state.turn_count + 1,
-                            thought=parsed_response.thought,
-                            intent=parsed_response.intent,
-                            action=parsed_response.action,
+                            reflect=parsed_response.reflect,
+                            strategize=parsed_response.strategize,
+                            state=parsed_response.state,
+                            act=parsed_response.act,
                             observation=f"FINISH: {completion_reason}\nFINAL RESULTS SAVED: {final_results_file}",
-                            progress_check=parsed_response.progress_check,
                             duration_ms=turn_duration
                         )
-                        state.scratchpad.append(final_scratchpad_entry)
+                        state.transcript.append(final_transcript_entry)
                         state.turn_count += 1
 
                         state.is_complete = True
@@ -147,38 +147,51 @@ class AgentController:
                         break
 
                     # D. Act: Execute the action
-                    observation = self.tool_executor.execute_action(parsed_response.action)
+                    observation = self.tool_executor.execute_action(parsed_response.act.dict())
 
-                    # E. Observe & Update: Add to scratchpad
+                    # E. Observe & Update: Add to transcript
                     turn_duration = int((time.time() - turn_start_time) * 1000)
-                    scratchpad_entry = ScratchpadEntry(
+                    from reactor.models import TranscriptEntry
+                    transcript_entry = TranscriptEntry(
                         turn=state.turn_count + 1,
-                        thought=parsed_response.thought,
-                        intent=parsed_response.intent,
-                        action=parsed_response.action,
+                        reflect=parsed_response.reflect,
+                        strategize=parsed_response.strategize,
+                        state=parsed_response.state,
+                        act=parsed_response.act,
                         observation=observation,
-                        progress_check=parsed_response.progress_check,
                         duration_ms=turn_duration
                     )
 
-                    state.scratchpad.append(scratchpad_entry)
+                    state.transcript.append(transcript_entry)
                     state.turn_count += 1
 
-                    logger.info(f"Turn {state.turn_count} completed: {parsed_response.action.get('tool_name', 'unknown')}")
+                    logger.info(f"Turn {state.turn_count} completed: {parsed_response.act.tool}")
 
                 except Exception as e:
                     logger.error(f"Error in turn {state.turn_count + 1}: {e}")
 
-                    # Add error observation to scratchpad
-                    error_entry = ScratchpadEntry(
+                    # Add error observation to transcript
+                    from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis, State
+                    error_entry = TranscriptEntry(
                         turn=state.turn_count + 1,
-                        thought="Error occurred during execution",
-                        intent=None,
-                        action={"tool_name": "error", "error": str(e)},
+                        reflect=ReflectSection(
+                            turn=state.turn_count + 1,
+                            narrativeSynthesis="Error occurred during execution",
+                            outcome="TOOL_ERROR",
+                            hypothesisResult="N/A",
+                            insight=f"Error: {str(e)}"
+                        ),
+                        strategize=StrategizeSection(
+                            reasoning="Error recovery needed",
+                            hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
+                            ifInvalidated="N/A"
+                        ),
+                        state=state.state,
+                        act=ActSection(tool="error", params={"error": str(e)}),
                         observation=f"ERROR: {str(e)}",
                         duration_ms=int((time.time() - turn_start_time) * 1000)
                     )
-                    state.scratchpad.append(error_entry)
+                    state.transcript.append(error_entry)
                     state.turn_count += 1
 
             # Finalize state
@@ -246,11 +259,13 @@ class AgentController:
             ]
 
             # Add all turns with FULL observations (no truncation)
-            for i, entry in enumerate(state.scratchpad):
+            import json
+            for i, entry in enumerate(state.transcript):
                 results_content.extend([
                     f"--- TURN {entry.turn} ---",
-                    f"Thought: {entry.thought}",
-                    f"Action: {entry.action}",
+                    f"Reflect: {json.dumps(entry.reflect.dict(), indent=2)}",
+                    f"Strategize: {json.dumps(entry.strategize.dict(), indent=2)}",
+                    f"Act: {json.dumps(entry.act.dict(), indent=2)}",
                     f"Observation: {entry.observation}",  # Full observation, not truncated
                     ""
                 ])
@@ -294,7 +309,7 @@ class AgentController:
         outputs = []
 
         # Look at last 3 turns for significant results
-        recent_turns = state.scratchpad[-3:] if len(state.scratchpad) >= 3 else state.scratchpad
+        recent_turns = state.transcript[-3:] if len(state.transcript) >= 3 else state.transcript
 
         for entry in recent_turns:
             observation = entry.observation
@@ -308,7 +323,7 @@ class AgentController:
                     stdout_content = stdout_match.group(1).strip()
                     if len(stdout_content) > 50:  # Significant output
                         outputs.extend([
-                            f"From Turn {entry.turn} ({entry.action.get('tool_name', 'unknown')}):",
+                            f"From Turn {entry.turn} ({entry.act.tool}):",
                             stdout_content,
                             ""
                         ])
@@ -316,57 +331,78 @@ class AgentController:
         return outputs
 
     def _parse_llm_response(self, raw_response: str) -> ParsedLLMResponse:
-        """Parse LLM response using robust schema-based approach."""
+        """Parse LLM response in new JSON format."""
+        import json
+        import re
         try:
             logger.debug(f"Parsing LLM response: {raw_response[:200]}...")
 
-            # Extract thought, intent, and action using multiple strategies
-            parsed_data = self._extract_thought_intent_and_action(raw_response)
+            # Extract JSON from response (handle markdown code blocks)
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # Try to find raw JSON
+                json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    raise ValueError("No JSON found in response")
 
-            if not parsed_data:
-                raise ValueError("Could not extract thought and action from response")
+            # Parse JSON
+            response_data = json.loads(json_str)
 
-            # Use Pydantic schema for robust validation and parsing
-            try:
-                validated_response = LLMResponseSchema(**parsed_data)
+            # Validate and create ParsedLLMResponse
+            from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis
 
-                # Check if this is a finish action
-                is_finish = validated_response.action.tool_name == "finish"
+            reflect = ReflectSection(**response_data.get("reflect", {}))
 
-                from reactor.models import WorkingMemoryUpdate
+            strategize_data = response_data.get("strategize", {})
+            hypothesis_data = strategize_data.get("hypothesis", {})
+            hypothesis = Hypothesis(**hypothesis_data)
+            strategize = StrategizeSection(
+                reasoning=strategize_data.get("reasoning", ""),
+                hypothesis=hypothesis,
+                ifInvalidated=strategize_data.get("ifInvalidated", "")
+            )
 
-                # Convert dict to WorkingMemoryUpdate if present
-                wm_update = None
-                if parsed_data.get("working_memory_update"):
-                    try:
-                        wm_update = WorkingMemoryUpdate(**parsed_data["working_memory_update"])
-                    except Exception as e:
-                        logger.warning(f"Failed to create WorkingMemoryUpdate: {e}")
+            state = State(**response_data.get("state", {}))
+            act = ActSection(**response_data.get("act", {}))
 
-                return ParsedLLMResponse(
-                    thought=validated_response.thought,
-                    intent=parsed_data.get("intent"),
-                    action=validated_response.action.dict(),
-                    working_memory_update=wm_update,
-                    progress_check=parsed_data.get("progress_check"),
-                    is_finish=is_finish,
-                    raw_response=raw_response
-                )
+            # Check if this is a finish action
+            is_finish = act.tool == "finish"
 
-            except ValidationError as e:
-                logger.warning(f"Schema validation failed: {e}")
-                # Try fallback parsing
-                return self._fallback_parse(raw_response, parsed_data)
+            return ParsedLLMResponse(
+                reflect=reflect,
+                strategize=strategize,
+                state=state,
+                act=act,
+                is_finish=is_finish,
+                raw_response=raw_response
+            )
 
         except Exception as e:
             logger.error(f"Failed to parse LLM response: {e}")
             logger.error(f"Full raw response: {raw_response}")
 
-            # Return a default response that will create an error observation
+            # Return a default error response
+            from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis
+
             return ParsedLLMResponse(
-                thought="Failed to parse response",
-                intent=None,
-                action={"tool_name": "error", "error": f"Parse error: {e}"},
+                reflect=ReflectSection(
+                    turn=1,
+                    narrativeSynthesis="Parse error occurred",
+                    outcome="TOOL_ERROR",
+                    hypothesisResult="N/A",
+                    insight=f"Failed to parse response: {str(e)}"
+                ),
+                strategize=StrategizeSection(
+                    reasoning="Error in parsing",
+                    hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
+                    ifInvalidated="Retry"
+                ),
+                state=State(goal="unknown"),
+                act=ActSection(tool="error", params={"error": f"Parse error: {e}"}),
                 is_finish=False,
                 raw_response=raw_response
             )
@@ -383,8 +419,8 @@ class AgentController:
             summary = f"❌ Execution stopped after {state.turn_count} turns"
 
         # Add turn breakdown
-        if state.scratchpad:
-            actions_taken = [entry.action.get('tool_name', 'unknown') for entry in state.scratchpad]
+        if state.transcript:
+            actions_taken = [entry.act.tool for entry in state.transcript]
             unique_actions = list(set(actions_taken))
             summary += f"\nActions used: {', '.join(unique_actions)}"
 

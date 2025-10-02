@@ -26,16 +26,18 @@ class ReActToolExecutor:
         Execute a single action and return formatted observation.
 
         Args:
-            action: Dict with 'tool_name' and 'parameters' keys
+            action: Dict with 'tool' and 'params' keys (new format)
+                   or 'tool_name' and 'parameters' keys (old format)
 
         Returns:
-            Formatted observation string for scratchpad
+            Formatted observation string for transcript
         """
         start_time = time.time()
 
         try:
-            tool_name = action.get("tool_name")
-            parameters = action.get("parameters", {})
+            # Support both old and new format
+            tool_name = action.get("tool") or action.get("tool_name")
+            parameters = action.get("params") or action.get("parameters", {})
 
             logger.info(f"Executing action: {tool_name} with params: {parameters}")
 
@@ -52,7 +54,7 @@ class ReActToolExecutor:
 
             # Handle finish action
             if tool_name == "finish":
-                reason = action.get("reason", "Goal completed")
+                reason = parameters.get("reason", "Goal completed")
                 return f"FINISH: {reason}"
 
             # Get tool from registry

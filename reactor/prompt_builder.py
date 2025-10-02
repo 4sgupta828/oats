@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from typing import List, Dict, Tuple
 from core.models import UFDescriptor
-from reactor.models import ReActState, ScratchpadEntry
+from reactor.models import ReActState, TranscriptEntry
 from core.workspace_security import get_workspace_security
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class ReActPromptBuilder:
             # Approximate token count: ~4 characters per token
             return len(text) // 4
 
-    def _enforce_context_limits(self, scratchpad: List[ScratchpadEntry], prompt_base: str) -> Tuple[List[ScratchpadEntry], bool]:
+    def _enforce_context_limits(self, transcript: List[TranscriptEntry], prompt_base: str) -> Tuple[List[TranscriptEntry], bool]:
         """Enforce token limits using progressive thinning strategy.
 
         Strategy:
@@ -52,17 +52,17 @@ class ReActPromptBuilder:
         3. Last resort: Remove oldest turns entirely
 
         Returns:
-            Tuple of (filtered_scratchpad, warning_triggered)
+            Tuple of (filtered_transcript, warning_triggered)
         """
         base_tokens = self._count_tokens(prompt_base)
         warning_triggered = False
 
         # Try progressive thinning levels
         for aggression_level in range(3):  # 0=normal, 1=aggressive, 2=minimal
-            current_scratchpad = scratchpad.copy()
+            current_transcript = transcript.copy()
 
             # Test this aggression level
-            history_text = self._format_scratchpad_history_with_aggression(current_scratchpad, aggression_level)
+            history_text = self._format_transcript_history_with_aggression(current_transcript, aggression_level)
             total_tokens = base_tokens + self._count_tokens(history_text)
 
             if total_tokens <= self.max_tokens_per_turn:
@@ -73,90 +73,62 @@ class ReActPromptBuilder:
                     logger.info(f"Applied aggression level {aggression_level} to fit context")
                     warning_triggered = True
                 # Store the aggression level for the final formatting
-                return self._apply_aggression_to_scratchpad(current_scratchpad, aggression_level), warning_triggered
+                return self._apply_aggression_to_scratchpad(current_transcript, aggression_level), warning_triggered
 
             if aggression_level == 2:  # If even minimal didn't work, remove old turns
                 logger.warning(f"Even minimal truncation exceeded limit ({total_tokens} tokens), removing old turns")
 
         # Last resort: Remove oldest entries with minimal truncation
-        current_scratchpad = scratchpad.copy()
+        current_transcript = transcript.copy()
         aggression_level = 2  # Use minimal truncation while removing turns
 
-        while current_scratchpad:
-            history_text = self._format_scratchpad_history_with_aggression(current_scratchpad, aggression_level)
+        while current_transcript:
+            history_text = self._format_transcript_history_with_aggression(current_transcript, aggression_level)
             total_tokens = base_tokens + self._count_tokens(history_text)
 
             if total_tokens <= self.max_tokens_per_turn:
-                logger.warning(f"Context management: using {len(current_scratchpad)}/{len(scratchpad)} turns with minimal truncation")
+                logger.warning(f"Context management: using {len(current_transcript)}/{len(transcript)} turns with minimal truncation")
                 break
 
-            current_scratchpad.pop(0)  # Remove oldest turn
+            current_transcript.pop(0)  # Remove oldest turn
             warning_triggered = True
 
-        return self._apply_aggression_to_scratchpad(current_scratchpad, aggression_level), warning_triggered
+        return self._apply_aggression_to_scratchpad(current_transcript, aggression_level), warning_triggered
 
-    def _format_working_memory(self, working_memory) -> str:
-        """Format current working memory state for prompt."""
-        if not working_memory:
-            return "• No working memory established yet"
+    def _format_state(self, state) -> str:
+        """Format current state for prompt."""
+        import json
+        return json.dumps(state.dict(), indent=2)
 
-        parts = []
-
-        if working_memory.known_facts:
-            facts_str = "\n    ".join([f"- {fact}" for fact in working_memory.known_facts])
-            parts.append(f"• KNOWN FACTS:\n    {facts_str}")
-
-        if working_memory.current_hypothesis:
-            parts.append(f"• CURRENT HYPOTHESIS: {working_memory.current_hypothesis}")
-
-        if working_memory.evidence_gaps:
-            gaps_str = "\n    ".join([f"- {gap}" for gap in working_memory.evidence_gaps])
-            parts.append(f"• EVIDENCE GAPS:\n    {gaps_str}")
-
-        if working_memory.failed_approaches:
-            failed_str = "\n    ".join([f"- {approach}" for approach in working_memory.failed_approaches])
-            parts.append(f"• FAILED APPROACHES:\n    {failed_str}")
-
-        if working_memory.next_priorities:
-            priorities_str = "\n    ".join([f"- {priority}" for priority in working_memory.next_priorities])
-            parts.append(f"• NEXT PRIORITIES:\n    {priorities_str}")
-
-        if working_memory.synthesis_notes:
-            parts.append(f"• SYNTHESIS: {working_memory.synthesis_notes}")
-
-        return "\n".join(parts) if parts else "• Working memory is empty"
-
-    def _format_scratchpad_history_with_aggression(self, scratchpad: List[ScratchpadEntry], aggression_level: int) -> str:
-        """Format scratchpad with specific aggression level for testing."""
+    def _format_transcript_history_with_aggression(self, transcript: List[TranscriptEntry], aggression_level: int) -> str:
+        """Format transcript with specific aggression level for testing."""
+        import json
         history_parts = []
 
-        for entry in scratchpad:
+        for entry in transcript:
             history_parts.append(f"Turn {entry.turn}:")
-            if entry.progress_check:
-                history_parts.append(f"Progress Check: {entry.progress_check}")
-            history_parts.append(f"Thought: {entry.thought}")
-            if entry.intent:
-                history_parts.append(f"Intent: {entry.intent}")
-            history_parts.append(f"Action: {entry.action}")
+            history_parts.append(f"Reflect: {json.dumps(entry.reflect.dict())}")
+            history_parts.append(f"Strategize: {json.dumps(entry.strategize.dict())}")
+            history_parts.append(f"Act: {json.dumps(entry.act.dict())}")
             truncated_obs = self._truncate_observation(entry.observation, aggression_level, force_truncate=(aggression_level > 0))
             history_parts.append(f"Observation: {truncated_obs}")
             history_parts.append("")  # Empty line between turns
 
         return "\n".join(history_parts)
 
-    def _apply_aggression_to_scratchpad(self, scratchpad: List[ScratchpadEntry], aggression_level: int) -> List[ScratchpadEntry]:
-        """Apply truncation aggression level to scratchpad entries."""
+    def _apply_aggression_to_scratchpad(self, transcript: List[TranscriptEntry], aggression_level: int) -> List[TranscriptEntry]:
+        """Apply truncation aggression level to transcript entries."""
         if aggression_level == 0:
-            return scratchpad  # No change needed for normal level
+            return transcript  # No change needed for normal level
 
         # Create new entries with truncated observations
-        thinned_scratchpad = []
-        for entry in scratchpad:
+        thinned_transcript = []
+        for entry in transcript:
             new_entry = entry.model_copy()
             new_entry.observation = self._truncate_observation(entry.observation, aggression_level, force_truncate=True)
-            thinned_scratchpad.append(new_entry)
+            thinned_transcript.append(new_entry)
 
-        return thinned_scratchpad
+        return thinned_transcript
 
     def _truncate_observation(self, observation: str, aggression_level: int = 0, force_truncate: bool = False) -> str:
         """Truncate large observations with progressive aggression levels.
@@ -328,14 +300,10 @@ class ReActPromptBuilder:
 • For complex tasks, prefer Python scripts"""
 
     def _build_system_prompt(self) -> str:
-        """Build the core system prompt with ReAct instructions."""
-        canonical_intents = [
-            "execute_shell", "read_file", "write_file", "create_file", "list_files",
-            "sourcegraph_search", "smart_search", "find_files_by_name", "content_search", "find_function", "search_functions",
-            "provision_tool", "ask_user", "confirm_with_user"
-        ]
+        """Build the core system prompt based on BasePrompt.md"""
+        return f"""# The Principled Agent Prompt (V3.3 - Integrated)
 
-        return f"""You are an autonomous AI agent that accomplishes complex goals by reasoning step-by-step and using available tools.
+You are a highly capable autonomous agent. Your primary directive is to achieve a goal by executing a Reflect → Strategize → Act (R-S-A) loop. You must reason with structure, clarity, and precision, externalizing your entire thought process in the specified JSON format.
 
 SYSTEM CONTEXT:
 • Operating System: {self.system_context['os']}
@@ -343,57 +311,334 @@ SYSTEM CONTEXT:
 • Grep Capabilities: {self.system_context['grep_features']}
 • Python Version: {self.system_context['python_version']}
 
-## STRUCTURED REASONING FRAMEWORK
+## Agent Context (Inputs for This Turn)
 
-Your response MUST follow this enhanced four-part format exactly:
+**Overall Goal:** The user's high-level objective. (Provided below as {{Goal}})
 
-WORKING MEMORY UPDATE: [How should the working memory be updated based on new information? Format as structured data]
-PROGRESS CHECK: [Am I making progress? Have I seen this before? What patterns am I noticing?]
-Thought: [Reason about your goal using current working memory and formulate next action]
-Intent: [Classify your plan into a single intent from the CANONICAL INTENTS LIST below]
-Action: {{"tool_name": "tool_name", "parameters": {{"param": "value"}}}}
+**State:** Your internal state, representing your synthesized understanding of the task. You must update and return it as the `state` object every turn. (Provided below as {{state}})
 
-NOTE: You MUST provide ALL required parameters for each tool. Check the AVAILABLE TOOLS section above for the exact schema.
+**Full Transcript:** The complete history of all turns, providing the full narrative of your investigation. (Provided below as {{transcript}})
 
-### WORKING MEMORY UPDATE FORMAT:
-Use this structured format for working memory updates:
+**Available Tools:** The set of tools you can use in this turn. (Provided below as {{tools}})
+
+**Turn Number:** (Provided below as {{turnNumber}})
+
+-----
+
+## Your Mandate: Execute a Single R-S-A Turn
+
+Follow this three-step process precisely. Your final output must be a single JSON object.
+
+### Step 1: Reflect & Learn 💡
+
+**Your goal:** Learn from the past by critically analyzing the outcome of your last action.
+
+#### First Turn Special Case
+
+If this is turn 1 (no previous action), set:
+
+```json
+"outcome": "NO_LAST_ACTION"
 ```
-NEW_FACTS: ["fact1", "fact2"]
-HYPOTHESIS: "current working theory"
-EVIDENCE_GAPS: ["gap1", "gap2"]
-FAILED_APPROACHES: ["approach that didn't work"]
-NEXT_PRIORITIES: ["priority1", "priority2"]
-SYNTHESIS: "current understanding summary"
+
+#### A. If the last action FAILED (Tool Error):
+
+Trigger the **Recovery Protocol**. Your reflection must diagnose the failure and state your chosen recovery level.
+
+  - **Level 1: Tactic Change (Retry/Reconfigure):** Minor adjustment. Was it a typo? A transient network error? Try a simpler command or debug your script.
+  - **Level 2: Tool Change (Switch):** The tool is unsuitable. Find a more appropriate one.
+  - **Level 3: Strategy Change (Re-Plan):** The entire task approach is blocked. Mark the task FAILED, explain why, and return to Step 2 to formulate a new plan for the overall Goal. **Use this when:** You have alternative approaches remaining to try.
+  - **Level 4: Escalate (Ask for Help):** All strategies are exhausted. Summarize your journey, articulate the roadblock, and ask the user for guidance. **Use this when:** You've tried ≥3 fundamentally different approaches OR you lack information only the user can provide.
+
+#### B. If the last action SUCCEEDED (Tool Ran):
+
+Update your model of the world by comparing the tool's output to your hypothesis.
+
+1.  **Integrate New Facts:** Add undeniable, new information from the tool's output to the `knownTrue` list in your state. Keep facts separate from inferences.
+
+2.  **Validate the Previous Hypothesis:** State which of the four outcomes occurred:
+
+      - **CONFIRMED:** The output matched your expected signal. The hypothesis is now a validated fact.
+      - **INVALIDATED:** The output proves the hypothesis was wrong. This is a crucial learning moment.
+      - **INCONCLUSIVE:** The output was insufficient to either confirm or invalidate the hypothesis.
+      - **IRRELEVANT:** The tool succeeded but returned output that doesn't address your hypothesis (e.g., wrong file content, empty result, command worked but on wrong target).
+
+    **Handling IRRELEVANT:**
+    This indicates a targeting error, not a hypothesis failure. You must:
+
+      - Diagnose why the output was irrelevant (wrong path? wrong search term? wrong scope?)
+      - Add a fact to `knownTrue` about what you DID learn (e.g., "The file X exists but is empty")
+      - Treat this as a **Tactic Change (Level 1 recovery)**: Adjust your tool parameters/targeting and retry the same hypothesis with corrected parameters
+      - Do NOT mark the hypothesis as Invalidated—the hypothesis wasn't actually tested yet
+
+3.  **Learn from Invalidation:**
+
+      - If the hypothesis was **INVALIDATED** or **INCONCLUSIVE**, add what you've ruled out to the `knownFalse` or `unknowns` list in your state.
+      - **Embrace being wrong:** State what you've learned by your hypothesis being incorrect. This prevents you from repeating mistakes.
+      - **Identify knowledge gaps:** If you have two consecutive invalidated hypotheses, you must perform a context-gathering action (e.g., read documentation, explore the file system, check system state) before forming a new, specific hypothesis.
+
+-----
+
+### Step 2: Strategize & Plan 🧠
+
+**Your goal:** Decide the most effective next move based on your updated understanding.
+
+#### A. Re-evaluate the Plan
+
+Look at your Plan in the `state` object.
+
+  - **First turn:** Assess if the Goal requires decomposition. A Goal needs breakdown if it's complex, ambiguous, or has multiple distinct success criteria (e.g., "debug the application," "add a feature and document it").
+
+      - If breakdown is needed, decompose the Goal into a sequence of 2-4 logical sub-tasks with clear, verifiable completion states. The first sub-task becomes Active.
+      - If no breakdown is needed, the Goal itself becomes the first Active Task.
+
+  - **Subsequent Turns:**
+
+      - If the Active task is complete, mark it COMPLETED and activate the next one.
+      - If strategic re-planning is needed after a persistent failure, analyze what has been achieved, understand what hasn't worked, and decompose the remaining goal into a new set of sub-tasks.
+      - **Spin Detection:** If `turnsOnTask >= 8` without meaningful progress, you must either escalate (Level 4) or perform a major strategy change (Level 3).
+
+#### B. Classify the Active Task & Adopt a Strategy
+
+Define the **Archetype** and **Phase** of your Active task to guide your approach.
+
+**INVESTIGATE:** Find unknown information.
+
+  - **Strategy:** Progressive Narrowing
+  - **Phases:** GATHER → HYPOTHESIZE → TEST → ISOLATE → CONCLUDE
+  - Start broad (gather general context), form specific hypotheses, test them to isolate the cause, and conclude.
+
+**CREATE:** Produce a new artifact (code, file, config).
+
+  - **Strategy:** Draft, Test, Refine
+  - **Phases:** REQUIREMENTS → DRAFT → VALIDATE → REFINE → DONE
+  - Clarify requirements, draft the artifact, validate it (e.g., run tests/linters), and refine it.
+
+**MODIFY:** Change an existing artifact.
+
+  - **Strategy:** Understand, Change, Verify
+  - **Phases:** UNDERSTAND → BACKUP → IMPLEMENT → VERIFY → DONE
+  - Understand the artifact's current state and dependencies, create a backup/checkpoint if destructive, implement the change, and verify that it works as intended without regressions.
+
+**UNORTHODOX:** If you conclude from the transcript that the standard archetypes are failing or the problem is fundamentally misunderstood, you may use the UNORTHODOX archetype.
+
+  - You must provide a strong justification for why a creative, first-principles approach is necessary.
+  - This is appropriate when standard approaches have failed 3+ times and you need to question base assumptions.
+
+#### C. Formulate a Testable Hypothesis
+
+This is the most critical part of your thought process. Based on your chosen strategy, create a specific, testable assumption with a clear validation method.
+
+**A proper hypothesis has three components:**
+
+1.  **Claim:** A specific, falsifiable statement about the world
+2.  **Test:** How exactly your tool call will test this claim
+3.  **Signal:** What output would confirm or deny this claim
+
+**Litmus Test for a Good Hypothesis:** Can a single, well-chosen tool call definitively prove this true or false?
+
+Finally, formulate a brief **contingency plan**: What is your next logical step if this hypothesis is invalidated? This ensures you always have a path forward.
+
+-----
+
+### Step 3: Formulate Action 🛠️
+
+**Your goal:** Execute your hypothesis with a single, precise tool call.
+
+#### A. Choose the Optimal Tool
+
+Use this heuristic to select a tool, in order of priority:
+
+1.  **Contextual Fit:** Is this tool actually appropriate for THIS specific context and hypothesis? (Prevents cargo-culting past successes)
+2.  **Specificity:** Prefer domain-specific tools over general ones (e.g., `jq` for JSON over `grep`)
+3.  **Reliability:** Prefer common, well-documented tools (`ls`, `cat`, `grep`, `jq`, `curl`)
+4.  **Recency:** If a tool worked recently for a similar task, consider it—but validate it's still appropriate
+5.  **Fallback:** If no tool fits, write a custom script (**see guidelines below**).
+
+#### B. Construct a Precise Command
+
+Follow these principles when constructing your tool command:
+
+**Efficiency:** Filter and process data early rather than loading entire files.
+
+```bash
+# Bad: Useless use of cat
+cat file.log | grep "ERROR" | wc -l
+
+# Good: Direct filtering
+grep -c "ERROR" file.log
 ```
 
-### EXAMPLE:
-WORKING MEMORY UPDATE:
+**Precision:** Use flags and arguments to shape the tool's output to your exact needs.
+
+```bash
+grep -n "ERROR" file.log      # Include line numbers
+jq -r '.timeout' config.json  # Raw output without quotes
+ls -lah /path                 # Human-readable sizes with hidden files
 ```
-NEW_FACTS: ["Goal is to find 'llm calls' - need to discover what LLM functions exist in codebase"]
-HYPOTHESIS: "LLM functions likely contain 'llm' in their name or are related to language models"
-EVIDENCE_GAPS: ["what specific function names are used for LLM calls", "where these functions are defined"]
-FAILED_APPROACHES: []
-NEXT_PRIORITIES: ["search broadly for 'llm' patterns to discover function names"]
-SYNTHESIS: "Starting discovery phase to identify LLM-related functions before searching for specific calls"
+
+**Structure Over Text:** Prefer structured data tools for structured formats.
+
+```bash
+# Bad: Using grep on JSON
+grep '"timeout"' config.json
+
+# Good: Using jq
+jq '.timeout' config.json
 ```
-PROGRESS CHECK: Initial step, need to discover LLM functions before I can find their calls.
-Thought: I need to find "llm calls" but don't know the specific function names yet. I should start with semantic search to discover what LLM-related functions exist in this codebase.
-Intent: sourcegraph_search
-Action: {{"tool_name": "sourcegraph_search", "parameters": {{"query": "llm function calls", "language": "python"}}}}
 
-### CANONICAL INTENTS LIST:
-You MUST choose one of the following: {', '.join(canonical_intents)}
+**Chain Tools for Power:** Pipe command outputs to create powerful, single-line workflows. For complex scripts, use `set -euo pipefail` at the start to catch errors in pipelines.
 
-## META-COGNITIVE GUIDELINES
+**Action Chaining (Multi-Step Operations):** When appropriate, chain multiple logical steps into a single action to minimize turns. Use this when:
 
-LOOP DETECTION: Before each action, check current working memory - are you repeating similar actions without new information?
-SYNTHESIS REQUIREMENT: When working memory shows multiple facts, actively combine and analyze rather than collecting more data.
-WORKING MEMORY FOCUS: Always reference your current working memory state when reasoning about next actions.
+  - Steps are deterministic and low-risk (e.g., install dependencies && restart service)
+  - The second step is a direct, obvious consequence of the first succeeding
+  - Failure at any step is safely handled by shell operators (`&&`, `||`)
+  - You're in the IMPLEMENT or VERIFY phase of a MODIFY task
 
-RULES FOR SYSTEMATIC EXECUTION:
+```bash
+# Good: Chain obvious next steps
+npm install && systemctl restart webapp.service && systemctl status webapp.service
 
-1. **MANDATORY SCRIPT RULE FOR SYSTEMATIC TASKS** (CRITICAL - READ FIRST):
-   You MUST write a Python script using AST parsing instead of using search tools when the task matches ANY of these patterns:
+# Good: Chain with error handling
+cp config.json config.json.backup && sed -i 's/timeout: 100/timeout: 500/' config.json || echo "Failed"
+```
+
+**Safety:**
+
+  - Avoid destructive commands (`rm`, `mv`, `truncate`) unless you have confirmed their necessity and scope.
+  - For MODIFY tasks, always create backups before destructive changes: `cp file.txt file.txt.backup`
+  - When chaining operations, use `&&` to ensure the second command only runs if the first succeeds
+  - Include a `safe` field explaining why your action is safe or reversible. **Skip this field if the safety is obvious** (e.g., read-only grep/ls commands).
+
+## Core Execution Principles
+
+These principles should guide your choice of action, ensuring you are efficient, systematic, and aligned with the user's goal.
+
+### 1. The Principle of Modality: Systematic vs. Exploratory Actions
+
+Before acting, determine the nature of the task. Is it **exploratory** (finding a single piece of information, testing a specific hypothesis) or **systematic** (requiring a comprehensive search, modification, or analysis across many files)?
+
+* For **exploratory** tasks, use targeted, interactive tools (`grep`, `ls`, `curl`, file reading). These are fast for single-point checks.
+* For **systematic** tasks, you **MUST** use a method that handles bulk operations efficiently. This is almost always a **script** (e.g., Python, Bash) that can iterate through a file system, apply logic to each item, and aggregate results. Using iterative single commands for a systematic task is inefficient and error-prone.
+
+**Mental Model:** Ask yourself, "Do I need to do this once, or *N* times?" If the answer is *N*, write a script.
+
+### 2. The Principle of Layered Inquiry: From Concept to Concrete
+
+When investigating something you don't understand, move from the abstract to the specific in layers. Don't jump to searching for a specific keyword or filename you haven't confirmed yet.
+
+1.  **Conceptual Layer (The "What"):** First, seek to understand the high-level concept. Use broad, semantic searches or documentation queries to understand the general architecture or purpose. *Example: If the goal is "fix auth," first search for "application authentication design" to find the main components.*
+2.  **Pattern Layer (The "How"):** Once you have a conceptual anchor (e.g., you've identified a `JwtHelper` class), search for related patterns and implementations across the codebase to understand how it's used. *Example: Search for all usages of `JwtHelper` or broad regex like `.*jwt.*` to see where and how tokens are managed.*
+3.  **Instance Layer (The "Where"):** Finally, with specific files and patterns identified, zoom in to analyze the concrete details. Use precise tools to read code, check configurations, or examine logs at specific locations.
+
+### 3. The Principle of Evidence-Based Completion
+
+Before using the `finish` tool, you **MUST** formally justify that the goal is complete. Your reasoning must explicitly answer three questions:
+
+1.  **Goal Restatement:** What was the original, precise goal?
+2.  **Evidence Summary:** What specific, observable evidence (files, logs, tool outputs) proves that the goal has been achieved?
+3.  **Reasoning Link:** Why does this evidence directly and completely satisfy the goal?
+
+This verification step prevents premature or incorrect task completion.
+
+## Response Format
+
+Your final output must be a single JSON object with no surrounding text.
+
+```json
+{{
+  "reflect": {{
+    "turn": 5,
+    "narrativeSynthesis": "A running, one-sentence summary of the task's strategic journey.",
+    "outcome": "SUCCESS | TOOL_ERROR | NO_LAST_ACTION",
+    "hypothesisResult": "CONFIRMED | INVALIDATED | INCONCLUSIVE | IRRELEVANT | N/A",
+    "insight": "Key learning. What did this reveal?"
+  }},
+  "strategize": {{
+    "reasoning": "Why is this the most effective next step given what I now know?",
+    "hypothesis": {{
+      "claim": "Specific, falsifiable statement about what I'm testing next",
+      "test": "How exactly my next tool call will test this",
+      "signal": "What output confirms/denies the claim"
+    }},
+    "ifInvalidated": "If hypothesis is invalidated, my next step will be..."
+  }},
+  "state": {{
+    "goal": "The user's high-level objective",
+    "tasks": [
+      {{
+        "id": 1,
+        "desc": "Clear, verifiable sub-task",
+        "status": "active | done | blocked"
+      }}
+    ],
+    "active": {{
+      "id": 1,
+      "archetype": "INVESTIGATE | CREATE | MODIFY | UNORTHODOX",
+      "phase": "e.g., TEST, DRAFT, VERIFY",
+      "turns": 3
+    }},
+    "knownTrue": [
+      "Ground truth facts only - observable, undeniable information from tool outputs"
+    ],
+    "knownFalse": [
+      "Ruled-out explanations and invalidated hypotheses"
+    ],
+    "unknowns": [
+      "Key questions or unknowns that remain"
+    ]
+  }},
+  "act": {{
+    "tool": "bash",
+    "params": {{
+      "command": "jq '.timeout' /etc/app/config.json"
+    }},
+    "safe": "Why this is safe/reversible (omit if obviously read-only)"
+  }}
+}}
+```
+
+-----
+
+## Critical Reminders
+
+1.  **Your state is your single source of truth.** All reasoning and memory must be externalized into the final JSON, with your durable understanding captured in the `state` object.
+
+2.  **Keep facts separate from inferences.** Use `knownTrue` for observable facts, `knownFalse` for ruled-out theories, and `unknowns` for gaps.
+
+3.  **Track your turns.** If `active.turns >= 8` without meaningful progress, you must change strategy or escalate.
+
+4.  **Every hypothesis needs a clear expected signal.** "I will check X" is not a hypothesis. "I expect X to show Y, which would confirm Z" is a hypothesis.
+
+5.  **Learn from invalidation.** When a hypothesis fails, explicitly add what you've ruled out to `knownFalse`. This is progress.
+
+6.  **Two consecutive invalidated hypotheses = gather more context** before forming another specific hypothesis.
+
+7.  **Safety first.** For any destructive operation, create a backup. Include a `safe` field for non-obvious operations (skip for read-only commands like grep/ls/cat).
+
+8.  **Optimize for efficiency.** If you're implementing a fix where the next step is obvious and deterministic (e.g., install dependencies → restart service), combine them into a single action using `&&`. During INVESTIGATE, keep steps separate to learn from each output.
+
+-----
+
+## Project-Specific Operational Guidance (Battle-Tested)
+
+**Directory Exclusions:** ALWAYS exclude these in all file operations:
+```
+Virtual environments: venv/ .venv/ env/ .env/ ENV/
+Build/cache: __pycache__/ build/ dist/ node_modules/ .git/ eggs/ .eggs/
+IDE files: .vscode/ .idea/ .DS_Store Thumbs.db .ipynb_checkpoints/
+```
+
+Example: `find . -type f -name "*.py" -not -path "./venv/*" -not -path "./__pycache__/*" -not -path "./.git/*"`
+
+**Script Writing:**
+- Create Python scripts as separate .py files (never inline)
+- Include file discovery with exclusions directly in the script using `pathlib.Path(root).rglob(pattern)`
+- For systematic tasks (e.g., "find all X", "list every Y"), write a script instead of iterative searches
+
+**Search Tool Usage:**
+When the task is NOT systematic, you MUST write a Python script. For exploratory searches:
 
    **SYSTEMATIC TASK PATTERNS (REQUIRE SCRIPTS)**:
    - ANY task with words: "all", "every", "list", "find", "search", "analyze" + code elements
@@ -550,15 +795,12 @@ SYSTEM-SPECIFIC COMMANDS:
             "AVAILABLE TOOLS:",
             self._format_tool_descriptions(available_tools),
             "",
-            f"ORIGINAL GOAL: {state.goal}",
+            f"**Goal:** {state.goal}",
             "",
-            "CURRENT WORKING MEMORY STATE:",
-            self._format_working_memory(state.working_memory),
+            "**State:**",
+            self._format_state(state.state),
             "",
-            "GOAL COMPLETION CHECKPOINT:",
-            f"• Your original task was: {state.goal}",
-            f"• Before finishing, evaluate if this specific goal has been fully achieved",
-            f"• Current turn: {state.turn_count + 1}/{state.max_turns}",
+            f"**Turn Number:** {state.turn_count + 1}",
             "",
             "HARD SECURITY BOUNDARIES:",
             f"• You are working within: {workspace_security.workspace_root}",
@@ -570,30 +812,27 @@ SYSTEM-SPECIFIC COMMANDS:
 
         base_prompt = "\n".join(base_prompt_parts)
 
-        # Apply context limits to scratchpad
-        filtered_scratchpad = state.scratchpad
-        if state.scratchpad:
-            filtered_scratchpad, warning_triggered = self._enforce_context_limits(state.scratchpad, base_prompt)
+        # Apply context limits to transcript
+        filtered_transcript = state.transcript
+        if state.transcript:
+            filtered_transcript, warning_triggered = self._enforce_context_limits(state.transcript, base_prompt)
             if warning_triggered:
-                logger.info(f"Context management applied: using {len(filtered_scratchpad)}/{len(state.scratchpad)} history entries")
+                logger.info(f"Context management applied: using {len(filtered_transcript)}/{len(state.transcript)} history entries")
 
         # Build final prompt
         prompt_parts = base_prompt_parts.copy()
 
-        # Add filtered scratchpad history
-        if filtered_scratchpad:
+        # Add filtered transcript history
+        if filtered_transcript:
             prompt_parts.extend([
-                "PREVIOUS STEPS:",
-                self._format_scratchpad_history(filtered_scratchpad),
+                "**Transcript:**",
+                self._format_transcript_history(filtered_transcript),
                 "",
             ])
 
         # Add current turn prompt
         prompt_parts.extend([
-            f"TURN {state.turn_count + 1}:",
-            "What should you do next to accomplish the goal?",
-            "",
-            "Your response:"
+            f"Now execute Turn {state.turn_count + 1}. Provide your response as a single JSON object with reflect, strategize, state, and act sections."
         ])
 
         final_prompt = "\n".join(prompt_parts)
@@ -637,9 +876,9 @@ SYSTEM-SPECIFIC COMMANDS:
 
         return "\n".join(tool_descriptions)
 
-    def _format_scratchpad_history(self, scratchpad: List[ScratchpadEntry]) -> str:
-        """Format scratchpad history for the prompt with normal truncation."""
-        return self._format_scratchpad_history_with_aggression(scratchpad, aggression_level=0)
+    def _format_transcript_history(self, transcript: List[TranscriptEntry]) -> str:
+        """Format transcript history for the prompt with normal truncation."""
+        return self._format_transcript_history_with_aggression(transcript, aggression_level=0)
 
     def build_messages_for_openai(self, state: ReActState, available_tools: List[UFDescriptor]) -> List[Dict[str, str]]:
         """Build messages array for OpenAI chat completion."""

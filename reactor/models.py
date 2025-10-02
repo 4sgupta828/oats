@@ -1,34 +1,75 @@
 # reactor/models.py
 
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from datetime import datetime
 
-class WorkingMemory(BaseModel):
-    """Agent's current understanding and state - evolves across turns."""
-    known_facts: List[str] = Field(default_factory=list, description="Established facts from observations")
-    current_hypothesis: Optional[str] = Field(None, description="Current working theory about the solution")
-    evidence_gaps: List[str] = Field(default_factory=list, description="What information is still needed")
-    failed_approaches: List[str] = Field(default_factory=list, description="Approaches that didn't work")
-    next_priorities: List[str] = Field(default_factory=list, description="What should be done next")
-    synthesis_notes: Optional[str] = Field(None, description="Current synthesis of findings")
+# New models for BasePrompt.md format
 
-class ScratchpadEntry(BaseModel):
-    """Single entry in the ReAct scratchpad history - pure historical record."""
-    turn: int = Field(..., description="Turn number in the conversation")
-    thought: str = Field(..., description="Agent's reasoning for this turn")
-    intent: Optional[str] = Field(None, description="Agent's classified intent for this turn")
-    action: Dict[str, Any] = Field(..., description="Tool action taken")
+class Hypothesis(BaseModel):
+    """Testable hypothesis with clear validation criteria."""
+    claim: str = Field(..., description="Specific, falsifiable statement")
+    test: str = Field(..., description="How the tool call will test this claim")
+    signal: str = Field(..., description="What output confirms/denies the claim")
+
+class ReflectSection(BaseModel):
+    """Reflection on the outcome of the last action."""
+    turn: int = Field(..., description="Current turn number")
+    narrativeSynthesis: str = Field(..., description="Running one-sentence summary of task's strategic journey")
+    outcome: Literal["SUCCESS", "TOOL_ERROR", "NO_LAST_ACTION"] = Field(..., description="Outcome of last action")
+    hypothesisResult: Literal["CONFIRMED", "INVALIDATED", "INCONCLUSIVE", "IRRELEVANT", "N/A"] = Field(..., description="Result of testing the previous hypothesis")
+    insight: str = Field(..., description="Key learning from this turn")
+
+class StrategizeSection(BaseModel):
+    """Strategy and hypothesis for the next action."""
+    reasoning: str = Field(..., description="Why this is the most effective next step")
+    hypothesis: Hypothesis = Field(..., description="Testable assumption for this turn")
+    ifInvalidated: str = Field(..., description="Contingency plan if hypothesis is invalidated")
+
+class Task(BaseModel):
+    """A sub-task in the overall goal."""
+    id: int = Field(..., description="Task identifier")
+    desc: str = Field(..., description="Clear, verifiable sub-task description")
+    status: Literal["active", "done", "blocked"] = Field(..., description="Current status of the task")
+
+class ActiveTask(BaseModel):
+    """Currently active task with its metadata."""
+    id: int = Field(..., description="ID of the active task")
+    archetype: Literal["INVESTIGATE", "CREATE", "MODIFY", "UNORTHODOX"] = Field(..., description="Task type")
+    phase: str = Field(..., description="Current phase within the archetype")
+    turns: int = Field(..., description="Number of turns spent on this task")
+
+class State(BaseModel):
+    """Agent's complete state and understanding."""
+    goal: str = Field(..., description="The user's high-level objective")
+    tasks: List[Task] = Field(default_factory=list, description="Decomposed sub-tasks")
+    active: Optional[ActiveTask] = Field(None, description="Currently active task")
+    knownTrue: List[str] = Field(default_factory=list, description="Ground truth facts from observations")
+    knownFalse: List[str] = Field(default_factory=list, description="Ruled-out explanations and invalidated hypotheses")
+    unknowns: List[str] = Field(default_factory=list, description="Key questions or unknowns that remain")
+
+class ActSection(BaseModel):
+    """Action to be executed."""
+    tool: str = Field(..., description="Tool name to execute")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
+    safe: Optional[str] = Field(None, description="Safety justification (omit for read-only operations)")
+
+class TranscriptEntry(BaseModel):
+    """Single entry in the agent transcript - complete turn history."""
+    turn: int = Field(..., description="Turn number")
+    reflect: ReflectSection = Field(..., description="Reflection on last action")
+    strategize: StrategizeSection = Field(..., description="Strategy for next action")
+    state: State = Field(..., description="Agent's current state")
+    act: ActSection = Field(..., description="Action to execute")
     observation: str = Field(..., description="Result of the action")
-    progress_check: Optional[str] = Field(None, description="Agent's progress assessment for this turn")
     timestamp: datetime = Field(default_factory=datetime.now)
     duration_ms: Optional[int] = None
 
 class ReActState(BaseModel):
     """Complete state of the ReAct agent execution."""
     goal: str = Field(..., description="High-level user objective")
-    working_memory: WorkingMemory = Field(default_factory=WorkingMemory, description="Agent's evolving understanding")
-    scratchpad: List[ScratchpadEntry] = Field(default_factory=list, description="History of all turns")
+    state: State = Field(default_factory=State, description="Agent's evolving understanding")
+    transcript: List[TranscriptEntry] = Field(default_factory=list, description="History of all turns")
     turn_count: int = Field(default=0, description="Current turn number")
     max_turns: int = Field(default=10, description="Maximum allowed turns")
     is_complete: bool = Field(default=False, description="Whether the goal has been achieved")
@@ -40,8 +81,8 @@ class ReActState(BaseModel):
     def reset_for_new_goal(self, new_goal: str) -> None:
         """Reset state for a completely new goal, clearing all history."""
         self.goal = new_goal
-        self.working_memory = WorkingMemory()  # Reset working memory
-        self.scratchpad.clear()
+        self.state = State(goal=new_goal)
+        self.transcript.clear()
         self.turn_count = 0
         self.is_complete = False
         self.completion_reason = None
@@ -51,25 +92,14 @@ class ReActState(BaseModel):
 
     def is_same_goal(self, other_goal: str) -> bool:
         """Check if the provided goal is essentially the same as current goal."""
-        # Simple string comparison - could be enhanced with semantic similarity
         return self.goal.strip().lower() == other_goal.strip().lower()
 
-class WorkingMemoryUpdate(BaseModel):
-    """Structured update to working memory from agent response."""
-    new_facts: List[str] = Field(default_factory=list, description="New facts discovered this turn")
-    updated_hypothesis: Optional[str] = Field(None, description="Updated working theory")
-    new_gaps: List[str] = Field(default_factory=list, description="New information gaps identified")
-    failed_approach: Optional[str] = Field(None, description="Approach that failed this turn")
-    next_actions: List[str] = Field(default_factory=list, description="Suggested next priorities")
-    synthesis_update: Optional[str] = Field(None, description="Updated synthesis of findings")
-
 class ParsedLLMResponse(BaseModel):
-    """Structured representation of LLM response."""
-    thought: str = Field(..., description="Agent's reasoning")
-    intent: Optional[str] = Field(None, description="Agent's classified intent")
-    action: Dict[str, Any] = Field(..., description="Tool action to execute")
-    working_memory_update: Optional[WorkingMemoryUpdate] = Field(None, description="How to update working memory")
-    progress_check: Optional[str] = Field(None, description="Agent's progress assessment")
+    """Structured representation of LLM response in new JSON format."""
+    reflect: ReflectSection = Field(..., description="Reflection section")
+    strategize: StrategizeSection = Field(..., description="Strategy section")
+    state: State = Field(..., description="Updated state")
+    act: ActSection = Field(..., description="Action to execute")
     is_finish: bool = Field(default=False, description="Whether this is a finish action")
     raw_response: str = Field(..., description="Original LLM response")
 
