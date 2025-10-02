@@ -334,11 +334,52 @@ class InteractiveUFFLOWReact:
                 # Parse response
                 parsed_response = self.agent_controller._parse_llm_response(raw_response)
 
-                # Display enhanced reasoning
-                print(f"{Colors.CYAN}🔍 {Colors.BOLD}**Reflect:**{Colors.RESET} {parsed_response.reflect.insight}")
-                print(f"{Colors.YELLOW}💭 {Colors.BOLD}**Strategy:**{Colors.RESET} {parsed_response.strategize.reasoning}")
-                print(f"{Colors.MAGENTA}🔬 {Colors.BOLD}**Hypothesis:**{Colors.RESET} {parsed_response.strategize.hypothesis.claim}")
-                print(f"{Colors.BLUE}🛠️  {Colors.BOLD}**Action:**{Colors.RESET} {parsed_response.act.tool}")
+                # Display all LLM response attributes
+                print(f"\n{Colors.BOLD}{Colors.CYAN}━━━ REFLECT ━━━{Colors.RESET}")
+                print(f"  {Colors.DIM}Turn:{Colors.RESET} {parsed_response.reflect.turn}")
+                print(f"  {Colors.DIM}Narrative:{Colors.RESET} {parsed_response.reflect.narrativeSynthesis}")
+                print(f"  {Colors.DIM}Outcome:{Colors.RESET} {parsed_response.reflect.outcome}")
+                print(f"  {Colors.DIM}Hypothesis Result:{Colors.RESET} {parsed_response.reflect.hypothesisResult}")
+                print(f"  {Colors.DIM}Insight:{Colors.RESET} {parsed_response.reflect.insight}")
+
+                print(f"\n{Colors.BOLD}{Colors.YELLOW}━━━ STRATEGIZE ━━━{Colors.RESET}")
+                print(f"  {Colors.DIM}Reasoning:{Colors.RESET} {parsed_response.strategize.reasoning}")
+                print(f"  {Colors.DIM}Hypothesis:{Colors.RESET}")
+                print(f"    • Claim: {parsed_response.strategize.hypothesis.claim}")
+                print(f"    • Test: {parsed_response.strategize.hypothesis.test}")
+                print(f"    • Signal: {parsed_response.strategize.hypothesis.signal}")
+                print(f"  {Colors.DIM}If Invalidated:{Colors.RESET} {parsed_response.strategize.ifInvalidated}")
+
+                print(f"\n{Colors.BOLD}{Colors.MAGENTA}━━━ STATE ━━━{Colors.RESET}")
+                print(f"  {Colors.DIM}Goal:{Colors.RESET} {parsed_response.state.goal}")
+                if parsed_response.state.tasks:
+                    print(f"  {Colors.DIM}Tasks:{Colors.RESET}")
+                    for task in parsed_response.state.tasks:
+                        print(f"    • [{task.status}] {task.id}: {task.desc}")
+                if parsed_response.state.active:
+                    print(f"  {Colors.DIM}Active Task:{Colors.RESET}")
+                    print(f"    • ID: {parsed_response.state.active.id}")
+                    print(f"    • Archetype: {parsed_response.state.active.archetype}")
+                    print(f"    • Phase: {parsed_response.state.active.phase}")
+                    print(f"    • Turns: {parsed_response.state.active.turns}")
+                if parsed_response.state.knownTrue:
+                    print(f"  {Colors.DIM}Known True:{Colors.RESET}")
+                    for fact in parsed_response.state.knownTrue:
+                        print(f"    • {fact}")
+                if parsed_response.state.knownFalse:
+                    print(f"  {Colors.DIM}Known False:{Colors.RESET}")
+                    for fact in parsed_response.state.knownFalse:
+                        print(f"    • {fact}")
+                if parsed_response.state.unknowns:
+                    print(f"  {Colors.DIM}Unknowns:{Colors.RESET}")
+                    for unknown in parsed_response.state.unknowns:
+                        print(f"    • {unknown}")
+
+                print(f"\n{Colors.BOLD}{Colors.BLUE}━━━ ACT ━━━{Colors.RESET}")
+                print(f"  {Colors.DIM}Tool:{Colors.RESET} {parsed_response.act.tool}")
+                print(f"  {Colors.DIM}Params:{Colors.RESET} {parsed_response.act.params}")
+                if parsed_response.act.safe:
+                    print(f"  {Colors.DIM}Safety:{Colors.RESET} {parsed_response.act.safe}")
 
                 # Check for goal completion
                 if parsed_response.is_finish:
