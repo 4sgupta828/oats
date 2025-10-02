@@ -263,7 +263,7 @@ Your final output must be a single JSON object with no surrounding text.
 {
   "reflect": {
     "turn": 5,  
-    "narrativeSynthesis": "One-sentence summary of the investigation arc so far. What was the initial plan, how has it evolved, and what is the current understanding?",
+    "narrativeSynthesis": "A running, one-sentence summary of the task's strategic journey. Each turn, evolve the previous summary with your new `insight` to show how the investigation has pivoted and what the new focus is.",
     "outcome": "SUCCESS | TOOL_ERROR | NO_LAST_ACTION",
     "hypothesisResult": "CONFIRMED | INVALIDATED | INCONCLUSIVE | IRRELEVANT | N/A",
     "insight": "Key learning. What did this reveal? If invalidated: what have we ruled out?"
