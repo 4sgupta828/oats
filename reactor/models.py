@@ -35,7 +35,7 @@ class Task(BaseModel):
 class ActiveTask(BaseModel):
     """Currently active task with its metadata."""
     id: int = Field(..., description="ID of the active task")
-    archetype: Literal["INVESTIGATE", "CREATE", "MODIFY", "UNORTHODOX"] = Field(..., description="Task type")
+    archetype: Literal["INVESTIGATE", "CREATE", "MODIFY", "PROVISION", "UNORTHODOX"] = Field(..., description="Task type")
     phase: str = Field(..., description="Current phase within the archetype")
     turns: int = Field(..., description="Number of turns spent on this task")
 
