@@ -335,41 +335,36 @@ class InteractiveUFFLOWReact:
                 parsed_response = self.agent_controller._parse_llm_response(raw_response)
 
                 # Display enhanced reasoning
-                if parsed_response.working_memory_update:
-                    wm = parsed_response.working_memory_update
-                    if wm.new_facts:
-                        print(f"{Colors.CYAN}🧠 {Colors.BOLD}**New Facts:**{Colors.RESET} {', '.join(wm.new_facts[:2])}{'...' if len(wm.new_facts) > 2 else ''}")
-                    if wm.updated_hypothesis:
-                        print(f"{Colors.CYAN}💡 {Colors.BOLD}**Hypothesis:**{Colors.RESET} {wm.updated_hypothesis[:100]}...")
-                if parsed_response.progress_check:
-                    print(f"{Colors.MAGENTA}📊 {Colors.BOLD}**Progress Check:**{Colors.RESET} {parsed_response.progress_check}")
-                print(f"{Colors.YELLOW}💭 {Colors.BOLD}**Thought:**{Colors.RESET} {parsed_response.thought}")
-                print(f"{Colors.BLUE}🛠️  {Colors.BOLD}**Action:**{Colors.RESET} {parsed_response.action}")
+                print(f"{Colors.CYAN}🔍 {Colors.BOLD}**Reflect:**{Colors.RESET} {parsed_response.reflect.insight}")
+                print(f"{Colors.YELLOW}💭 {Colors.BOLD}**Strategy:**{Colors.RESET} {parsed_response.strategize.reasoning}")
+                print(f"{Colors.MAGENTA}🔬 {Colors.BOLD}**Hypothesis:**{Colors.RESET} {parsed_response.strategize.hypothesis.claim}")
+                print(f"{Colors.BLUE}🛠️  {Colors.BOLD}**Action:**{Colors.RESET} {parsed_response.act.tool}")
 
                 # Check for goal completion
                 if parsed_response.is_finish:
                     print(f"\n{Colors.GREEN}🎉 Agent indicated goal completion!{Colors.RESET}")
-                    print(f"{Colors.GREEN}🏁 Completion Reason:{Colors.RESET} {parsed_response.action.get('reason', 'Goal completed')}")
+                    print(f"{Colors.GREEN}🏁 Completion Reason:{Colors.RESET} {parsed_response.act.params.get('reason', 'Goal completed')}")
 
-                    # Still add this final turn to scratchpad
-                    from reactor.models import ScratchpadEntry
-                    final_entry = ScratchpadEntry(
+                    # Still add this final turn to transcript
+                    from reactor.models import TranscriptEntry
+                    final_entry = TranscriptEntry(
                         turn=turn_num,
-                        thought=parsed_response.thought,
-                        action=parsed_response.action,
-                        observation=f"FINISH: {parsed_response.action.get('reason', 'Goal completed')}",
-                        progress_check=parsed_response.progress_check
+                        reflect=parsed_response.reflect,
+                        strategize=parsed_response.strategize,
+                        state=parsed_response.state,
+                        act=parsed_response.act,
+                        observation=f"FINISH: {parsed_response.act.params.get('reason', 'Goal completed')}"
                     )
-                    state.scratchpad.append(final_entry)
+                    state.transcript.append(final_entry)
                     state.turn_count += 1
 
                     state.is_complete = True
-                    state.completion_reason = parsed_response.action.get("reason", "Goal completed")
+                    state.completion_reason = parsed_response.act.params.get("reason", "Goal completed")
                     break
 
                 # Execute action
-                print(f"{Colors.CYAN}{Colors.BOLD}**Executing Action:**{Colors.RESET} {Colors.DIM}{parsed_response.action.get('tool_name', 'unknown')} with parameters {parsed_response.action.get('parameters', {})}{Colors.RESET}")
-                observation = self.agent_controller.tool_executor.execute_action(parsed_response.action)
+                print(f"{Colors.CYAN}{Colors.BOLD}**Executing Action:**{Colors.RESET} {Colors.DIM}{parsed_response.act.tool} with parameters {parsed_response.act.params}{Colors.RESET}")
+                observation = self.agent_controller.tool_executor.execute_action({"tool_name": parsed_response.act.tool, "parameters": parsed_response.act.params})
 
                 # Display observation
                 if observation.startswith("ERROR"):
@@ -378,15 +373,16 @@ class InteractiveUFFLOWReact:
                     print(f"{Colors.GREEN}👀 {Colors.BOLD}**Observation:**{Colors.RESET} {self._format_observation_output(observation)}")
 
                 # Update state
-                from reactor.models import ScratchpadEntry
-                entry = ScratchpadEntry(
+                from reactor.models import TranscriptEntry
+                entry = TranscriptEntry(
                     turn=turn_num,
-                    thought=parsed_response.thought,
-                    action=parsed_response.action,
-                    observation=observation,
-                    progress_check=parsed_response.progress_check
+                    reflect=parsed_response.reflect,
+                    strategize=parsed_response.strategize,
+                    state=parsed_response.state,
+                    act=parsed_response.act,
+                    observation=observation
                 )
-                state.scratchpad.append(entry)
+                state.transcript.append(entry)
                 state.turn_count += 1
 
             except Exception as e:
@@ -428,17 +424,17 @@ class InteractiveUFFLOWReact:
             print(f"{Colors.BOLD}Duration:{Colors.RESET} {duration.total_seconds():.2f}s")
 
         # Show turn-by-turn summary
-        if state.scratchpad:
+        if state.transcript:
             print(f"\n{Colors.BOLD}Turn Summary:{Colors.RESET}")
             actions_used = []
-            for entry in state.scratchpad:
-                tool_name = entry.action.get('tool_name', 'unknown')
+            for entry in state.transcript:
+                tool_name = entry.act.tool
                 actions_used.append(tool_name)
 
                 # Special handling for final turn
                 if tool_name == 'finish':
                     status_icon = "🏁"
-                    display_name = f"finish ({entry.action.get('reason', 'Goal completed')})"
+                    display_name = f"finish ({entry.act.params.get('reason', 'Goal completed')})"
                 else:
                     status_icon = "✅" if not entry.observation.startswith("ERROR") else "❌"
                     display_name = tool_name
@@ -503,9 +499,9 @@ class InteractiveUFFLOWReact:
         nodes = {}
         graph = {}
 
-        for i, entry in enumerate(state.scratchpad):
+        for i, entry in enumerate(state.transcript):
             node_id = f"turn-{entry.turn}"
-            tool_name = entry.action.get('tool_name', 'unknown')
+            tool_name = entry.act.tool
 
             # Create a mock result for CLI display
             success = not entry.observation.startswith("ERROR")
@@ -521,7 +517,7 @@ class InteractiveUFFLOWReact:
                 "uf_name": tool_name,
                 "status": "success" if success else "failure",
                 "input_resolver": {
-                    "data_mapping": entry.action.get('parameters', {}),
+                    "data_mapping": entry.act.params,
                     "invocation": {
                         "type": "react",
                         "template": "ReAct Framework",
@@ -529,12 +525,12 @@ class InteractiveUFFLOWReact:
                     }
                 },
                 "result": mock_result,
-                "thought": entry.thought
+                "thought": entry.strategize.reasoning
             }
 
             # Simple linear graph for ReAct turns
             if i > 0:
-                prev_node_id = f"turn-{state.scratchpad[i-1].turn}"
+                prev_node_id = f"turn-{state.transcript[i-1].turn}"
                 graph[node_id] = [prev_node_id]
             else:
                 graph[node_id] = []
@@ -558,7 +554,7 @@ class InteractiveUFFLOWReact:
                 "successful_nodes": sum(1 for node in nodes.values() if node['status'] == 'success'),
                 "failed_nodes": sum(1 for node in nodes.values() if node['status'] == 'failure'),
                 "total_cost": 0.0,  # ReAct doesn't track detailed costs yet
-                "total_duration_ms": sum(entry.duration_ms or 0 for entry in state.scratchpad),
+                "total_duration_ms": sum(entry.duration_ms or 0 for entry in state.transcript),
                 "final_status": "succeeded" if result.success else "failed",
                 "framework": "ReAct",
                 "turns_taken": state.turn_count,

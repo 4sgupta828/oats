@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.logging_config import get_logger
 from core.llm import OpenAIClientManager
-from reactor.models import ReActState, ScratchpadEntry, ParsedLLMResponse
+from reactor.models import ReActState, TranscriptEntry, ParsedLLMResponse
 from core.models import UFDescriptor
 # Terminal colors for output formatting
 class Colors:
@@ -161,17 +161,20 @@ class ToolProvisioningAgent:
                     else:
                         print(f"{Colors.CYAN}👀 Observation:{Colors.RESET} {observation}")
 
-                # Add to scratchpad
+                # Add to transcript
                 turn_duration = int((time.time() - turn_start) * 1000)
-                scratchpad_entry = ScratchpadEntry(
+                # For now, create a minimal transcript entry - provisioner may need full refactor
+                transcript_entry = TranscriptEntry(
                     turn=state.turn_count + 1,
-                    thought=parsed_response.thought,
-                    action=parsed_response.action,
+                    reflect=parsed_response.reflect if hasattr(parsed_response, 'reflect') else None,
+                    strategize=parsed_response.strategize if hasattr(parsed_response, 'strategize') else None,
+                    state=parsed_response.state if hasattr(parsed_response, 'state') else state.state,
+                    act=parsed_response.act if hasattr(parsed_response, 'act') else None,
                     observation=observation,
                     duration_ms=turn_duration
                 )
 
-                state.scratchpad.append(scratchpad_entry)
+                state.transcript.append(transcript_entry)
                 state.turn_count += 1
 
                 # Intelligent failure detection - if we've had multiple failures, suggest finishing
@@ -208,9 +211,9 @@ class ToolProvisioningAgent:
 
         # Build history if any
         history = ""
-        if state.scratchpad:
+        if state.transcript:
             history_parts = ["PREVIOUS ATTEMPTS:"]
-            for entry in state.scratchpad:
+            for entry in state.transcript:
                 history_parts.extend([
                     f"Turn {entry.turn}:",
                     f"Thought: {entry.thought}",
@@ -889,7 +892,7 @@ Return only the commands, no explanations. If unsure about the tool, provide the
 
     def _detect_potential_loop(self, state: ReActState, new_action: Dict[str, Any]) -> bool:
         """Detect if the agent is about to repeat a failed command or approach."""
-        if not state.scratchpad:
+        if not state.transcript:
             return False
 
         new_tool = new_action.get("tool_name")
@@ -909,7 +912,7 @@ Return only the commands, no explanations. If unsure about the tool, provide the
                 return True
 
             # Check against previous shell commands for exact repeats
-            for entry in state.scratchpad:
+            for entry in state.transcript:
                 if entry.action.get("tool_name") == "execute_shell":
                     prev_command = entry.action.get("parameters", {}).get("command", "").lower().strip()
 
@@ -927,7 +930,7 @@ Return only the commands, no explanations. If unsure about the tool, provide the
         # Check for repeated check_command_exists - more lenient (allow 3 checks)
         elif new_tool == "check_command_exists":
             new_cmd_name = new_params.get("command_name", "").lower()
-            check_count = sum(1 for entry in state.scratchpad
+            check_count = sum(1 for entry in state.transcript
                             if entry.action.get("tool_name") == "check_command_exists"
                             and entry.action.get("parameters", {}).get("command_name", "").lower() == new_cmd_name)
 
@@ -950,7 +953,7 @@ Return only the commands, no explanations. If unsure about the tool, provide the
         failure_count = 0
 
         # Count recent failures with this package manager
-        for entry in state.scratchpad[-3:]:  # Only check last 3 attempts
+        for entry in state.transcript[-3:]:  # Only check last 3 attempts
             if entry.action.get("tool_name") == "execute_shell":
                 prev_cmd = entry.action.get("parameters", {}).get("command", "")
                 if prev_cmd.startswith(package_manager) and entry.observation:
@@ -1008,14 +1011,14 @@ Return only the commands, no explanations. If unsure about the tool, provide the
 
     def _should_suggest_finishing(self, state: ReActState) -> bool:
         """Determine if we should suggest finishing due to repeated failures."""
-        if len(state.scratchpad) < 2:
+        if len(state.transcript) < 2:
             return False
 
         # Count recent failures (more aggressive - shorter limit)
         recent_failures = 0
         installation_attempts = 0
 
-        for entry in state.scratchpad[-4:]:  # Last 4 attempts
+        for entry in state.transcript[-4:]:  # Last 4 attempts
             observation = entry.observation.upper()
             action = entry.action
 
@@ -1035,13 +1038,13 @@ Return only the commands, no explanations. If unsure about the tool, provide the
         # - More than 4 total turns taken
         return (recent_failures >= 3 or
                 (installation_attempts >= 2 and recent_failures >= 2) or
-                len(state.scratchpad) >= 4)
+                len(state.transcript) >= 4)
 
     def _analyze_failure_patterns(self, state: ReActState) -> List[str]:
         """Analyze failure patterns to suggest better approaches."""
         patterns = []
 
-        for entry in state.scratchpad:
+        for entry in state.transcript:
             observation = entry.observation.upper()
             action = entry.action
 

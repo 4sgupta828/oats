@@ -1,6 +1,6 @@
 # reactor/models.py
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Dict, Any, Optional, Literal
 from datetime import datetime
 
@@ -68,7 +68,7 @@ class TranscriptEntry(BaseModel):
 class ReActState(BaseModel):
     """Complete state of the ReAct agent execution."""
     goal: str = Field(..., description="High-level user objective")
-    state: State = Field(default_factory=State, description="Agent's evolving understanding")
+    state: Optional[State] = Field(None, description="Agent's evolving understanding")
     transcript: List[TranscriptEntry] = Field(default_factory=list, description="History of all turns")
     turn_count: int = Field(default=0, description="Current turn number")
     max_turns: int = Field(default=10, description="Maximum allowed turns")
@@ -77,6 +77,13 @@ class ReActState(BaseModel):
     total_cost: float = Field(default=0.0, description="Cumulative cost of all actions")
     start_time: datetime = Field(default_factory=datetime.now)
     end_time: Optional[datetime] = None
+
+    @model_validator(mode='after')
+    def initialize_state_with_goal(self):
+        """Initialize state with goal if not provided."""
+        if self.state is None:
+            self.state = State(goal=self.goal)
+        return self
 
     def reset_for_new_goal(self, new_goal: str) -> None:
         """Reset state for a completely new goal, clearing all history."""
