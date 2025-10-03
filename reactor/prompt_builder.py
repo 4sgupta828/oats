@@ -32,7 +32,7 @@ class ReActPromptBuilder:
             self.tokenizer = tiktoken.get_encoding("cl100k_base")
         else:
             self.tokenizer = None
-        self.max_tokens_per_turn = 8000  # Hard limit (increased for ReAct workflow)
+        self.max_tokens_per_turn = 12000  # Hard limit (increased for ReAct workflow)
         self.warning_threshold = 6000    # Warning threshold
 
     def _count_tokens(self, text: str) -> int:
@@ -662,21 +662,28 @@ Your final output must be a single JSON object with no surrounding text.
 ## Operational Playbook: Concrete Rules for Execution
 
 These are non-negotiable rules that translate the core principles into effective action. Your primary challenge is to correctly diagnose a task's true scope before acting.
-0. The Principle of Stateless Execution: Always Re-establish Context 🔄
-   MANDATE: Every execute_shell action runs in a new, isolated terminal session. State (like environment variables or an activated virtual environment) from a previous turn does not persist. You MUST re-establish the necessary context in every command.
+0. The Venv Execution Mandate: Use Direct Paths MANDATE: Each execute_shell command runs in an isolated, temporary session. Environment activation with source or bash DOES NOT PERSIST and is FORBIDDEN as it is unreliable.
 
-Virtual Environments: If a command requires a tool installed in a venv (like radon, black, flake8), you MUST prepend the command with the activation script.
+To run any tool or Python command from a virtual environment (venv), you MUST call it using its full, direct path. This is the only guaranteed method.
+To run a tool: Use the path venv/bin/<tool_name>.
+To run pip: Use the path venv/bin/python3 -m pip.
+To run a script: Use the path venv/bin/python3 <script_name>.py.
 
-# BAD: Assumes venv is still active from a previous turn
-radon cc . -s -a
+Example Commands:
 
-# GOOD: Activates the venv AND runs the command in the same session
-source venv/bin/activate && radon cc . -s -a
-Direct Execution: As an alternative to activating, you can call the executable by its full path.
-# GOOD: Bypasses the need for PATH by using the full path
-venv/bin/python3 -m radon cc . -s -a
+# INCORRECT (Forbidden):
+# source venv/bin/activate && radon cc .
+# radon cc .
 
-This is the most common failure pattern. Internalize it to avoid loops.
+# CORRECT (Mandatory):
+venv/bin/radon cc . -s -a
+
+# CORRECT (Mandatory pip install):
+venv/bin/python3 -m pip install black
+
+# CORRECT (Mandatory script execution):
+venv/bin/python3 my_script.py
+There are no exceptions. Always use the direct venv/bin/... path for all venv-related operations.
 
 1.  The Scripting Mandate: Judging a Task's True Scope 🧠
     Before you act, you must classify the active task's nature. Do not rely on keywords alone. Instead, use your conceptual understanding to determine the work required. Ask yourself this critical question:

@@ -58,6 +58,7 @@ class InteractiveUFFLOWReact:
         self.execution_history = []
         self.terminal_width = shutil.get_terminal_size().columns
         self.fast_mode = fast_mode
+        self.session_transcript = []  # Track all turns across all goals in this session
 
     def setup_ufflow(self):
         """Setup UFFLOW environment."""
@@ -78,6 +79,48 @@ class InteractiveUFFLOWReact:
         except Exception as e:
             print(f"{Colors.RED}❌ Error setting up UFFLOW: {e}{Colors.RESET}")
             return False
+
+    def _dump_session_transcript(self):
+        """Dump the entire session transcript to a randomly named file for debugging."""
+        import random
+        import string
+
+        # Generate random filename
+        random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"session_transcript_{timestamp}_{random_id}.json"
+
+        try:
+            # Collect all transcript data from agent_controller if available
+            dump_data = {
+                'session_metadata': {
+                    'timestamp': timestamp,
+                    'fast_mode': self.fast_mode,
+                    'execution_count': len(self.execution_history)
+                },
+                'execution_history': self.execution_history,
+                'session_transcript': self.session_transcript
+            }
+
+            # If there's a current execution with state, include it
+            if self.agent_controller and hasattr(self.agent_controller, 'state'):
+                state = self.agent_controller.state
+                dump_data['final_state'] = {
+                    'goal': state.goal,
+                    'turn_count': state.turn_count,
+                    'is_complete': state.is_complete,
+                    'completion_reason': state.completion_reason,
+                    'transcript': [entry.dict() for entry in state.transcript]
+                }
+
+            with open(filename, 'w') as f:
+                json.dump(dump_data, f, indent=2, default=str)
+
+            print(f"\n{Colors.CYAN}📝 Session transcript dumped to: {filename}{Colors.RESET}")
+            print(f"{Colors.DIM}   (for debugging context truncation issues){Colors.RESET}")
+
+        except Exception as e:
+            print(f"\n{Colors.YELLOW}⚠️ Failed to dump session transcript: {e}{Colors.RESET}")
 
     def _get_robust_input(self, prompt: str) -> str:
         """Get robust input that handles long text and potential truncation issues."""
@@ -291,6 +334,15 @@ class InteractiveUFFLOWReact:
 
             self.current_execution = execution_data
             self.execution_history.append(execution_data)
+
+            # Track transcript in session for debugging
+            if hasattr(result, 'state') and result.state and hasattr(result.state, 'transcript'):
+                for entry in result.state.transcript:
+                    self.session_transcript.append({
+                        'goal': goal.description,
+                        'turn': entry.turn,
+                        'entry': entry.dict()
+                    })
 
             return execution_data
 
@@ -730,6 +782,7 @@ class InteractiveUFFLOWReact:
                         continue_choice = input(f"{Colors.CYAN}Create and execute another goal? (Y/n): {Colors.RESET}").strip().lower()
                         if continue_choice in ['n', 'no']:
                             print(f"\n{Colors.GREEN}🎉 FAST mode session completed!{Colors.RESET}")
+                            self._dump_session_transcript()
                             break
                         # If yes or Enter, continue the loop
                     else:
@@ -738,6 +791,7 @@ class InteractiveUFFLOWReact:
                         retry_choice = input(f"{Colors.CYAN}Try a different goal? (Y/n): {Colors.RESET}").strip().lower()
                         if retry_choice in ['n', 'no']:
                             print(f"\n{Colors.YELLOW}Exiting FAST mode.{Colors.RESET}")
+                            self._dump_session_transcript()
                             break
                 else:
                     print(f"\n{Colors.RED}❌ Execution failed.{Colors.RESET}")
@@ -745,15 +799,18 @@ class InteractiveUFFLOWReact:
                     retry_choice = input(f"{Colors.CYAN}Try a different goal? (Y/n): {Colors.RESET}").strip().lower()
                     if retry_choice in ['n', 'no']:
                         print(f"\n{Colors.RED}Exiting FAST mode.{Colors.RESET}")
+                        self._dump_session_transcript()
                         break
 
             except KeyboardInterrupt:
                 print(f"\n\n{Colors.YELLOW}⚠️ FAST mode interrupted by user{Colors.RESET}")
+                self._dump_session_transcript()
                 break
             except Exception as e:
                 print(f"\n{Colors.RED}❌ Error in FAST mode: {e}{Colors.RESET}")
                 retry_choice = input(f"{Colors.CYAN}Continue anyway? (Y/n): {Colors.RESET}").strip().lower()
                 if retry_choice in ['n', 'no']:
+                    self._dump_session_transcript()
                     break
 
     def _reset_agent_controller(self):
@@ -878,6 +935,7 @@ class InteractiveUFFLOWReact:
                     continue
 
                 if command in ['quit', 'exit', 'q']:
+                    self._dump_session_transcript()
                     print(f"\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}")
                     break
 
@@ -936,9 +994,11 @@ class InteractiveUFFLOWReact:
 
             except KeyboardInterrupt:
                 print(f"\n\n{Colors.YELLOW}⚠️ Interrupted by user{Colors.RESET}")
+                self._dump_session_transcript()
                 break
             except EOFError:
                 print(f"\n\n{Colors.GREEN}👋 Goodbye!{Colors.RESET}")
+                self._dump_session_transcript()
                 break
             except Exception as e:
                 print(f"\n{Colors.RED}❌ Error: {e}{Colors.RESET}")
