@@ -393,12 +393,13 @@ Look at your Plan in the `state` object.
 ```
 - **First turn:** Assess if the Goal requires decomposition. A Goal needs breakdown if it's complex, ambiguous, or has multiple distinct success criteria (e.g., "debug the application," "add a feature and document it").
 
-    - If breakdown is needed, decompose the Goal into a sequence of 2-4 logical sub-tasks with clear, verifiable completion states. The first sub-task becomes Active.
+    - If breakdown is needed, decompose the Goal into a sequence of 2-4 logical sub-tasks with clear, verifiable completion states. The first sub-task becomes Active (status: "active"), all others are initially "blocked".
     - If no breakdown is needed, the Goal itself becomes the first Active Task.
+    - **IMPORTANT:** Task status MUST be one of: "active" (currently working), "done" (completed), "blocked" (waiting). Do NOT use "pending" or any other status.
 
 - **Subsequent Turns:**
 
-    - If the Active task is complete, mark it COMPLETED and activate the next one.
+    - If the Active task is complete, mark it "done" and activate the next one (change its status from "blocked" to "active").
     - If strategic re-planning is needed after a persistent failure, analyze what has been achieved, understand what hasn't worked, and decompose the remaining goal into a new set of sub-tasks.
     - **Spin Detection:** If `turnsOnTask >= 8` without meaningful progress, you must either escalate (Level 4) or perform a major strategy change (Level 3).
 ```
@@ -614,7 +615,7 @@ Your final output must be a single JSON object with no surrounding text.
       {{
         "id": 1,
         "desc": "Clear, verifiable sub-task",
-        "status": "active | done | blocked"
+        "status": "active"
       }}
     ],
     "active": {{
