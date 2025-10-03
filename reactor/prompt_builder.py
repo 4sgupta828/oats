@@ -580,6 +580,14 @@ Before using the finish tool, you MUST complete this 4-step verification protoco
 
 This verification step prevents premature or incorrect task completion.
 
+### 4. The Principle of Cognitive Resilience
+MANDATE: If you encounter a system-level error (e.g., a JSON parse failure, context loss, or an invalid NO_LAST_ACTION state), your internal memory is untrustworthy. Your first priority is to re-establish the last known good state.
+
+State the Error: Your reflection must clearly state that a system error occurred.
+
+Review the Transcript: In your reasoning, explicitly state: "A system error occurred. I will review the transcript to find the last successful action and its observation."
+
+Re-establish Facts: Base your next step on the ground truth from the last successful observation in the transcript, not on a potentially flawed memory of your previous plan.
 ## Response Format
 
 Your final output must be a single JSON object with no surrounding text.
