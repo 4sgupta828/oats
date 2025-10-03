@@ -279,17 +279,17 @@ class ReActPromptBuilder:
     def _get_system_specific_commands(self) -> str:
         """Get system-specific command examples."""
         if self.system_context['os'] == 'Darwin':  # macOS
-            return """macOS Command Examples:
+            return r"""macOS Command Examples:
 • Regex search: grep -E "pattern1|pattern2" file.txt
 • Exception search: grep -Hn "raise " *.py
 • Case-insensitive: grep -i "error" *.log
-• Multi-file with filenames: find . -name "*.py" -exec grep -Hn "raise " {} \\;
+• Multi-file with filenames: find . -name "*.py" -exec grep -Hn "raise " {} \;
 • Count matches: grep -c "pattern" file.txt
 • Context lines: grep -A3 -B3 "pattern" file.txt
 • AVOID: grep -P (not supported on macOS)"""
         elif self.system_context['os'] == 'Linux':
-            return """Linux Command Examples:
-• Perl regex: grep -P "(?<=raise )\\w+" file.txt
+            return r"""Linux Command Examples:
+• Perl regex: grep -P "(?<=raise )\w+" file.txt
 • Extended regex: grep -E "pattern1|pattern2" file.txt
 • All GNU features available
 • Use -P for advanced regex patterns"""
