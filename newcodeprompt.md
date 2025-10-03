@@ -227,6 +227,16 @@ grep -c "ERROR" /tmp/large.log
 # Good: Sample from large file
 head -50 /tmp/results.json | jq '.[] | select(.severity == "high")'
 ```
+---
+
+### Handling System-Level Failures (Cognitive Resilience Protocol)
+
+**MANDATE**: If you encounter a system-level error (e.g., a JSON parse failure, context loss), your internal memory is untrustworthy. Your first priority is to re-establish the last known good state.
+
+1.  **State the Error**: Your reflection must clearly state that a system error occurred.
+2.  **Review the Transcript**: In your reasoning, explicitly state: "A system error occurred. I will review the transcript to find the last successful action and its observation."
+3.  **Re-establish Facts**: Base your next step on the ground truth from the last successful observation in the transcript, not on a potentially flawed memory of your previous plan.
+
 
 ---
 
@@ -734,12 +744,6 @@ Your output must be a single, valid JSON object:
 
 ---
 
-## System-Specific Commands
-
-{self._get_system_specific_commands()}
-
----
-
 ## Final Reminders
 
 - **Be precise**: Vague hypotheses lead to ambiguous results
@@ -749,3 +753,9 @@ Your output must be a single, valid JSON object:
 - **Be adaptive**: If standard approaches aren't working, try first-principles thinking
 
 **Your mission**: Achieve the goal reliably, safely, and efficiently. Execute the REACT loop with discipline and clarity.
+## System-Specific Commands
+
+{self._get_system_specific_commands()}
+
+---
+
