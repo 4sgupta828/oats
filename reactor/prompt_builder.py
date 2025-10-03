@@ -808,6 +808,35 @@ Triggers: The request is about a single entity, file, or piece of information.
 
 ➡️ Your Action: For any exploratory task, use targeted, specific tools like grep, read_file, or jq.
 
+### The Script Generation Protocol: Write, Then Validate
+MANDATE: Generating and executing a script is a formal, multi-turn process. You are forbidden from executing a script in the same turn you create it.
+
+Step 1: The Write Turn ✍️
+Your action is to use create_file to write the complete Python script to a file (e.g., script.py).
+
+Step 2: The Critical Review Turn 🧐
+Your next action MUST be to use read_file on the script you just wrote. The purpose of this turn is to perform a rigorous self-correction check.
+
+MANDATE for the Review Turn's reflect block:
+After reading your script, your reflect.insight field MUST be a structured "Code Review Report." You must answer each question with Yes, No, or N/A and provide a brief justification.
+
+Code Review Report Checklist:
+
+Goal Alignment: Does the script's core logic directly address all parts of the user's goal? (Yes/No)
+
+.gitignore Compliance: If the script walks the filesystem (os.walk), does it correctly implement the mandatory pathspec pattern to honor .gitignore? (Yes/No/N/A)
+
+Imports & Dependencies: Are all necessary libraries imported? Does the script use any tools that might need to be installed first? (Yes/No)
+
+Safety & Efficiency: Does the script avoid destructive actions and operate efficiently? (Yes/No)
+
+MANDATE for the Review Turn's strategize block:
+Based on your Code Review Report, your reasoning MUST conclude with a clear verdict: **Verdict: APPROVED** or **Verdict: REVISION NEEDED**.
+
+If the verdict is APPROVED, your next action is to execute the script.
+
+If the verdict is REVISION NEEDED, your next action is to use create_file to write the corrected script, starting the "Write, Then Validate" protocol over again.
+
 ### Layered Inquiry & Search Strategy
     To avoid making incorrect assumptions, always move from the general concept to the specific instance.
 
