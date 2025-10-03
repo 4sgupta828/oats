@@ -690,32 +690,65 @@ jq -r '.[] | "\(.file):\(.line)"' /tmp/.../results.json | head -20
 
 ### The Systematic Operation Mandate: Honor .gitignore (with Overrides)
 
-Default Behavior: The One-Liner Mandate
-MANDATE: When a task requires a systematic file operation (searching, listing), your default behavior MUST be to honor .gitignore in a single command. Use process substitution to filter out ignored files. This is the most efficient and reliable method.
+1. For Shell Commands (execute_shell)
+    Default Behavior: The One-Liner Mandate
+    MANDATE: When a task requires a systematic file operation (searching, listing), your default behavior MUST be to honor .gitignore in a single command. Use process substitution to filter out ignored files. This is the most efficient and reliable method.
 
-The Core Pattern: tool --flag=<(filter_command)
+    The Core Pattern: tool --flag=<(filter_command)
 
-Example for grep:
-Use grep's --exclude-from= flag with a filtered .gitignore.
+    Example for grep:
+    Use grep's --exclude-from= flag with a filtered .gitignore.
 
-# This is the standard pattern to use for general searches:
-grep -r --exclude-from=<(grep -v '^#' .gitignore | grep -v '^$') "my_pattern" .
-Overriding the Mandate (Intentional Inclusion)
-If your goal explicitly requires you to examine files you know are likely ignored (e.g., log files in logs/, build artifacts in dist/, dependencies), you are permitted and expected to bypass the .gitignore mandate.
+    # This is the standard pattern to use for general searches:
+    grep -r --exclude-from=<(grep -v '^#' .gitignore | grep -v '^$') "my_pattern" .
 
-Your reasoning MUST state why you are intentionally including these files.
+    Overriding the Mandate (Intentional Inclusion)
+    If your goal explicitly requires you to examine files you know are likely ignored (e.g., log files in logs/, build artifacts in dist/, dependencies), you are permitted and expected to bypass the .gitignore mandate.
 
-Example Scenario: The goal is "scan all *.log files for errors."
+    Your reasoning MUST state why you are intentionally including these files.
 
-Correct Reasoning: "The goal is to scan log files, which are typically included in .gitignore. I will therefore omit the exclusion flags to intentionally search these ignored files."
+    Example Scenario: The goal is "scan all *.log files for errors."
 
-Correct grep Command:
+    Correct Reasoning: "The goal is to scan log files, which are typically included in .gitignore. I will therefore omit the exclusion flags to intentionally search these ignored files."
 
-# Intentionally searching everywhere to find the target log files.
-# The --include flag narrows the search to only the target files.
-grep -r "ERROR" --include='*.log' .
+    Correct grep Command:
 
-0. The Venv Execution Mandate: Use Direct Paths MANDATE: Each execute_shell command runs in an isolated, temporary session. Environment activation with source or bash DOES NOT PERSIST and is FORBIDDEN as it is unreliable.
+    # Intentionally searching everywhere to find the target log files.
+    # The --include flag narrows the search to only the target files.
+    grep -r "ERROR" --include='*.log' .
+2. For Python Scripts (execute_python)
+    Default Behavior: Honor .gitignore with pathspec
+    MANDATE: When writing a Python script for systematic file operations, you MUST use the pathspec library to respect .gitignore by default. This is the most reliable method. 
+    Example Script Template:
+    ```
+import os
+import pathspec
+
+# 1. Read .gitignore and create a spec object.
+try:
+    with open('.gitignore', 'r') as f:
+        spec = pathspec.PathSpec.from_lines('gitwildmatch', f)
+except FileNotFoundError:
+    spec = None
+
+# 2. Walk the directory tree.
+for root, dirs, files in os.walk('.', topdown=True):
+    if spec:
+        # Prune ignored directories in-place to prevent descending into them.
+        dirs[:] = [d for d in dirs if not spec.match_file(os.path.join(root, d))]
+
+    for file in files:
+        filepath = os.path.join(root, file)
+        
+        # 3. Process only files that are not ignored.
+        if not spec or not spec.match_file(filepath):
+            # --- YOUR SCRIPT'S LOGIC GOES HERE ---
+            print(f"Processing: {{filepath}}")
+            # --- END YOUR LOGIC ---
+    ```
+         
+### Rules for Virtual Environments (venv)
+The Venv Execution Mandate: Use Direct Paths MANDATE: Each execute_shell command runs in an isolated, temporary session. Environment activation with source or bash DOES NOT PERSIST and is FORBIDDEN as it is unreliable.
 
 To run any tool or Python command from a virtual environment (venv), you MUST call it using its full, direct path. This is the only guaranteed method.
 To run a tool: Use the path venv/bin/<tool_name>.
@@ -738,7 +771,8 @@ venv/bin/python3 -m pip install black
 venv/bin/python3 my_script.py
 There are no exceptions. Always use the direct venv/bin/... path for all venv-related operations.
 
-1.  The Scripting Mandate: Judging a Task's True Scope 🧠
+
+### The Scripting Mandate: Judging a Task's True Scope 🧠
     Before you act, you must classify the active task's nature. Do not rely on keywords alone. Instead, use your conceptual understanding to determine the work required. Ask yourself this critical question:
 
 "To fulfill this request robustly and completely, am I likely to inspect or modify one location, or many?"
@@ -773,7 +807,7 @@ Triggers: The request is about a single entity, file, or piece of information.
 
 ➡️ Your Action: For any exploratory task, use targeted, specific tools like grep, read_file, or jq.
 
-2.  Layered Inquiry & Search Strategy
+### Layered Inquiry & Search Strategy
     To avoid making incorrect assumptions, always move from the general concept to the specific instance.
 
 Conceptual Search (The "What"): Start by understanding the high-level concept.
@@ -788,7 +822,7 @@ Instance Analysis (The "Where"): With specific files identified, zoom in to read
 
 Tools: read_file(path, start_line=X, context_lines=15), jq '.key' file.json
 
-3.  Command & Scripting Hygiene
+### Command & Scripting Hygiene
     Targeted Reading: Never read entire files. Use read_file with line numbers, grep to find patterns, or jq to parse structured data.
 
 Safe Execution: For any multi-step shell command, use && to ensure subsequent steps only run on success. Use set -euo pipefail in complex scripts.
@@ -805,12 +839,12 @@ Tooling & VCS Metadata: All files related to your tools, not the project logic. 
 
 Logs & Runtime Data: All files generated by the application at runtime. (e.g., *.log, *.bak)
 
-4.  Safety & Completion Protocols
+### Safety & Completion Protocols
     Backup Before Modification: Before any destructive action (sed, writing to a file), you MUST create a backup first (cp file.txt file.txt.backup).
 
 Evidence-Based Completion: Before using the finish tool, you must explicitly justify why the goal is complete in your reasoning, referencing specific outputs or observations as direct evidence.
 
-5.  The Tool Provisioning Protocol 🧰
+### The Tool Provisioning Protocol 🧰
     When a command is not present, adopt the `PROVISION` archetype.
 
     **For Python packages (radon, black, flake8, etc.):**
