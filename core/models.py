@@ -21,6 +21,16 @@ class Policy(BaseModel):
     action: List[str] = Field(..., description="Actions this policy applies to, e.g., 'uf:s3-delete-bucket'.")
     resource: List[str] = Field(..., description="Resources this policy applies to, e.g., 'arn:aws:s3:::prod-data/*'.")
 
+class ObservationSummary(BaseModel):
+    """Layer 1: Tool-side summary (the 'receipt') for large outputs."""
+    total_lines: Optional[int] = None
+    total_chars: Optional[int] = None
+    total_matches: Optional[int] = None
+    files_with_matches: Optional[int] = None
+    status_flag: str = Field(default="success", description="success/failure/partial")
+    full_output_saved_to: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Tool-specific metrics")
+
 class ToolResult(BaseModel):
     """Represents the outcome of a single tool execution."""
     status: Literal["success", "failure"]
@@ -28,6 +38,8 @@ class ToolResult(BaseModel):
     error: Optional[str] = None
     cost: Optional[float] = None
     duration_ms: Optional[int] = None
+    # Layer 1: Receipt - metadata summary for large outputs
+    summary: Optional[ObservationSummary] = None
     
 # --- UF (Tool) Definition Models ---
 

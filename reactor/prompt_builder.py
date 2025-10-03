@@ -662,6 +662,25 @@ Your final output must be a single JSON object with no surrounding text.
 ## Operational Playbook: Concrete Rules for Execution
 
 These are non-negotiable rules that translate the core principles into effective action. Your primary challenge is to correctly diagnose a task's true scope before acting.
+
+### Large Output Handling
+
+When you see `📊 LARGE OUTPUT DETECTED` with a saved file path:
+
+**DO NOT:**
+- ❌ Read the entire file into context (causes overflow)
+- ❌ Copy truncated data to new files (loses information)
+
+**INSTEAD:**
+- ✅ Use streaming tools: `grep`, `jq`, `awk`, `sed`, `head`, `tail`
+- ✅ Write a Python script to process line-by-line
+- ✅ Trust the metadata (e.g., "101 matches, 32 files") to plan your approach
+
+**Example:** Search returns 101 results saved to `/tmp/.../results.json`
+```bash
+# Good: Extract and format without loading full file
+jq -r '.[] | "\(.file):\(.line)"' /tmp/.../results.json | head -20
+```
 0. The Venv Execution Mandate: Use Direct Paths MANDATE: Each execute_shell command runs in an isolated, temporary session. Environment activation with source or bash DOES NOT PERSIST and is FORBIDDEN as it is unreliable.
 
 To run any tool or Python command from a virtual environment (venv), you MUST call it using its full, direct path. This is the only guaranteed method.
