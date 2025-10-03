@@ -322,7 +322,7 @@ def file_exists(inputs: FileExistsInput) -> dict:
         print(f"'{inputs.filename}' does not exist or is outside workspace")
         return result
 
-@uf(name="find_function", version="1.0.0", description="Finds the line number of a specific function or class definition in a file for targeted reading.")
+# @uf(name="find_function", version="1.0.0", description="Finds the line number of a specific function or class definition in a file for targeted reading.")
 def find_function(inputs: FindFunctionInput) -> dict:
     """Finds function/class definitions and returns their line numbers for targeted reading."""
     from core.workspace_security import validate_workspace_path
@@ -376,7 +376,7 @@ def find_function(inputs: FindFunctionInput) -> dict:
 
     return result
 
-@uf(name="search_functions", version="1.0.0", description="Searches for function or class definitions across the entire codebase. Use this FIRST when you need to find where a function is defined. IMPORTANT: function_name should be just the name pattern (e.g., 'my_function' or '.*' for all), NOT 'def my_function' or 'class MyClass'. The tool automatically adds 'def'/'class' keywords.")
+# @uf(name="search_functions", version="1.0.0", description="Searches for function or class definitions across the entire codebase. Use this FIRST when you need to find where a function is defined. IMPORTANT: function_name should be just the name pattern (e.g., 'my_function' or '.*' for all), NOT 'def my_function' or 'class MyClass'. The tool automatically adds 'def'/'class' keywords.")
 def search_functions(inputs: SearchFunctionsInput) -> dict:
     """Searches for function/class definitions across all files in the workspace."""
     from core.workspace_security import validate_workspace_path

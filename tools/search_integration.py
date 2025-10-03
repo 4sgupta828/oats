@@ -25,7 +25,7 @@ class ContentSearchInput(UfInput):
     case_sensitive: bool = Field(False, description="Whether to perform case-sensitive search.")
     whole_words: bool = Field(False, description="Whether to match whole words only.")
 
-@uf(name="smart_search", version="1.0.0", description="Intelligent search that efficiently finds content across files using pattern-first approach with progressive refinement.")
+# @uf(name="smart_search", version="1.0.0", description="Intelligent search that efficiently finds content across files using pattern-first approach with progressive refinement.")
 def smart_search(inputs: SmartSearchInput) -> dict:
     """
     Performs intelligent search using pattern-first approach instead of reading files individually.
@@ -143,7 +143,7 @@ def smart_search(inputs: SmartSearchInput) -> dict:
         "found_files": [r["file"] for r in formatted_results]  # Explicit list for clarity
     }
 
-@uf(name="find_files_by_name", version="1.0.0", description="Efficiently find files by filename pattern using ripgrep/find instead of recursive directory walking.")
+# @uf(name="find_files_by_name", version="1.0.0", description="Efficiently find files by filename pattern using ripgrep/find instead of recursive directory walking.")
 def find_files_by_name(inputs: FindFilesByNameInput) -> dict:
     """
     Find files by filename pattern using efficient command-line tools.
@@ -213,7 +213,7 @@ def find_files_by_name(inputs: FindFilesByNameInput) -> dict:
         "search_method": "efficient_filename_search"
     }
 
-@uf(name="content_search", version="1.0.0", description="Search for specific content patterns within files using efficient grep-based approach.")
+# @uf(name="content_search", version="1.0.0", description="Search for specific content patterns within files using efficient grep-based approach.")
 def content_search(inputs: ContentSearchInput) -> dict:
     """
     Search for content within files using ripgrep/grep for efficiency.

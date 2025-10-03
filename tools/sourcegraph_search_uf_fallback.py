@@ -23,8 +23,8 @@ class SourcegraphSearchInput(UfInput):
     language: Optional[str] = Field(None, description="Programming language filter (python, javascript, go, etc.)")
     max_results: int = Field(20, description="Maximum number of results to return")
 
-@uf(name="sourcegraph_search_fallback", version="1.0.0",
-   description="Semantic code search using Sourcegraph with smart fallbacks - always works!")
+# @uf(name="sourcegraph_search_fallback", version="1.0.0",
+#    description="Semantic code search using Sourcegraph with smart fallbacks - always works!")
 def sourcegraph_search_fallback(inputs: SourcegraphSearchInput) -> dict:
     """
     Advanced semantic code search with bulletproof fallbacks.

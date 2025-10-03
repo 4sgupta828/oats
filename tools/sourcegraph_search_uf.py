@@ -29,8 +29,8 @@ class SourcegraphSearchInput(UfInput):
     language: Optional[str] = Field(None, description="Programming language filter (python, javascript, go, etc.)")
     max_results: int = Field(20, description="Maximum number of results to return")
 
-@uf(name="sourcegraph_search", version="1.0.0",
-   description="Semantic code search using Sourcegraph - understands functions, classes, symbols vs just text matching. Complements existing search tools.")
+# @uf(name="sourcegraph_search", version="1.0.0",
+#    description="Semantic code search using Sourcegraph - understands functions, classes, symbols vs just text matching. Complements existing search tools.")
 def sourcegraph_search(inputs: SourcegraphSearchInput) -> dict:
     """
     Advanced semantic code search using Sourcegraph CLI.
