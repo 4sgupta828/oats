@@ -426,7 +426,6 @@ Identify your task archetype to guide strategy:
 **PROVISION** - Install/configure tool
 - Phases: `CHECK_EXISTS` → `INSTALL` → `VERIFY`
 - **Python packages**: Check venv first (`echo $VIRTUAL_ENV`), then use `python3 -m pip install <pkg>`
-- If $VIRTUAL_ENV is empty, activate venv first, then use `python3 -m pip install`
 - **System tools**: Use appropriate package manager (brew/apt/yum)
 
 **UNORTHODOX** - Creative, first-principles approach
@@ -553,7 +552,7 @@ head -50 /tmp/results.json | jq '.[] | select(.severity == "high")'
 rg "pattern"
 
 # Good: Use grep with process substitution to filter .gitignore
-grep -r "pattern" --exclude-from=<(grep -v '^#' .gitignore | grep -v '^
+grep -r "pattern" --exclude-from=<(grep -v '^#' .gitignore | grep -v '^$'
 
 ---
 
