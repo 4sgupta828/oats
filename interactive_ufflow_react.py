@@ -81,7 +81,11 @@ class InteractiveUFFLOWReact:
             return False
 
     def _dump_session_transcript(self):
-        """Dump the entire session transcript to a randomly named file for debugging."""
+        """Dump the entire session transcript to a randomly named file for debugging.
+
+        Format: [{turn1}, {turn2}, ...{turnN}]
+        where turn[i] = {responseFromLLM, toolCommandLineExecuted, outputFromTool}
+        """
         import random
         import string
 
@@ -91,33 +95,78 @@ class InteractiveUFFLOWReact:
         filename = f"session_transcript_{timestamp}_{random_id}.json"
 
         try:
-            # Collect all transcript data from agent_controller if available
+            # Format transcript in simplified structure
+            formatted_transcript = []
+
+            for turn_data in self.session_transcript:
+                entry = turn_data.get('entry', {})
+
+                # Extract LLM response (reflect + strategize + act sections)
+                llm_response = {
+                    'reflect': entry.get('reflect', {}),
+                    'strategize': entry.get('strategize', {}),
+                    'state': entry.get('state', {}),
+                    'act': entry.get('act', {})
+                }
+
+                # Extract tool command from act section
+                act_section = entry.get('act', {})
+                tool_name = act_section.get('tool', 'unknown')
+                tool_params = act_section.get('params', {})
+
+                # Format command line based on tool type
+                if tool_name == 'bash' or tool_name == 'execute_shell':
+                    command_line = tool_params.get('command', 'N/A')
+                else:
+                    # For other tools, format as JSON
+                    command_line = f"{tool_name}: {json.dumps(tool_params)}"
+
+                # Extract observation (tool output) - truncate if very large
+                observation = entry.get('observation', '')
+                # Truncate observation to first/last 2000 chars if longer than 5000
+                if len(observation) > 5000:
+                    observation = (
+                        observation[:2000] +
+                        f"\n\n... [{len(observation) - 4000} characters omitted] ...\n\n" +
+                        observation[-2000:]
+                    )
+
+                turn_entry = {
+                    'turn': turn_data.get('turn', entry.get('turn', 'unknown')),
+                    'goal': turn_data.get('goal', 'unknown'),
+                    'responseFromLLM': llm_response,
+                    'toolCommandLineExecuted': command_line,
+                    'outputFromTool': observation
+                }
+
+                formatted_transcript.append(turn_entry)
+
+            # Also add current agent state if available
             dump_data = {
                 'session_metadata': {
                     'timestamp': timestamp,
                     'fast_mode': self.fast_mode,
-                    'execution_count': len(self.execution_history)
+                    'execution_count': len(self.execution_history),
+                    'total_turns': len(formatted_transcript)
                 },
-                'execution_history': self.execution_history,
-                'session_transcript': self.session_transcript
+                'transcript': formatted_transcript
             }
 
-            # If there's a current execution with state, include it
+            # If there's a current execution with state, include final state summary
             if self.agent_controller and hasattr(self.agent_controller, 'state'):
                 state = self.agent_controller.state
-                dump_data['final_state'] = {
+                dump_data['final_state_summary'] = {
                     'goal': state.goal,
                     'turn_count': state.turn_count,
                     'is_complete': state.is_complete,
-                    'completion_reason': state.completion_reason,
-                    'transcript': [entry.dict() for entry in state.transcript]
+                    'completion_reason': state.completion_reason
                 }
 
             with open(filename, 'w') as f:
                 json.dump(dump_data, f, indent=2, default=str)
 
             print(f"\n{Colors.CYAN}📝 Session transcript dumped to: {filename}{Colors.RESET}")
-            print(f"{Colors.DIM}   (for debugging context truncation issues){Colors.RESET}")
+            print(f"{Colors.DIM}   ({len(formatted_transcript)} turns captured for debugging context truncation){Colors.RESET}")
 
         except Exception as e:
             print(f"\n{Colors.YELLOW}⚠️ Failed to dump session transcript: {e}{Colors.RESET}")
