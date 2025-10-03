@@ -15,8 +15,7 @@ class Hypothesis(BaseModel):
 class ReflectSection(BaseModel):
     """Reflection on the outcome of the last action."""
     turn: int = Field(..., description="Current turn number")
-    narrativeSynthesis: str = Field(..., description="Running one-sentence summary of task's strategic journey")
-    outcome: Literal["SUCCESS", "TOOL_ERROR", "NO_LAST_ACTION"] = Field(..., description="Outcome of last action")
+    outcome: Literal["SUCCESS", "FAILURE", "FIRST_TURN"] = Field(..., description="Outcome of last action")
     hypothesisResult: Literal["CONFIRMED", "INVALIDATED", "INCONCLUSIVE", "IRRELEVANT", "N/A"] = Field(..., description="Result of testing the previous hypothesis")
     insight: str = Field(..., description="Key learning from this turn")
 
@@ -44,9 +43,9 @@ class State(BaseModel):
     goal: str = Field(..., description="The user's high-level objective")
     tasks: List[Task] = Field(default_factory=list, description="Decomposed sub-tasks")
     active: Optional[ActiveTask] = Field(None, description="Currently active task")
-    knownTrue: List[str] = Field(default_factory=list, description="Ground truth facts from observations")
-    knownFalse: List[str] = Field(default_factory=list, description="Ruled-out explanations and invalidated hypotheses")
-    unknowns: List[str] = Field(default_factory=list, description="Key questions or unknowns that remain")
+    facts: List[str] = Field(default_factory=list, description="Observable, verified truths from tool outputs")
+    ruled_out: List[str] = Field(default_factory=list, description="Invalidated hypotheses and ruled-out explanations")
+    unknowns: List[str] = Field(default_factory=list, description="Key remaining questions or information gaps")
 
 class ActSection(BaseModel):
     """Action to be executed."""

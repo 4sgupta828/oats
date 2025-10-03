@@ -176,8 +176,7 @@ class AgentController:
                         turn=state.turn_count + 1,
                         reflect=ReflectSection(
                             turn=state.turn_count + 1,
-                            narrativeSynthesis="Error occurred during execution",
-                            outcome="TOOL_ERROR",
+                            outcome="FAILURE",
                             hypothesisResult="N/A",
                             insight=f"Error: {str(e)}"
                         ),
@@ -391,8 +390,7 @@ class AgentController:
             return ParsedLLMResponse(
                 reflect=ReflectSection(
                     turn=1,
-                    narrativeSynthesis="Parse error occurred",
-                    outcome="TOOL_ERROR",
+                    outcome="FAILURE",
                     hypothesisResult="N/A",
                     insight=f"Failed to parse response: {str(e)}"
                 ),

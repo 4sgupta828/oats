@@ -438,7 +438,6 @@ class InteractiveUFFLOWReact:
                 # Display all LLM response attributes
                 print(f"\n{Colors.BOLD}{Colors.CYAN}━━━ REFLECT ━━━{Colors.RESET}")
                 print(f"  {Colors.DIM}Turn:{Colors.RESET} {parsed_response.reflect.turn}")
-                print(f"  {Colors.DIM}Narrative:{Colors.RESET} {parsed_response.reflect.narrativeSynthesis}")
                 print(f"  {Colors.DIM}Outcome:{Colors.RESET} {parsed_response.reflect.outcome}")
                 print(f"  {Colors.DIM}Hypothesis Result:{Colors.RESET} {parsed_response.reflect.hypothesisResult}")
                 print(f"  {Colors.DIM}Insight:{Colors.RESET} {parsed_response.reflect.insight}")
@@ -463,13 +462,13 @@ class InteractiveUFFLOWReact:
                     print(f"    • Archetype: {parsed_response.state.active.archetype}")
                     print(f"    • Phase: {parsed_response.state.active.phase}")
                     print(f"    • Turns: {parsed_response.state.active.turns}")
-                if parsed_response.state.knownTrue:
-                    print(f"  {Colors.DIM}Known True:{Colors.RESET}")
-                    for fact in parsed_response.state.knownTrue:
+                if parsed_response.state.facts:
+                    print(f"  {Colors.DIM}Facts:{Colors.RESET}")
+                    for fact in parsed_response.state.facts:
                         print(f"    • {fact}")
-                if parsed_response.state.knownFalse:
-                    print(f"  {Colors.DIM}Known False:{Colors.RESET}")
-                    for fact in parsed_response.state.knownFalse:
+                if parsed_response.state.ruled_out:
+                    print(f"  {Colors.DIM}Ruled Out:{Colors.RESET}")
+                    for fact in parsed_response.state.ruled_out:
                         print(f"    • {fact}")
                 if parsed_response.state.unknowns:
                     print(f"  {Colors.DIM}Unknowns:{Colors.RESET}")

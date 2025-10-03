@@ -25,7 +25,11 @@ class ReActToolExecutor:
     def __init__(self, registry: Registry):
         self.registry = registry
         self._last_full_stdout = None  # Store full stdout for final result extraction
-        self._temp_dir = tempfile.mkdtemp(prefix="ufflow_observations_")
+        # Create temp directory inside repo to adhere to workspace security rules
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        temp_base = os.path.join(repo_root, ".ufflow_temp")
+        os.makedirs(temp_base, exist_ok=True)
+        self._temp_dir = tempfile.mkdtemp(prefix="observations_", dir=temp_base)
         logger.info(f"Initialized observation temp directory: {self._temp_dir}")
 
     def execute_action(self, action: Dict[str, Any]) -> str:
