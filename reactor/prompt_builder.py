@@ -490,6 +490,10 @@ jq '.timeout' config.json             # Not: grep '"timeout"' config.json
 # Chain for complex workflows
 npm install && npm test && npm start  # For deterministic sequences
 ```
++ **Respect Project Boundaries**
++ - **Default to `.gitignore`**: All file search, read, or modification commands MUST respect `.gitignore` rules to avoid noise from dependencies (`venv`, `node_modules`), build artifacts, and logs.
++ - **Preferred Tool**: Use `ripgrep` (`rg`) whenever possible, as it respects these rules by default.
++ - **Justify Deviations**: If you must search ignored files (e.g., debugging a dependency), you must explicitly state the reason in your `reasoning`.
 
 **Safety Guidelines**
 
@@ -542,17 +546,48 @@ head -50 /tmp/results.json | jq '.[] | select(.severity == "high")'
 
 ---
 
-### Working with .gitignore
+### The .gitignore Mandate: A Core Operating Rule
 
-**Default Behavior**: Honor .gitignore patterns to avoid noise from dependencies, build artifacts, and tooling
+**MANDATE**: To ensure precision and avoid noisy, irrelevant results from dependencies or build artifacts, all file system operations MUST respect `.gitignore` patterns. This is not optional.
 
-**Shell Commands:**
-```bash
-# Best: Use ripgrep (respects .gitignore by default)
-rg "pattern"
+**Hierarchy of Preferred Commands for Searching:**
 
-# Good: Use grep with process substitution to filter .gitignore
-grep -r "pattern" --exclude-from=<(grep -v '^#' .gitignore | grep -v '^$'
+1.  **🥇 Gold Standard: `ripgrep` (`rg`)**
+    - **Why**: It is extremely fast and respects `.gitignore` and other ignore files *by default*. It should be your first choice for any code search.
+    - **Usage**:
+      ```bash
+      # Find all instances of "ApiService" in the codebase
+      rg "ApiService"
+
+      # Find files containing "TODO" but only in python files
+      rg "TODO" -t py
+      ```
+
+2.  **🥈 Silver Standard: `git ls-files` + `xargs`**
+    - **Why**: When `rg` is not available, this is the most reliable way to operate *only* on files tracked by Git. It's safe and inherently respects `.gitignore`.
+    - **Usage**:
+      ```bash
+      # Grep for "pattern" only in tracked files
+      git ls-files | xargs grep "pattern"
+
+      # Count lines in all tracked files
+      git ls-files | xargs wc -l
+      ```
+
+3.  **🥉 Fallback: `find` and `grep` with Exclusions**
+    - **Why**: Use only when the above are not feasible. This is more error-prone.
+    - **Usage**:
+      ```bash
+      # Grep, excluding patterns from .gitignore (your existing example, which is good)
+      grep -r "pattern" --exclude-from=<(grep -v '^#' .gitignore | grep -v '^$') .
+
+      # Find, pruning common ignored directories
+      find . -type d \( -name "venv" -o -name "node_modules" -o -name ".git" \) -prune -o -type f -name "*.py" -print
+      ```
+
+**When to Break this Rule:**
+
+You may only ignore this mandate if you have a specific, articulated reason to inspect the contents of an ignored file (e.g., "I need to verify the version of a library installed inside `venv/`"). This reason must be documented in your `strategize.reasoning` block.
 
 ---
 
@@ -596,6 +631,8 @@ You need a script if the task requires:
 1. **Write**: Use `create_file` to write Python script
 2. **Execute**: Run with `venv/bin/python3 script.py` (if using venv tools) or `python3 script.py`
 3. **Review Output**: Evaluate results, iterate if needed
+
++ **Critical Rule**: All generated scripts that walk the filesystem (`os.walk`) MUST incorporate the provided `.gitignore` handling logic using the `pathspec` library to avoid processing ignored files.
 
 **Script Template for Systematic Tasks:**
 
