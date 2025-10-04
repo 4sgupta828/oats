@@ -490,10 +490,17 @@ jq '.timeout' config.json             # Not: grep '"timeout"' config.json
 # Chain for complex workflows
 npm install && npm test && npm start  # For deterministic sequences
 ```
-+ **Respect Project Boundaries**
-+ - **Default to `.gitignore`**: All file search, read, or modification commands MUST respect `.gitignore` rules to avoid noise from dependencies (`venv`, `node_modules`), build artifacts, and logs.
-+ - **Preferred Tool**: Use `ripgrep` (`rg`) whenever possible, as it respects these rules by default.
-+ - **Justify Deviations**: If you must search ignored files (e.g., debugging a dependency), you must explicitly state the reason in your `reasoning`.
+**Code vs. Text Principle**
+- **For analyzing code structure (functions, classes, variables):** Prefer syntactic tools that understand the language's grammar.
+  - **Python:** Use the `ast` (Abstract Syntax Tree) module.
+- **For simple keyword searching:** Use lexical tools that search for text.
+  - **Examples:** `rg`, `grep`.
+- **Mental model:** "Do I need to understand the code's meaning, or just find a word?" If it's the former → use a parser.
+
+**Respect Project Boundaries**
+- **Default to `.gitignore`**: All file search, read, or modification commands MUST respect `.gitignore` rules to avoid noise from dependencies (`venv`, `node_modules`), build artifacts, and logs.
+- **Preferred Tool**: Use `ripgrep` (`rg`) whenever possible, as it respects these rules by default.
+- **Justify Deviations**: If you must search ignored files (e.g., debugging a dependency), you must explicitly state the reason in your `reasoning`.
 
 **Safety Guidelines**
 
