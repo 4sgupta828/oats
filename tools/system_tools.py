@@ -180,78 +180,79 @@ Return only the commands, no explanations. If unsure about the tool, provide the
             "message": f"Failed to get LLM instructions: {str(e)}"
         }
 
-class WebSearchForToolInput(UfInput):
-    tool_name: str = Field(..., description="Name of the tool to search for")
-    query: str = Field(default="", description="Optional specific search query for troubleshooting")
-
-    @field_validator('tool_name')
-    @classmethod
-    def validate_tool_name(cls, v):
-        if not v or not v.strip():
-            raise ValueError("tool_name cannot be empty")
-        return v.strip()
-
-@uf(name="web_search_for_tool", version="1.0.0", description="Search for tool installation troubleshooting, alternatives, or documentation. Use when LLM instructions fail or you need up-to-date information.")
-def web_search_for_tool(inputs: WebSearchForToolInput) -> dict:
-    """Search web for tool installation troubleshooting or alternatives."""
-    try:
-        tool_name = inputs.tool_name
-        query = inputs.query
-
-        logger.info(f"Searching for tool: {tool_name}")
-
-        # Check known tool patterns first
-        known_result = _check_known_tool_patterns(tool_name)
-        if known_result:
-            return known_result
-
-        # Generic advice for unknown tools
-        return {
-            "success": True,
-            "tool_name": tool_name,
-            "search_query": query or f"{tool_name} installation",
-            "suggestions": [
-                f"Try searching: '{tool_name} installation {query}' on Google",
-                f"Check the official GitHub repository for {tool_name}",
-                f"Look for {tool_name} on package manager registries (crates.io, npmjs.com, pypi.org)",
-                f"Search for '{tool_name} alternative' if this tool is unavailable"
-            ],
-            "message": f"Generic search advice for {tool_name}. Consider trying alternative package names or consulting official documentation."
-        }
-
-    except Exception as e:
-        logger.error(f"Web search failed: {e}")
-        return {
-            "success": False,
-            "tool_name": inputs.tool_name,
-            "message": f"Web search failed: {str(e)}"
-        }
-
-def _check_known_tool_patterns(tool_name: str) -> dict:
-    """Check against database of known problematic tools."""
-    common_issues = {
-        "reconcile-csv": {
-            "issue": "Tool is Java-based, not available via Cargo",
-            "alternatives": ["xsv (Rust-based CSV tool)", "csvkit (Python-based)", "miller (multi-format tool)"],
-            "commands": ["cargo install xsv", "pip install csvkit", "brew install miller"]
-        },
-        "scrubcsv": {
-            "issue": "May not be in default registries",
-            "alternatives": ["xsv", "csvkit"],
-            "commands": ["cargo install xsv", "pip install csvkit"]
-        }
-    }
-
-    tool_lower = tool_name.lower()
-    if tool_lower in common_issues:
-        issue_info = common_issues[tool_lower]
-        return {
-            "success": True,
-            "tool_name": tool_name,
-            "known_issue": issue_info["issue"],
-            "alternatives": issue_info["alternatives"],
-            "suggested_commands": issue_info["commands"],
-            "message": f"Known issue with {tool_name}: {issue_info['issue']}. Try alternatives: {', '.join(issue_info['alternatives'])}"
-        }
-
-    return None
+# DISABLED: web_search_for_tool - Tool disabled per user request
+# class WebSearchForToolInput(UfInput):
+#     tool_name: str = Field(..., description="Name of the tool to search for")
+#     query: str = Field(default="", description="Optional specific search query for troubleshooting")
+#
+#     @field_validator('tool_name')
+#     @classmethod
+#     def validate_tool_name(cls, v):
+#         if not v or not v.strip():
+#             raise ValueError("tool_name cannot be empty")
+#         return v.strip()
+#
+# @uf(name="web_search_for_tool", version="1.0.0", description="Search for tool installation troubleshooting, alternatives, or documentation. Use when LLM instructions fail or you need up-to-date information.")
+# def web_search_for_tool(inputs: WebSearchForToolInput) -> dict:
+#     """Search web for tool installation troubleshooting or alternatives."""
+#     try:
+#         tool_name = inputs.tool_name
+#         query = inputs.query
+#
+#         logger.info(f"Searching for tool: {tool_name}")
+#
+#         # Check known tool patterns first
+#         known_result = _check_known_tool_patterns(tool_name)
+#         if known_result:
+#             return known_result
+#
+#         # Generic advice for unknown tools
+#         return {
+#             "success": True,
+#             "tool_name": tool_name,
+#             "search_query": query or f"{tool_name} installation",
+#             "suggestions": [
+#                 f"Try searching: '{tool_name} installation {query}' on Google",
+#                 f"Check the official GitHub repository for {tool_name}",
+#                 f"Look for {tool_name} on package manager registries (crates.io, npmjs.com, pypi.org)",
+#                 f"Search for '{tool_name} alternative' if this tool is unavailable"
+#             ],
+#             "message": f"Generic search advice for {tool_name}. Consider trying alternative package names or consulting official documentation."
+#         }
+#
+#     except Exception as e:
+#         logger.error(f"Web search failed: {e}")
+#         return {
+#             "success": False,
+#             "tool_name": inputs.tool_name,
+#             "message": f"Web search failed: {str(e)}"
+#         }
+#
+# def _check_known_tool_patterns(tool_name: str) -> dict:
+#     """Check against database of known problematic tools."""
+#     common_issues = {
+#         "reconcile-csv": {
+#             "issue": "Tool is Java-based, not available via Cargo",
+#             "alternatives": ["xsv (Rust-based CSV tool)", "csvkit (Python-based)", "miller (multi-format tool)"],
+#             "commands": ["cargo install xsv", "pip install csvkit", "brew install miller"]
+#         },
+#         "scrubcsv": {
+#             "issue": "May not be in default registries",
+#             "alternatives": ["xsv", "csvkit"],
+#             "commands": ["cargo install xsv", "pip install csvkit"]
+#         }
+#     }
+#
+#     tool_lower = tool_name.lower()
+#     if tool_lower in common_issues:
+#         issue_info = common_issues[tool_lower]
+#         return {
+#             "success": True,
+#             "tool_name": tool_name,
+#             "known_issue": issue_info["issue"],
+#             "alternatives": issue_info["alternatives"],
+#             "suggested_commands": issue_info["commands"],
+#             "message": f"Known issue with {tool_name}: {issue_info['issue']}. Try alternatives: {', '.join(issue_info['alternatives'])}"
+#         }
+#
+#     return None

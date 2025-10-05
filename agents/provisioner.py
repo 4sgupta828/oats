@@ -40,7 +40,7 @@ class ToolProvisioningAgent:
         self.llm_client = OpenAIClientManager()
         self.auto_mode = auto_mode  # Skip user confirmations when True
         # Limited toolset for provisioning - avoid circular dependencies
-        self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "ask_llm_for_instructions", "web_search_for_tool", "finish"]
+        self.available_tools = ["execute_shell", "check_command_exists", "user_confirm", "user_prompt", "ask_llm_for_instructions", "finish"]
 
     def run(self, goal: str, show_live_updates: bool = True, auto_mode: bool = None) -> dict:
         """
@@ -233,8 +233,7 @@ AVAILABLE ACTIONS:
 3. user_confirm - Ask user for permission before risky operations (auto-approved in auto mode)
 4. user_prompt - Ask user for guidance when stuck or need information
 5. ask_llm_for_instructions - Get installation instructions from LLM for a specific tool and platform
-6. web_search_for_tool - Search web for tool installation troubleshooting or alternatives
-7. finish - Complete the task with structured results
+6. finish - Complete the task with structured results
 
 RESPONSE FORMAT (MANDATORY):
 Thought: [Your reasoning]
@@ -265,10 +264,6 @@ Thought: Need to understand what type of tool this is and correct installation m
 Intent: provision_tool
 Action: {{"tool_name": "ask_llm_for_instructions", "parameters": {{"tool_name": "scrubcsv", "platform": "macOS"}}}}
 
-Thought: LLM instructions failed, searching web for installation alternatives
-Intent: provision_tool
-Action: {{"tool_name": "web_search_for_tool", "parameters": {{"tool_name": "reconcile-csv", "query": "reconcile-csv installation rust crates"}}}}
-
 Thought: Multiple installation methods failed, need user guidance
 Intent: provision_tool
 Action: {{"tool_name": "user_prompt", "parameters": {{"question": "Failed to install via pip, brew, and apt. Do you have a preferred package manager or should I try building from source?"}}}}
@@ -286,10 +281,9 @@ INSTALLATION STRATEGIES (try in order):
 5. Language-specific managers: Python=pip/pip3 (only for project dependencies in venv), Node=npm/yarn, Rust=cargo
 6. Alternative package names: try common variations (xsv vs rust-xsv)
 7. **IF STANDARD METHODS FAIL**: Use ask_llm_for_instructions to get tool-specific installation knowledge
-8. **IF LLM INSTRUCTIONS FAIL**: Use web_search_for_tool to find troubleshooting info and alternatives
-9. **ASK FOR GUIDANCE** if still stuck with user_prompt
-10. Direct downloads or source compilation as last resort
-11. Finish with failure and suggest alternatives if all methods fail
+8. **ASK FOR GUIDANCE** if still stuck with user_prompt
+9. Direct downloads or source compilation as last resort
+10. Finish with failure and suggest alternatives if all methods fail
 
 IMPORTANT RULES:
 - ALWAYS start by checking if tool already exists with check_command_exists
@@ -301,15 +295,13 @@ IMPORTANT RULES:
   • Virtual environment is automatically created at agent startup
   • Use pip install (in venv) for project dependencies only
   • Never use --user --break-system-packages (venv handles isolation)
-- **LLM KNOWLEDGE GATHERING & WEB SEARCH**:
+- **LLM KNOWLEDGE GATHERING**:
   • Use ask_llm_for_instructions when standard package managers fail
-  • If LLM instructions fail or return no results, use web_search_for_tool for troubleshooting
-  • Web search can identify common issues (wrong tool type, package not published, etc.)
   • Extract tool name from goal and current platform info for queries
 - **USER INTERACTION RULES**:
   • Use user_confirm BEFORE installing packages (system changes need permission)
   • Use ask_llm_for_instructions BEFORE user_prompt when installations fail
-  • Use user_prompt AFTER LLM instructions fail (ask for guidance/preferences)
+  • Use user_prompt when installations fail or for missing info (ask for guidance/preferences)
   • Use user_prompt when multiple approaches exist (let user choose)
   • Use user_prompt for missing info (API tokens, custom repos, etc.)
 - Some packages provide multiple commands (e.g., csvkit provides csvcut, csvstat, csvlook, csvgrep)
@@ -431,8 +423,6 @@ Your response:"""
                 return self._execute_user_prompt_action(parameters)
             elif tool_name == "ask_llm_for_instructions":
                 return self._execute_ask_llm_for_instructions_action(parameters)
-            elif tool_name == "web_search_for_tool":
-                return self._execute_web_search_for_tool_action(parameters)
             elif tool_name == "finish":
                 # Finish actions are handled at the loop level
                 return f"FINISH: {parameters}"
@@ -656,119 +646,9 @@ Return only the commands, no explanations. If unsure about the tool, provide the
             logger.error(f"LLM instructions action failed: {e}")
             return f"ERROR: LLM instructions failed: {str(e)}"
 
-    def _execute_web_search_for_tool_action(self, parameters: Dict[str, Any]) -> str:
-        """Search web for tool installation troubleshooting or alternatives."""
-        try:
-            tool_name = parameters.get("tool_name", "")
-
-            if not tool_name:
-                return "ERROR: No tool_name provided"
-
-            logger.info(f"Searching web for: {tool_name}")
-
-            # For now, return a structured response that simulates what web search would find
-            # In a real implementation, you'd integrate with search APIs
-            search_results = self._simulate_web_search_results(tool_name, parameters.get("query", ""))
-
-            return f"WEB_SEARCH_RESULTS: {search_results}"
-
-        except Exception as e:
-            logger.error(f"Web search action failed: {e}")
-            return f"ERROR: Web search failed: {str(e)}"
-
-    def _simulate_web_search_results(self, tool_name: str, query: str) -> str:
-        """Enhanced web search with both simulated and basic real search capabilities."""
-
-        # First, check if we have a known pattern for this tool
-        result = self._check_known_tool_patterns(tool_name)
-        if result:
-            return result
-
-        # For unknown tools, try a basic web search approach
-        try:
-            return self._perform_basic_web_search(tool_name, query)
-        except Exception as e:
-            logger.warning(f"Real web search failed, using fallback: {e}")
-            return self._get_generic_search_advice(tool_name)
-
-    def _check_known_tool_patterns(self, tool_name: str) -> str:
-        """Check against database of known problematic tools."""
-        common_issues = {
-            "reconcile-csv": {
-                "issue": "Tool is Java-based, not available via Cargo",
-                "alternatives": [
-                    "Use qsv (Rust CSV toolkit): cargo install qsv",
-                    "Use csv-diff (Rust CSV comparison): cargo install csv-diff",
-                    "Download original Java version from GitHub"
-                ],
-                "original_location": "https://github.com/rufuspollock-okfn/reconcile-csv"
-            },
-            "scrubcsv": {
-                "issue": "Tool may not be published to crates.io",
-                "alternatives": [
-                    "Use csvkit (Rust): cargo install csvkit",
-                    "Use qsv for CSV processing: cargo install qsv",
-                    "Build from source if GitHub repo exists"
-                ]
-            }
-        }
-
-        tool_lower = tool_name.lower()
-        for pattern, info in common_issues.items():
-            if pattern in tool_lower or tool_lower in pattern:
-                result = f"Found common issue: {info['issue']}. "
-                result += f"Alternatives: {'; '.join(info['alternatives'])}"
-                if 'original_location' in info:
-                    result += f". Original tool: {info['original_location']}"
-                return result
-        return None
-
-    def _perform_basic_web_search(self, tool_name: str, query: str) -> str:
-        """Perform basic web search using DuckDuckGo (no API key required)."""
-        try:
-            import requests
-            from urllib.parse import quote
-
-            # Use custom query if provided, otherwise default to tool installation
-            search_query = query if query.strip() else f"{tool_name} installation"
-            url = f"https://api.duckduckgo.com/?q={quote(search_query)}&format=json&no_html=1"
-
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-
-            data = response.json()
-
-            # Extract useful information from the response
-            results = []
-
-            if data.get('Abstract'):
-                results.append(f"Info: {data['Abstract'][:200]}...")
-
-            if data.get('AbstractURL'):
-                results.append(f"Source: {data['AbstractURL']}")
-
-            # Check for related topics
-            if data.get('RelatedTopics'):
-                for topic in data['RelatedTopics'][:3]:  # Limit to 3 related topics
-                    if isinstance(topic, dict) and topic.get('Text'):
-                        results.append(f"Related: {topic['Text'][:100]}...")
-
-            if results:
-                return f"Web search found: {' | '.join(results)}"
-            else:
-                return self._get_generic_search_advice(tool_name)
-
-        except Exception as e:
-            logger.debug(f"Web search API failed: {e}")
-            raise e
-
-    def _get_generic_search_advice(self, tool_name: str) -> str:
-        """Return generic search advice when specific information isn't available."""
-        return (f"Web search suggests checking: "
-                f"1) GitHub repositories for {tool_name}, "
-                f"2) Alternative package names (rust-{tool_name}, {tool_name}-cli), "
-                f"3) Language-specific package managers, "
-                f"4) Building from source")
+    # DISABLED: web_search_for_tool - Removed per user request
+    # def _execute_web_search_for_tool_action(self, parameters: Dict[str, Any]) -> str:
+    #     ...
 
     def refresh_registry_for_tool(self, tool_name: str):
         """Attempt to discover and register a newly installed tool."""
