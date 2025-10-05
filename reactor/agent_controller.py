@@ -366,7 +366,14 @@ class AgentController:
             )
 
             state = State(**response_data.get("state", {}))
-            act = ActSection(**response_data.get("act", {}))
+
+            # Handle case where act might be None (when task is complete)
+            act_data = response_data.get("act")
+            if act_data is None:
+                # Create a finish action when act is null
+                act = ActSection(tool="finish", params={})
+            else:
+                act = ActSection(**act_data)
 
             # Check if this is a finish action
             is_finish = act.tool == "finish"
