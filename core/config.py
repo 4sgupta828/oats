@@ -65,7 +65,7 @@ class UFFlowConfig:
     # Other configurable parameters
     DEFAULT_TEMPERATURE = 0.1
     DEFAULT_MAX_TOKENS = 4000
-    DEFAULT_MAX_TOKENS_TEXT = 1000
+    DEFAULT_MAX_TOKENS_TEXT = 8000  # Increased for ReAct agent (was 1000)
     DEFAULT_TIMEOUT = 60.0
     DEFAULT_MAX_RETRIES = 2
     
