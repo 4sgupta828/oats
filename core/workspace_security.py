@@ -2,6 +2,7 @@
 
 import os
 import sys
+import subprocess
 from pathlib import Path
 from typing import Optional, List, Union, TextIO
 import logging
@@ -41,6 +42,57 @@ class WorkspaceSecurity:
         # If no git repo found, use current working directory
         return Path.cwd()
 
+    def _has_ripgrep(self) -> bool:
+        """Check if ripgrep (rg) is available"""
+        try:
+            subprocess.run(['rg', '--version'],
+                         capture_output=True, check=True, timeout=5)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    def _find_files_by_name_fast(self, filename_pattern: str) -> List[str]:
+        """
+        Find files by filename pattern using efficient tools (ripgrep or find).
+        Much faster than os.walk for name-based searches.
+
+        Args:
+            filename_pattern: Filename pattern to search for
+
+        Returns:
+            List of absolute paths to matching files
+        """
+        # Standard exclusion patterns
+        default_exclusions = [
+            '.git', '__pycache__', 'node_modules', '.vscode', '.idea',
+            'build', 'dist', '.env', 'venv', '*.pyc', '*.log',
+            '.DS_Store', 'Thumbs.db', '.pytest_cache', '.mypy_cache'
+        ]
+
+        try:
+            if self._has_ripgrep():
+                # Use ripgrep for filename search
+                cmd = ['rg', '--files', '--glob', f'*{filename_pattern}*', str(self.workspace_root)]
+
+                # Add standard exclusions
+                for exclusion in default_exclusions:
+                    cmd.extend(['--glob', f'!{exclusion}'])
+            else:
+                # Fallback to find command
+                cmd = ['find', str(self.workspace_root), '-name', f'*{filename_pattern}*', '-type', 'f']
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+            if result.returncode == 0:
+                files = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
+                return files
+            else:
+                return []
+
+        except Exception as e:
+            logger.error(f"Error in filename search: {e}")
+            return []
+
     def _find_file_recursive(self, filename: str) -> Optional[str]:
         """
         Efficiently search for a file using smart search engine when available.
@@ -68,21 +120,15 @@ class WorkspaceSecurity:
                 return None
 
         # Try efficient search first
-        try:
-            from tools.smart_search import SmartSearchEngine
-            search_engine = SmartSearchEngine(str(self.workspace_root))
-            matches = search_engine.find_files_by_name(filename)
+        matches = self._find_files_by_name_fast(filename)
 
-            if matches:
-                print(f"🚀 Smart search found {len(matches)} matches for '{filename}'")
-                if len(matches) == 1:
-                    return matches[0]
-                else:
-                    # Multiple matches found - consult user or use LLM
-                    return self._consult_user_for_file_choice(filename, matches)
-        except ImportError:
-            # Smart search not available, fall back to traditional method
-            pass
+        if matches:
+            print(f"🚀 Fast search found {len(matches)} matches for '{filename}'")
+            if len(matches) == 1:
+                return matches[0]
+            else:
+                # Multiple matches found - consult user or use LLM
+                return self._consult_user_for_file_choice(filename, matches)
 
         # Fallback to traditional recursive search
         matches = self._find_all_files_recursive(filename)

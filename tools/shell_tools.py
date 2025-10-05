@@ -1,7 +1,6 @@
 import os
 import sys
 import subprocess
-import tempfile
 import shlex
 import logging
 from pathlib import Path
@@ -57,35 +56,6 @@ class ExecuteShellInput(UfInput):
         except Exception as e:
             logger.error(f"Working directory validation failed: {e}")
             raise ValueError(f"Working directory validation failed: {e}")
-
-    @field_validator('timeout')
-    @classmethod
-    def validate_timeout(cls, v):
-        """Ensure timeout is reasonable."""
-        if v <= 0 or v > 300:  # Max 5 minutes
-            raise ValueError("Timeout must be between 1 and 300 seconds")
-        return v
-
-class ExecuteScriptInput(UfInput):
-    script_content: str = Field(..., description="The script content to execute.")
-    script_type: str = Field(default="bash", description="Type of script: bash, python, etc.")
-    working_directory: str = Field(default=".", description="Working directory for the script.")
-    timeout: int = Field(default=60, description="Timeout in seconds for script execution.")
-
-    @field_validator('working_directory')
-    @classmethod
-    def validate_working_directory(cls, v):
-        """Validate working directory using workspace security."""
-        if not v:
-            return "."
-
-        try:
-            workspace_security = get_workspace_security()
-            validated_path = workspace_security.validate_path(v, "script working directory")
-            return validated_path
-        except Exception as e:
-            logger.error(f"Script working directory validation failed: {e}")
-            raise ValueError(f"Script working directory validation failed: {e}")
 
     @field_validator('timeout')
     @classmethod
@@ -254,93 +224,6 @@ def execute_shell(inputs: ExecuteShellInput) -> dict:
         return {
             "stdout": "",
             "stderr": f"Execution error: {str(e)}",
-            "return_code": -1,
-            "success": False
-        }
-
-# DISABLED: Redundant tool - use execute_shell instead for better transparency
-# @uf(name="execute_script", version="1.0.0", description="Executes a script and returns the output. NOTE: For simple shell commands, prefer execute_shell tool for better transparency and direct command visibility.")
-def execute_script(inputs: ExecuteScriptInput) -> dict:
-    """Executes a script and returns the result."""
-    try:
-        # Create a temporary file for the script using path manager
-        from core.path_manager import get_tmp_file
-        import uuid
-        script_filename = f"script_{uuid.uuid4().hex[:8]}"
-        temp_script_path = get_tmp_file(script_filename, inputs.script_type)
-
-        with open(temp_script_path, 'w') as f:
-            # Add shebang for shell scripts if not already present
-            script_content = inputs.script_content
-            if inputs.script_type in ['bash', 'sh']:
-                if not script_content.startswith('#!'):
-                    shebang = '#!/bin/bash\n' if inputs.script_type == 'bash' else '#!/bin/sh\n'
-                    script_content = shebang + script_content
-            f.write(script_content)
-
-        # Use the temporary script path
-        script_path = temp_script_path
-
-        # Make the script executable if it's a shell script
-        if inputs.script_type in ['bash', 'sh']:
-            os.chmod(script_path, 0o755)
-
-        # Execute the script
-        if inputs.script_type == 'python':
-            result = subprocess.run(
-                [sys.executable, script_path],
-                cwd=inputs.working_directory,
-                capture_output=True,
-                text=True,
-                timeout=inputs.timeout
-            )
-        elif inputs.script_type in ['bash', 'sh']:
-            # Use the interpreter explicitly to avoid exec format errors
-            interpreter = '/bin/bash' if inputs.script_type == 'bash' else '/bin/sh'
-            result = subprocess.run(
-                [interpreter, script_path],
-                cwd=inputs.working_directory,
-                capture_output=True,
-                text=True,
-                timeout=inputs.timeout
-            )
-        else:
-            result = subprocess.run(
-                [script_path],
-                cwd=inputs.working_directory,
-                capture_output=True,
-                text=True,
-                timeout=inputs.timeout
-            )
-        
-        # Clean up
-        os.unlink(script_path)
-        
-        return {
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "return_code": result.returncode,
-            "success": result.returncode == 0
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            "stdout": "",
-            "stderr": f"Script timed out after {inputs.timeout} seconds",
-            "return_code": -1,
-            "success": False
-        }
-    except Exception as e:
-        logger.error(f"Script execution failed: {e}")
-        # Ensure cleanup even on exception
-        try:
-            if 'script_path' in locals():
-                os.unlink(script_path)
-        except Exception:
-            pass  # Best effort cleanup
-
-        return {
-            "stdout": "",
-            "stderr": f"Script execution error: {str(e)}",
             "return_code": -1,
             "success": False
         }
