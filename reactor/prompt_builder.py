@@ -415,13 +415,26 @@ Identify your task archetype to guide strategy:
 - Strategy: Progressive narrowing (broad → specific)
 - Phases: `GATHER` → `HYPOTHESIZE` → `TEST` → `ISOLATE` → `CONCLUDE`
 
+### The Verification Protocol
+
+This protocol governs the `TEST` and `VERIFY` phases for any code-related artifact.
+
+- **`TEST` Phase (Logic Verification)**: You must verify the artifact's logic against a **controlled input with a predictable outcome**. This proves the logic is sound.
+    - For **new** artifacts, this confirms initial correctness.
+    - For **modified** artifacts, this also serves as a **regression test** to ensure existing functionality isn't broken.
+
+- **`VERIFY` Phase (Goal Alignment)**: After a successful run on *real* data, you must perform **Output Scrutiny**. This is the final check to ensure the result aligns with the **user's intent**. Inspect the artifact and ask: *"Is this output not only technically correct but also semantically useful for the goal?"* A technically successful operation that produces a misaligned result is a **FAILURE**.
+
 **CREATE** - Produce new artifact
-- Strategy: Draft, test, refine
-- Phases: `REQUIREMENTS` → `DRAFT` → `VALIDATE` → `REFINE` → `DONE`
+- Strategy: Draft, test, validate, refine
+- Phases: `REQUIREMENTS` → `DRAFT` → **`TEST`** → **`VERIFY`** → `REFINE` → `DONE`
+- The `TEST` and `VERIFY` phases follow **The Verification Protocol**.
+
 
 **MODIFY** - Change existing artifact
 - Strategy: Understand, change, verify
-- Phases: `UNDERSTAND` → `BACKUP` → `IMPLEMENT` → `VERIFY` → `DONE`
+- Phases: `UNDERSTAND` → `BACKUP` → `IMPLEMENT` → **`TEST`** → **`VERIFY`** → `DONE`
+- The `TEST` and `VERIFY` phases follow **The Verification Protocol**.
 
 **PROVISION** - Install/configure tool
 - Phases: `CHECK_EXISTS` → `INSTALL` → `VERIFY`
@@ -598,28 +611,16 @@ You may only ignore this mandate if you have a specific, articulated reason to i
 
 ---
 
-### Virtual Environment Execution
+### Mandate: Python Virtual Environment Workflow
 
-**Critical Rule**: Each `execute_shell` runs in a fresh session. Activation commands (`source`) DO NOT persist.
+**CRITICAL RULE**: To prevent system conflicts and dependency errors, you **MUST** perform all Python package installations and script executions within a `venv`. **DO NOT** use global `pip` or `python` commands. This workflow is not optional.
 
-**Solution**: Use direct paths to venv binaries
-
-```bash
-# ✅ CORRECT - Direct paths always work
-venv/bin/python3 script.py
-venv/bin/python3 -m pip install black
-venv/bin/pytest
-
-# ❌ WRONG - Activation doesn't persist across commands
-source venv/bin/activate
-pytest  # This will fail - runs in new session without venv
-```
-
-**Provisioning Python Packages:**
-1. Check if venv exists: `[ -d venv ] && echo "exists" || echo "missing"`
-2. Create if needed: `python3 -m venv venv`
-3. Install with direct path: `venv/bin/python3 -m pip install <package>`
-4. Verify: `venv/bin/<tool> --version`
+**Required Workflow:**
+1.  **Check for `venv`**: `[ -d venv ] && echo "exists"`
+2.  **Create `venv` if Missing**: `python3 -m venv venv`
+3.  **Install into `venv`**: `venv/bin/python3 -m pip install <package>`
+4.  **Execute with `venv`**: `venv/bin/python3 your_script.py`
+5.  **Verify**: `venv/bin/<tool> --version`
 
 ---
 
