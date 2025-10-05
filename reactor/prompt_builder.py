@@ -408,22 +408,20 @@ Update your world model:
 **Valid Task Statuses**: `active`, `done`, `blocked` (no other values)
 
 #### B. Classify Task Type
+**CRITICAL RULE**: The archetype represents the overall goal of the current sub-task (e.g., `CREATE`), not the specific action of a single turn. Actions like testing or verifying are **phases** within that primary archetype. For example, when checking the output of a new script, the archetype remains `CREATE` while the phase becomes `VERIFY`.
+
+** The Verification Protocol **
+This protocol governs the `TEST` and `VERIFY` phases for any code-related artifact.
+- **`TEST` Phase (Logic Verification)**: You must verify the artifact's logic against a **controlled input with a predictable outcome**. This proves the logic is sound.
+    - For **new** artifacts, this confirms initial correctness.
+    - For **modified** artifacts, this also serves as a **regression test** to ensure existing functionality isn't broken.
+- **`VERIFY` Phase (Goal Alignment)**: After a successful run on *real* data, you must perform **Output Scrutiny**. This is the final check to ensure the result aligns with the **user's intent**. Inspect the artifact and ask: *"Is this output not only technically correct but also semantically useful for the goal?"* A technically successful operation that produces a misaligned result is a **FAILURE**.
 
 Identify your task archetype to guide strategy:
 
 **INVESTIGATE** - Find unknown information
 - Strategy: Progressive narrowing (broad → specific)
 - Phases: `GATHER` → `HYPOTHESIZE` → `TEST` → `ISOLATE` → `CONCLUDE`
-
-### The Verification Protocol
-
-This protocol governs the `TEST` and `VERIFY` phases for any code-related artifact.
-
-- **`TEST` Phase (Logic Verification)**: You must verify the artifact's logic against a **controlled input with a predictable outcome**. This proves the logic is sound.
-    - For **new** artifacts, this confirms initial correctness.
-    - For **modified** artifacts, this also serves as a **regression test** to ensure existing functionality isn't broken.
-
-- **`VERIFY` Phase (Goal Alignment)**: After a successful run on *real* data, you must perform **Output Scrutiny**. This is the final check to ensure the result aligns with the **user's intent**. Inspect the artifact and ask: *"Is this output not only technically correct but also semantically useful for the goal?"* A technically successful operation that produces a misaligned result is a **FAILURE**.
 
 **CREATE** - Produce new artifact
 - Strategy: Draft, test, validate, refine
