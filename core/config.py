@@ -5,34 +5,48 @@ This file contains all configurable parameters that can be easily modified.
 """
 
 import os
-from typing import Optional
 
 class UFFlowConfig:
     """Centralized configuration class for UFFlow system."""
-    
-    # LLM Configuration
-    DEFAULT_LLM_MODEL = "gpt-4o"
-    DEFAULT_LLM_MODEL_JSON = "gpt-4o"  # For JSON responses
-    DEFAULT_LLM_MODEL_TEXT = "gpt-4o"  # For text responses
 
-    # Alternative models (uncomment to use)
-    # DEFAULT_LLM_MODEL = "gpt-4o-mini"
-    # DEFAULT_LLM_MODEL_JSON = "gpt-4o-mini"
-    # DEFAULT_LLM_MODEL_TEXT = "gpt-4o-mini"
-    
-    # DEFAULT_LLM_MODEL = "gpt-4-turbo"
-    # DEFAULT_LLM_MODEL_JSON = "gpt-4-turbo"
-    # DEFAULT_LLM_MODEL_TEXT = "gpt-4"
+    # LLM Provider Selection - Set to "claude" or "openai"
+    LLM_PROVIDER = "claude"
+
+    # Model configurations by provider
+    CLAUDE_MODELS = {
+        "default": "claude-3-5-haiku-20241022",
+        "json": "claude-3-5-haiku-20241022",
+        "text": "claude-3-5-haiku-20241022"
+    }
+
+    OPENAI_MODELS = {
+        "default": "gpt-4o",
+        "json": "gpt-4o",
+        "text": "gpt-4o"
+    }
+
+    # Legacy properties for backward compatibility
+    @property
+    def DEFAULT_LLM_MODEL(self):
+        return self.CLAUDE_MODELS["default"] if self.LLM_PROVIDER == "claude" else self.OPENAI_MODELS["default"]
+
+    @property
+    def DEFAULT_LLM_MODEL_JSON(self):
+        return self.CLAUDE_MODELS["json"] if self.LLM_PROVIDER == "claude" else self.OPENAI_MODELS["json"]
+
+    @property
+    def DEFAULT_LLM_MODEL_TEXT(self):
+        return self.CLAUDE_MODELS["text"] if self.LLM_PROVIDER == "claude" else self.OPENAI_MODELS["text"]
     
     # Environment variable override
     @classmethod
     def get_llm_model(cls, model_type: str = "default") -> str:
         """
         Get the LLM model name with environment variable override support.
-        
+
         Args:
             model_type: Type of model ("default", "json", "text")
-            
+
         Returns:
             Model name string
         """
@@ -40,14 +54,13 @@ class UFFlowConfig:
         env_model = os.environ.get("UFFLOW_LLM_MODEL")
         if env_model:
             return env_model
-            
-        # Return model based on type
-        if model_type == "json":
-            return cls.DEFAULT_LLM_MODEL_JSON
-        elif model_type == "text":
-            return cls.DEFAULT_LLM_MODEL_TEXT
-        else:
-            return cls.DEFAULT_LLM_MODEL
+
+        # Check for provider override
+        provider = os.environ.get("UFFLOW_LLM_PROVIDER", cls.LLM_PROVIDER)
+
+        # Select model based on provider and type
+        models = cls.CLAUDE_MODELS if provider == "claude" else cls.OPENAI_MODELS
+        return models.get(model_type, models["default"])
     
     # Other configurable parameters
     DEFAULT_TEMPERATURE = 0.1
