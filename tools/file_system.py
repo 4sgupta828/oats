@@ -41,6 +41,13 @@ class UserConfirmInput(UfInput):
     message: str = Field(..., description="The action or permission to confirm with the user.")
     default_yes: bool = Field(True, description="Whether to default to 'Yes' when user just presses Enter.")
 
+class EditFileInput(UfInput):
+    filename: str = Field(..., description="The path to the file that will be modified.")
+    start_line: int = Field(..., description="The 1-based line number where the replacement should begin. The line at this number will be the first one replaced.")
+    end_line: int = Field(..., description="The 1-based line number of the last line to be replaced. This line and all lines between start_line and end_line will be removed. To insert new lines, set end_line = start_line - 1.")
+    new_content: str = Field(..., description="The new block of text to be inserted in place of the old lines. This can be a multi-line string. To simply delete lines, provide an empty string.")
+    preview: bool = Field(False, description="If True, show what would change without modifying the file (dry-run mode for verification).")
+
 @uf(name="create_file", version="1.0.0", description="Creates a new file with specified content.")
 def create_file(inputs: CreateFileInput) -> dict:
     """Creates a file and returns its path and size."""
@@ -366,6 +373,169 @@ def user_prompt(inputs: UserPromptInput) -> dict:
             "action": "continue",
             "message": "No response provided"
         }
+
+@uf(
+    name="edit_file",
+    version="1.0.0",
+    description="Atomically replaces a specific range of lines in a text file with new content. "
+                "IMPORTANT: Always use a Read-Modify-Verify pattern: (1) Read the file to get current line numbers, "
+                "(2) Calculate start_line and end_line based on fresh content, (3) Execute edit_file, "
+                "(4) Read the modified section to verify the change. This prevents errors from stale line numbers. "
+                "Special cases: To insert lines, set end_line = start_line - 1. To delete lines, provide empty new_content."
+)
+def edit_file(inputs: EditFileInput) -> dict:
+    """
+    Atomically replaces a specific range of lines in a file.
+
+    Returns dict with file info and change summary.
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If line numbers are invalid or out of bounds
+        IOError: For file permission or disk space issues
+    """
+    import tempfile
+    from core.workspace_security import validate_workspace_path
+
+    # Validate the file path
+    validated_path = validate_workspace_path(inputs.filename, "file editing")
+
+    # Check if file exists
+    if not os.path.exists(validated_path):
+        raise FileNotFoundError(f"File '{inputs.filename}' does not exist at {validated_path}")
+
+    # Validate line numbers
+    if inputs.start_line < 1:
+        raise ValueError(f"start_line must be >= 1, got {inputs.start_line}")
+
+    if inputs.end_line < inputs.start_line - 1:
+        raise ValueError(f"end_line ({inputs.end_line}) must be >= start_line - 1 ({inputs.start_line - 1})")
+
+    # Read all lines from the file
+    with open(validated_path, 'r') as f:
+        lines = f.readlines()
+
+    total_lines = len(lines)
+
+    # Validate bounds
+    if inputs.start_line > total_lines + 1:
+        raise ValueError(
+            f"start_line ({inputs.start_line}) is beyond file end (file has {total_lines} lines). "
+            f"Maximum valid start_line is {total_lines + 1} (for appending)."
+        )
+
+    if inputs.end_line > total_lines:
+        raise ValueError(
+            f"end_line ({inputs.end_line}) is beyond file end (file has {total_lines} lines)"
+        )
+
+    # Convert to 0-based indices
+    start_idx = inputs.start_line - 1
+    end_idx = inputs.end_line - 1
+
+    # Handle insertion case (end_line = start_line - 1)
+    is_insertion = inputs.end_line == inputs.start_line - 1
+
+    # Prepare new content lines (preserve line endings)
+    if inputs.new_content:
+        # Split by newline but preserve the structure
+        new_lines = inputs.new_content.split('\n')
+        # Add newline to each line except potentially the last one
+        new_lines = [line + '\n' for line in new_lines[:-1]] + ([new_lines[-1] + '\n'] if new_lines[-1] else [])
+        # If new_content ends with newline, it's already handled
+        if inputs.new_content.endswith('\n') and new_lines and new_lines[-1] == '\n':
+            new_lines = new_lines[:-1]  # Remove the extra empty line
+        elif inputs.new_content and not inputs.new_content.endswith('\n') and new_lines:
+            # Ensure last line has newline for consistency
+            new_lines[-1] = new_lines[-1].rstrip('\n') + '\n'
+    else:
+        new_lines = []
+
+    # Calculate what the new file will look like
+    if is_insertion:
+        # Insert before start_line
+        new_file_lines = lines[:start_idx] + new_lines + lines[start_idx:]
+    else:
+        # Replace lines from start_idx to end_idx (inclusive)
+        new_file_lines = lines[:start_idx] + new_lines + lines[end_idx + 1:]
+
+    # Calculate statistics
+    lines_removed = 0 if is_insertion else (end_idx - start_idx + 1)
+    lines_added = len(new_lines)
+    net_change = lines_added - lines_removed
+
+    # Preview mode - show changes without applying
+    if inputs.preview:
+        preview_info = {
+            "filepath": validated_path,
+            "preview_mode": True,
+            "changes": {
+                "start_line": inputs.start_line,
+                "end_line": inputs.end_line,
+                "lines_removed": lines_removed,
+                "lines_added": lines_added,
+                "net_change": net_change,
+                "operation": "insert" if is_insertion else "replace" if lines_removed > 0 else "append"
+            },
+            "old_content": ''.join(lines[start_idx:end_idx + 1]) if not is_insertion else "",
+            "new_content": inputs.new_content,
+            "total_lines_before": total_lines,
+            "total_lines_after": len(new_file_lines)
+        }
+
+        print(f"🔍 PREVIEW MODE - No changes made to '{inputs.filename}'")
+        print(f"  → Would {'insert' if is_insertion else 'replace'} lines {inputs.start_line}-{inputs.end_line}")
+        print(f"  → Lines removed: {lines_removed}, Lines added: {lines_added}, Net: {net_change:+d}")
+        print(f"  → Total lines: {total_lines} → {len(new_file_lines)}")
+
+        return preview_info
+
+    # Atomic write: write to temp file first, then replace
+    try:
+        # Create temp file in the same directory as target (ensures same filesystem)
+        dir_path = os.path.dirname(validated_path)
+        with tempfile.NamedTemporaryFile(mode='w', dir=dir_path, delete=False, suffix='.tmp') as tmp_file:
+            tmp_path = tmp_file.name
+            tmp_file.writelines(new_file_lines)
+
+        # Atomic replace (on same filesystem, this is atomic)
+        os.replace(tmp_path, validated_path)
+
+    except Exception as e:
+        # Clean up temp file if it exists
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
+        raise IOError(f"Failed to write file '{inputs.filename}': {e}")
+
+    # Get final file size
+    file_size = os.path.getsize(validated_path)
+
+    result = {
+        "filepath": validated_path,
+        "success": True,
+        "changes": {
+            "start_line": inputs.start_line,
+            "end_line": inputs.end_line,
+            "lines_removed": lines_removed,
+            "lines_added": lines_added,
+            "net_change": net_change,
+            "operation": "insert" if is_insertion else "replace" if lines_removed > 0 else "append"
+        },
+        "total_lines_before": total_lines,
+        "total_lines_after": len(new_file_lines),
+        "file_size": file_size
+    }
+
+    operation_desc = "Inserted" if is_insertion else "Replaced" if lines_removed > 0 else "Appended"
+    print(f"{operation_desc} lines {inputs.start_line}-{inputs.end_line} in '{inputs.filename}'")
+    print(f"  → Lines removed: {lines_removed}, Lines added: {lines_added}, Net change: {net_change:+d}")
+    print(f"  → Total lines: {total_lines} → {len(new_file_lines)}")
+    print(f"  → Location: {validated_path}")
+
+    return result
 
 @uf(name="user_confirm", version="1.0.0", description="Asks user for Y/N confirmation with easy defaults for permissions.")
 def user_confirm(inputs: UserConfirmInput) -> dict:
