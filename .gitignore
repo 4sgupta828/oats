@@ -80,7 +80,10 @@ dmypy.json
 logs/
 
 # Text files
-*.txt
+#*.txt
 
 # Temporary files directory
 tmp/
+
+#project tmp files
+.ufflow_temp

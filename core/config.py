@@ -71,7 +71,8 @@ class UFFlowConfig:
     
     # ReAct Configuration
     DEFAULT_MAX_TURNS = 10
-    
+    REACT_PROMPT_VERSION = "v1"
+
     # Logging Configuration
     LOG_LEVEL = "INFO"
     
@@ -101,6 +102,11 @@ class UFFlowConfig:
     def get_max_turns(cls) -> int:
         """Get max turns for ReAct with environment variable override."""
         return int(os.environ.get("UFFLOW_MAX_TURNS", cls.DEFAULT_MAX_TURNS))
+
+    @classmethod
+    def get_prompt_version(cls) -> str:
+        """Get ReAct prompt version with environment variable override."""
+        return os.environ.get("UFFLOW_PROMPT_VERSION", cls.REACT_PROMPT_VERSION)
 
 
 # Global config instance
