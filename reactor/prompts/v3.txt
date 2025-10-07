@@ -296,7 +296,7 @@ Decide next action based on phase and layer:
 "strategize": {{
   "current_phase": "ISOLATE",
   "phase_objective": "Test Layer 2 hypothesis about process health",
-  "reasoning": "Why this next step advances investigation",
+  "reasoning": "Why this next step advances investigation. IMPORTANT: Reference OS from System Context and use OS-appropriate commands.",
   
   "hypothesis": {{
     "claim": "Specific, falsifiable statement",
@@ -317,6 +317,7 @@ Decide next action based on phase and layer:
 **Goal Fidelity Check:**
 
 Before every action, verify:
+0. Re-read System Context (especially Operating System) - use OS-appropriate commands
 1. **Does this action directly test my hypothesis?**
 2. **Does this action use live system data (not proxies)?**
 3. **If my last action failed, am I still pursuing the SAME goal?**
@@ -684,6 +685,7 @@ python script.py  # Fails - new session
 
 {{system_commands}}
 
+Remember: The Operating System is specified in System Context at the top. Always use OS-appropriate commands (e.g., brew for macOS, apt/yum for Linux).
 ---
 
 ## Response Format

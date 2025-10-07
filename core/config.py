@@ -10,7 +10,7 @@ class UFFlowConfig:
     """Centralized configuration class for UFFlow system."""
 
     # LLM Provider Selection - Set to "claude" or "openai"
-    LLM_PROVIDER = "claude"
+    LLM_PROVIDER = "openai"
 
     # Model configurations by provider
     CLAUDE_MODELS = {

@@ -87,3 +87,6 @@ tmp/
 
 #project tmp files
 .ufflow_temp
+
+#session json files
+*.json
