@@ -51,6 +51,124 @@ class WorkspaceSecurity:
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
+    def discover_log_files(self, max_results: int = 50) -> List[str]:
+        """
+        Discover log files in the workspace for troubleshooting analysis.
+
+        Args:
+            max_results: Maximum number of log files to return
+
+        Returns:
+            List of absolute paths to log files
+        """
+        log_files = []
+
+        # Common log file patterns
+        log_patterns = [
+            '*.log',
+            '*.log.*',  # Rotated logs
+            '*-log',
+            '*_log',
+            'log-*',
+            'log_*'
+        ]
+
+        # Common log directories to search
+        log_dirs = [
+            'logs',
+            'log',
+            '.logs',
+            'var/log',
+            'tmp/logs',
+            'temp/logs',
+            'output/logs'
+        ]
+
+        try:
+            if self._has_ripgrep():
+                # Use ripgrep for fast file discovery
+                for pattern in log_patterns:
+                    cmd = [
+                        'rg', '--files', '--glob', pattern,
+                        '--max-depth', '5',  # Limit depth for performance
+                        str(self.workspace_root)
+                    ]
+
+                    # Add standard exclusions
+                    default_exclusions = [
+                        '.git', '__pycache__', 'node_modules', '.vscode',
+                        '.idea', 'venv', '*.pyc', '.DS_Store'
+                    ]
+                    for exclusion in default_exclusions:
+                        cmd.extend(['--glob', f'!{exclusion}'])
+
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            if line.strip():
+                                log_files.append(line.strip())
+                                if len(log_files) >= max_results:
+                                    break
+
+                    if len(log_files) >= max_results:
+                        break
+            else:
+                # Fallback to find command
+                # Search in common log directories
+                for log_dir in log_dirs:
+                    dir_path = self.workspace_root / log_dir
+                    if dir_path.exists():
+                        for pattern in log_patterns:
+                            cmd = [
+                                'find', str(dir_path), '-name', pattern,
+                                '-type', 'f', '-maxdepth', '3'
+                            ]
+                            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+                            if result.returncode == 0:
+                                for line in result.stdout.strip().split('\n'):
+                                    if line.strip():
+                                        log_files.append(line.strip())
+                                        if len(log_files) >= max_results:
+                                            break
+
+                            if len(log_files) >= max_results:
+                                break
+
+                    if len(log_files) >= max_results:
+                        break
+
+                # Also search in workspace root for common log files
+                if len(log_files) < max_results:
+                    for pattern in log_patterns:
+                        cmd = [
+                            'find', str(self.workspace_root), '-maxdepth', '2',
+                            '-name', pattern, '-type', 'f'
+                        ]
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+
+                        if result.returncode == 0:
+                            for line in result.stdout.strip().split('\n'):
+                                if line.strip() and line.strip() not in log_files:
+                                    log_files.append(line.strip())
+                                    if len(log_files) >= max_results:
+                                        break
+
+            # Remove duplicates and sort by modification time (most recent first)
+            log_files = list(set(log_files))
+            try:
+                log_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+            except OSError:
+                pass  # If we can't get mtime, just use the current order
+
+            logger.info(f"Discovered {len(log_files)} log files in workspace")
+            return log_files[:max_results]
+
+        except Exception as e:
+            logger.error(f"Error discovering log files: {e}")
+            return []
+
     def _find_files_by_name_fast(self, filename_pattern: str) -> List[str]:
         """
         Find files by filename pattern using efficient tools (ripgrep or find).

@@ -27,6 +27,7 @@ class WriteFileInput(UfInput):
 class ListFilesInput(UfInput):
     path: str = Field(".", description="The directory path to list. Defaults to current directory.")
     recursive: bool = Field(False, description="Whether to list files recursively in subdirectories.")
+    include_log_files: bool = Field(False, description="Discover and include log files in the output for troubleshooting.")
 
 class DeleteFileInput(UfInput):
     filename: str = Field(..., description="The name of the file to delete.")
@@ -266,8 +267,27 @@ def list_files(inputs: ListFilesInput) -> dict:
         "total_directories": len(directories)
     }
 
-    print(f"Listed {len(files)} files and {len(directories)} directories in '{inputs.path}'" +
-          (" (recursive)" if inputs.recursive else ""))
+    # Include log file locations if requested
+    if inputs.include_log_files:
+        try:
+            from core.workspace_security import get_workspace_security
+            workspace_security = get_workspace_security()
+            log_files = workspace_security.discover_log_files()
+            result["log_files"] = log_files
+            result["log_files_count"] = len(log_files)
+            print(f"Listed {len(files)} files and {len(directories)} directories in '{inputs.path}'" +
+                  (" (recursive)" if inputs.recursive else ""))
+            print(f"  → Discovered {len(log_files)} log files for analysis")
+        except Exception as e:
+            print(f"Listed {len(files)} files and {len(directories)} directories in '{inputs.path}'" +
+                  (" (recursive)" if inputs.recursive else ""))
+            print(f"  → Warning: Failed to discover log files: {e}")
+            result["log_files"] = []
+            result["log_files_count"] = 0
+    else:
+        print(f"Listed {len(files)} files and {len(directories)} directories in '{inputs.path}'" +
+              (" (recursive)" if inputs.recursive else ""))
+
     return result
 
 @uf(name="delete_file", version="1.0.0", description="Deletes a specified file with workspace security validation.")
