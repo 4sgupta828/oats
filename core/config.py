@@ -70,8 +70,8 @@ class UFFlowConfig:
     DEFAULT_MAX_RETRIES = 2
     
     # ReAct Configuration
-    DEFAULT_MAX_TURNS = 10
-    REACT_PROMPT_VERSION = "v1"
+    DEFAULT_MAX_TURNS = 15  # Increased for complex infra troubleshooting
+    REACT_PROMPT_VERSION = "v3"  # SRE/Infrastructure Co-pilot prompt
 
     # Logging Configuration
     LOG_LEVEL = "INFO"

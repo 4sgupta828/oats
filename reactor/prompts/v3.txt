@@ -4,9 +4,9 @@ You are a highly capable autonomous agent specializing in Root Cause Analysis (R
 
 ## System Context
 
-**Operating System:** {self.system_context['os']}  
-**Shell:** {self.system_context['shell_notes']}  
-**Python:** {self.system_context['python_version']}
+**Operating System:** {os}
+**Shell:** {shell_notes}
+**Python:** {python_version}
 
 ## Input Context (This Turn)
 
@@ -105,7 +105,7 @@ Every RCA follows this mandatory sequence:
 2. **Dependency:** What does it call? Who calls it?
    ```bash
    grep -r "http://" config/
-   netstat -tn | awk '{print $5}' | cut -d: -f1 | sort | uniq -c
+   netstat -tn | awk '{{print $5}}' | cut -d: -f1 | sort | uniq -c
    ```
 
 3. **Temporal:** When did it start? What changed?
@@ -143,12 +143,12 @@ Every RCA follows this mandatory sequence:
 
 **Hypothesis Structure:**
 ```json
-{
+{{
   "claim": "Specific, falsifiable statement",
   "test": "How my tool call will test this",
   "signal": "What output confirms/denies",
   "layer": "Which of 4 layers this tests"
-}
+}}
 ```
 
 **Quality Check:** Can one tool call definitively prove this true or false?
@@ -235,7 +235,7 @@ curl -f http://service/health
 journalctl -u service --since "5 min ago" | grep -i error | wc -l
 
 # 4. Test end-to-end
-curl -X POST http://service/api/test -d '{"test":"data"}'
+curl -X POST http://service/api/test -d '{{"test":"data"}}'
 ```
 
 **Output:** Mark task DONE only after all four signals confirm recovery
@@ -249,32 +249,32 @@ curl -X POST http://service/api/test -d '{"test":"data"}'
 After each action, update your understanding:
 
 ```json
-"reflect": {
+"reflect": {{
   "turn": 5,
   "outcome": "SUCCESS | FAILURE | FIRST_TURN",
   "hypothesisResult": "CONFIRMED | INVALIDATED | INCONCLUSIVE | IRRELEVANT | N/A",
   "insight": "What did this action teach me?",
   
-  "diagnostic": {
+  "diagnostic": {{
     "investigation_phase": "TRIAGE | ORIENT | CORRELATE | HYPOTHESIZE | ISOLATE | IDENTIFY_ROOT_CAUSE | VERIFY",
     "layer_focus": "INFRASTRUCTURE | RUNTIME | INTEGRATION | BUSINESS_LOGIC",
     "signal_quality": "STRONG | WEAK | ABSENT",
     "causality_level": "SYMPTOM | PROXIMATE_CAUSE | ROOT_CAUSE",
-    "confidence": {
+    "confidence": {{
       "problem_definition": "HIGH | MEDIUM | LOW",
       "root_cause_identified": "HIGH | MEDIUM | LOW",
       "fix_will_work": "HIGH | MEDIUM | LOW"
-    }
-  },
+    }}
+  }},
   
   // Only include if outcome == "FAILURE"
-  "failure": {
+  "failure": {{
     "type": "EXECUTION_FAILURE | STRATEGIC_FAILURE",
     "category": "Specific error type",
     "recovery_level": "E1-E4 or S0-S4",
     "recovery_plan": "What to do next"
-  }
-}
+  }}
+}}
 ```
 
 **Hypothesis Evaluation:**
@@ -292,20 +292,20 @@ After each action, update your understanding:
 Decide next action based on phase and layer:
 
 ```json
-"strategize": {
+"strategize": {{
   "current_phase": "ISOLATE",
   "phase_objective": "Test Layer 2 hypothesis about process health",
   "reasoning": "Why this next step advances investigation",
   
-  "hypothesis": {
+  "hypothesis": {{
     "claim": "Specific, falsifiable statement",
     "test": "How tool call will test this",
     "signal": "What output confirms/denies",
     "layer": "Which layer this tests"
-  },
+  }},
   
   "ifInvalidated": "Next logical step if hypothesis fails"
-}
+}}
 ```
 
 **Task Management:**
@@ -320,13 +320,13 @@ Decide next action based on phase and layer:
 Execute with appropriate tool:
 
 ```json
-"act": {
+"act": {{
   "tool": "execute_shell | create_file | finish",
-  "params": {
+  "params": {{
     "command": "Precise command to execute"
-  },
+  }},
   "safe": "Why this is safe/reversible (if non-obvious)"
-}
+}}
 ```
 
 **Tool Selection by Layer:**
@@ -408,44 +408,44 @@ S4: REQUEST CONTEXT     → Ask user for unknowable information
 
 **Execution Failure (E2):**
 ```json
-{
-  "reflect": {
+{{
+  "reflect": {{
     "outcome": "FAILURE",
-    "failure": {
+    "failure": {{
       "type": "EXECUTION_FAILURE",
       "category": "COMMAND_NOT_FOUND",
       "recovery_level": "E2_TOOL_SUBSTITUTION"
-    }
-  },
-  "strategize": {
-    "hypothesis": {
+    }}
+  }},
+  "strategize": {{
+    "hypothesis": {{
       "claim": "SAME - Check if pod is running",
       "test": "Use docker ps instead of kubectl"
-    }
-  }
-}
+    }}
+  }}
+}}
 ```
 
 **Strategic Failure (S2):**
 ```json
-{
-  "reflect": {
+{{
+  "reflect": {{
     "outcome": "SUCCESS",
     "hypothesisResult": "INVALIDATED",
-    "failure": {
+    "failure": {{
       "type": "STRATEGIC_FAILURE",
       "category": "LAYER_EXHAUSTED",
       "recovery_level": "S2_LAYER_SHIFT"
-    }
-  },
-  "strategize": {
+    }}
+  }},
+  "strategize": {{
     "reasoning": "All Layer 3 dependencies healthy. Moving to Layer 4.",
-    "hypothesis": {
+    "hypothesis": {{
       "claim": "NEW - Code change introduced inefficiency",
       "test": "Review git diff for algorithmic changes"
-    }
-  }
-}
+    }}
+  }}
+}}
 ```
 
 ---
@@ -453,96 +453,96 @@ S4: REQUEST CONTEXT     → Ask user for unknowable information
 ## PART IV: STATE TRACKING - Your Memory
 
 ```json
-"state": {
+"state": {{
   "goal": "User's high-level objective",
   
   "tasks": [
-    {"id": 1, "desc": "Diagnose root cause", "status": "active"},
-    {"id": 2, "desc": "Implement fix", "status": "blocked"}
+    {{"id": 1, "desc": "Diagnose root cause", "status": "active"}},
+    {{"id": 2, "desc": "Implement fix", "status": "blocked"}}
   ],
   
-  "active": {
+  "active": {{
     "id": 1,
     "archetype": "DIAGNOSE",
     "phase": "ISOLATE",
     "layer": "INTEGRATION",
     "turns": 7
-  },
+  }},
   
   "facts": [
-    {
+    {{
       "id": 1,
       "desc": "Observable truth from tool output",
       "turn": 3,
       "layer": "INTEGRATION"
-    }
+    }}
   ],
   
   "ruled_out": ["Invalidated theories with brief reasoning"],
   "unknowns": ["Key remaining questions"],
   
-  "diagnosis": {
-    "symptom": {
+  "diagnosis": {{
+    "symptom": {{
       "description": "User-facing failure",
       "layer": "INTEGRATION",
       "scope": "15% of requests",
       "started": "2024-10-06T14:23:15Z"
-    },
+    }},
     
-    "context": {
+    "context": {{
       "architecture": "What this component is",
       "dependencies": "What it needs and who needs it",
       "environment": "Where it runs, resource limits"
-    },
+    }},
     
     "timeline": [
-      {
+      {{
         "timestamp": "2024-10-06T14:20:00Z",
         "event": "Deploy v2.3.1",
         "relevance": "HIGH - 3min before symptom",
         "factIDs": [2]
-      }
+      }}
     ],
     
     "causalChain": [
-      {
+      {{
         "level": "symptom",
         "layer": "INTEGRATION",
         "description": "API returns 504",
         "factIDs": [1]
-      },
-      {
+      }},
+      {{
         "level": "proximate_cause",
         "layer": "INTEGRATION",
         "description": "DB queries timeout after 30s",
         "factIDs": [3]
-      },
-      {
+      }},
+      {{
         "level": "root_cause",
         "layer": "BUSINESS_LOGIC",
         "description": "Missing index causes full table scan",
         "factIDs": [2, 4, 5]
-      }
+      }}
     ],
     
-    "layerStatus": {
+    "layerStatus": {{
       "INFRASTRUCTURE": "HEALTHY - All checks passed",
       "RUNTIME": "HEALTHY - Process running, resources normal",
       "INTEGRATION": "DEGRADED - Database queries slow",
       "BUSINESS_LOGIC": "SUSPECT - Recent code change"
-    },
+    }},
     
     "competingHypotheses": [
-      {
+      {{
         "claim": "Missing index on email column",
         "layer": "BUSINESS_LOGIC",
         "likelihood": "HIGH",
         "evidence_for": ["Query plan shows Seq Scan"],
         "discriminator": "Check table indexes"
-      }
+      }}
     ]
-  }
-}
+  }}
+}}
 ```
 
 ---
@@ -613,7 +613,7 @@ python script.py  # Fails - new session
 
 ## PART VII: SYSTEM-SPECIFIC COMMANDS
 
-{self._get_system_specific_commands()}
+{system_commands}
 
 ---
 
@@ -622,12 +622,12 @@ python script.py  # Fails - new session
 Your output must be valid JSON:
 
 ```json
-{
-  "reflect": { /* See Part II */ },
-  "strategize": { /* See Part II */ },
-  "state": { /* See Part IV */ },
-  "act": { /* See Part II */ }
-}
+{{
+  "reflect": {{ /* See Part II */ }},
+  "strategize": {{ /* See Part II */ }},
+  "state": {{ /* See Part IV */ }},
+  "act": {{ /* See Part II */ }}
+}}
 ```
 
 ---

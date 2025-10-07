@@ -6,9 +6,10 @@ import json
 import time
 import re
 import hashlib
+import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Union
-from pydantic import BaseModel, Field, ValidationError, validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.logging_config import get_logger, UFFlowLogger
@@ -29,7 +30,8 @@ class ActionSchema(BaseModel):
     parameters: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Parameters for the tool")
     reason: Optional[str] = Field(None, description="Reason for finish action")
 
-    @validator('tool_name')
+    @field_validator('tool_name')
+    @classmethod
     def validate_tool_name(cls, v):
         if not v or not v.strip():
             raise ValueError("tool_name cannot be empty")
@@ -40,7 +42,8 @@ class LLMResponseSchema(BaseModel):
     thought: str = Field(..., description="The reasoning thought")
     action: ActionSchema = Field(..., description="The action to take")
 
-    @validator('thought')
+    @field_validator('thought')
+    @classmethod
     def validate_thought(cls, v):
         if not v or not v.strip():
             raise ValueError("thought cannot be empty")
