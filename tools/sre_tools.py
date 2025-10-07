@@ -30,8 +30,9 @@ class CheckSystemHealthInput(UfInput):
     include_memory: bool = Field(default=True, description="Include memory usage checks")
     include_cpu: bool = Field(default=True, description="Include CPU usage checks")
 
-@uf(name="check_system_health", version="1.0.0",
-   description="Comprehensive system health check covering Layer 1 (Infrastructure) and Layer 2 (Runtime). Returns status of disk, memory, CPU, and network.")
+# DISABLED: check_system_health tool
+# @uf(name="check_system_health", version="1.0.0",
+#    description="Comprehensive system health check covering Layer 1 (Infrastructure) and Layer 2 (Runtime). Returns status of disk, memory, CPU, and network.")
 def check_system_health(inputs: CheckSystemHealthInput) -> dict:
     """Perform comprehensive system health check."""
     try:
@@ -173,8 +174,9 @@ class CheckServiceHealthInput(UfInput):
             raise ValueError("service_url cannot be empty")
         return v.strip()
 
-@uf(name="check_service_health", version="1.0.0",
-   description="Check health endpoint of a service. Use for Layer 3 (Integration) troubleshooting to verify if a service is responding.")
+# DISABLED: check_service_health tool
+# @uf(name="check_service_health", version="1.0.0",
+#    description="Check health endpoint of a service. Use for Layer 3 (Integration) troubleshooting to verify if a service is responding.")
 def check_service_health(inputs: CheckServiceHealthInput) -> dict:
     """Check service health endpoint."""
     try:
@@ -233,8 +235,9 @@ class CheckRecentChangesInput(UfInput):
     include_git: bool = Field(default=True, description="Include git history")
     include_system: bool = Field(default=True, description="Include system changes")
 
-@uf(name="check_recent_changes", version="1.0.0",
-   description="Check for recent changes in the system (code, config, deployments). Critical for Phase 3 (CORRELATE) of RCA.")
+# DISABLED: check_recent_changes tool
+# @uf(name="check_recent_changes", version="1.0.0",
+#    description="Check for recent changes in the system (code, config, deployments). Critical for Phase 3 (CORRELATE) of RCA.")
 def check_recent_changes(inputs: CheckRecentChangesInput) -> dict:
     """Check for recent changes that might correlate with failures."""
     try:
@@ -317,8 +320,9 @@ class AnalyzeLogsInput(UfInput):
             raise ValueError("log_file cannot be empty")
         return v.strip()
 
-@uf(name="analyze_logs", version="1.0.0",
-   description="Analyze log files for errors and patterns. Use in Phase 5 (ISOLATE) to find evidence of failures.")
+# DISABLED: analyze_logs tool
+# @uf(name="analyze_logs", version="1.0.0",
+#    description="Analyze log files for errors and patterns. Use in Phase 5 (ISOLATE) to find evidence of failures.")
 def analyze_logs(inputs: AnalyzeLogsInput) -> dict:
     """Analyze log files for patterns and errors."""
     try:
@@ -387,8 +391,9 @@ class CheckDependencyInput(UfInput):
             raise ValueError("dependency_host cannot be empty")
         return v.strip()
 
-@uf(name="check_dependency", version="1.0.0",
-   description="Check if a dependency (database, cache, API) is reachable. Use for Layer 3 (Integration) dependency tracing.")
+# DISABLED: check_dependency tool
+# @uf(name="check_dependency", version="1.0.0",
+#    description="Check if a dependency (database, cache, API) is reachable. Use for Layer 3 (Integration) dependency tracing.")
 def check_dependency(inputs: CheckDependencyInput) -> dict:
     """Check dependency connectivity."""
     try:
@@ -446,7 +451,7 @@ class FinishInput(UfInput):
         return v.strip()
 
 @uf(name="finish", version="1.0.0",
-   description="Mark goal as complete. MUST include reason summarizing findings, root cause, and fix (if applied).")
+    description="Mark goal as complete. MUST include reason summarizing findings, root cause, and fix (if applied).")
 def finish(inputs: FinishInput) -> dict:
     """Complete the goal and return summary."""
     summary_parts = [inputs.reason]

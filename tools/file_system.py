@@ -221,7 +221,8 @@ def _should_exclude_path(name):
 
     return False
 
-@uf(name="list_files", version="1.0.0", description="Lists files and directories in a specified path, with optional recursive listing, excluding common non-source files.")
+# DISABLED: list_files tool
+# @uf(name="list_files", version="1.0.0", description="Lists files and directories in a specified path, with optional recursive listing, excluding common non-source files.")
 def list_files(inputs: ListFilesInput) -> dict:
     """Lists files and directories with workspace security validation and intelligent filtering."""
     from core.workspace_security import validate_workspace_path
