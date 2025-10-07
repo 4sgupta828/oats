@@ -113,7 +113,14 @@ class AgentController:
 
                     # A. Reason: Build prompt and get LLM response
                     messages = self.prompt_builder.build_messages_for_openai(state, available_tools)
-                    raw_response = self.llm_client.create_completion_text(messages)
+
+                    # Generate JSON schema for structured output enforcement
+                    json_schema = self._get_response_json_schema()
+
+                    raw_response = self.llm_client.create_completion_text(
+                        messages=messages,
+                        json_schema=json_schema
+                    )
 
                     # B. Reason: Parse the response
                     parsed_response = self._parse_llm_response(raw_response)
@@ -332,6 +339,18 @@ class AgentController:
 
         return outputs
 
+    def _get_response_json_schema(self) -> Dict[str, Any]:
+        """Generate JSON schema for structured output enforcement."""
+        from reactor.models import ParsedLLMResponse
+
+        # Get the JSON schema from the Pydantic model
+        schema = ParsedLLMResponse.model_json_schema()
+
+        return {
+            "name": "react_response",
+            "schema": schema
+        }
+
     def _parse_llm_response(self, raw_response: str) -> ParsedLLMResponse:
         """Parse LLM response in new JSON format."""
         import json
@@ -339,20 +358,25 @@ class AgentController:
         try:
             logger.debug(f"Parsing LLM response: {raw_response[:200]}...")
 
-            # Extract JSON from response (handle markdown code blocks)
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                # Try to find raw JSON
-                json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+            # Try to parse as direct JSON first (from structured output)
+            try:
+                response_data = json.loads(raw_response)
+            except json.JSONDecodeError:
+                # Fall back to extracting JSON from markdown or text
+                # Extract JSON from response (handle markdown code blocks)
+                json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_response, re.DOTALL)
                 if json_match:
                     json_str = json_match.group(1)
                 else:
-                    raise ValueError("No JSON found in response")
+                    # Try to find raw JSON
+                    json_match = re.search(r'(\{.*\})', raw_response, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                    else:
+                        raise ValueError("No JSON found in response")
 
-            # Parse JSON
-            response_data = json.loads(json_str)
+                # Parse JSON
+                response_data = json.loads(json_str)
 
             # Validate and create ParsedLLMResponse
             from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis

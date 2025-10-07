@@ -150,7 +150,7 @@ class OpenAIClientManager:
             logger.error(f"{provider.upper()} API call failed: {e}")
             raise LLMError(f"API call failed: {e}", "api_call")
 
-    def create_completion_text(self, messages: List[Dict[str, str]], tools: Optional[List] = None, model: Optional[str] = None) -> str:
+    def create_completion_text(self, messages: List[Dict[str, str]], tools: Optional[List] = None, model: Optional[str] = None, json_schema: Optional[Dict[str, Any]] = None) -> str:
         """Create a text completion for ReAct with optional function calling."""
         if model is None:
             model = config.get_llm_model("text")
@@ -187,7 +187,23 @@ class OpenAIClientManager:
                 if system_msg:
                     call_params["system"] = system_msg
 
-                if tools:
+                # Add structured output support if json_schema is provided
+                # Anthropic's approach: Use a tool with the schema as input_schema
+                # and force the model to use it (tool_choice="any")
+                if json_schema:
+                    schema_def = json_schema.get("schema", json_schema)
+
+                    # Create a tool that forces structured output
+                    structured_tool = {
+                        "name": json_schema.get("name", "respond"),
+                        "description": "Respond with the structured output",
+                        "input_schema": schema_def
+                    }
+
+                    # Override tools with our structured output tool
+                    call_params["tools"] = [structured_tool]
+                    call_params["tool_choice"] = {"type": "tool", "name": structured_tool["name"]}
+                elif tools:
                     call_params["tools"] = tools
 
                 response = client.messages.create(**call_params)
@@ -197,12 +213,18 @@ class OpenAIClientManager:
                     import json
                     tool_use_block = next((block for block in response.content if block.type == "tool_use"), None)
                     if tool_use_block:
-                        text_content = next((block.text for block in response.content if hasattr(block, "text")), "")
-                        return json.dumps({
-                            "function_name": tool_use_block.name,
-                            "arguments": tool_use_block.input,
-                            "thought": text_content or "Function call requested"
-                        })
+                        # If this is a structured output tool (from json_schema), return the input directly
+                        if json_schema and tool_use_block.name == json_schema.get("name", "respond"):
+                            # Return the structured output as JSON string
+                            return json.dumps(tool_use_block.input)
+                        else:
+                            # Regular tool call - return function call format
+                            text_content = next((block.text for block in response.content if hasattr(block, "text")), "")
+                            return json.dumps({
+                                "function_name": tool_use_block.name,
+                                "arguments": tool_use_block.input,
+                                "thought": text_content or "Function call requested"
+                            })
 
                 # Handle regular text response
                 content = next((block.text for block in response.content if hasattr(block, "text")), None)

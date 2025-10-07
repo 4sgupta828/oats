@@ -16,7 +16,7 @@ class DiagnosticMetadata(BaseModel):
     """Diagnostic metadata for SRE troubleshooting."""
     investigation_phase: Literal["TRIAGE", "ORIENT", "CORRELATE", "HYPOTHESIZE", "ISOLATE", "IDENTIFY_ROOT_CAUSE", "VERIFY"] = Field(..., description="Current investigation phase")
     layer_focus: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Current layer under investigation")
-    signal_quality: Literal["STRONG", "WEAK", "ABSENT"] = Field(..., description="Quality of evidence from last action")
+    signal_quality: Literal["STRONG", "MEDIUM", "WEAK", "ABSENT"] = Field(..., description="Quality of evidence from last action")
     causality_level: Literal["SYMPTOM", "PROXIMATE_CAUSE", "ROOT_CAUSE"] = Field(..., description="Level of causality identified")
     confidence: Dict[str, Literal["HIGH", "MEDIUM", "LOW"]] = Field(..., description="Confidence levels for problem_definition, root_cause_identified, fix_will_work")
 

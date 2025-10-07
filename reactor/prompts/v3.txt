@@ -259,7 +259,7 @@ After each action, update your understanding:
   "diagnostic": {{
     "investigation_phase": "TRIAGE | ORIENT | CORRELATE | HYPOTHESIZE | ISOLATE | IDENTIFY_ROOT_CAUSE | VERIFY",
     "layer_focus": "INFRASTRUCTURE | RUNTIME | INTEGRATION | BUSINESS_LOGIC",
-    "signal_quality": "STRONG | WEAK | ABSENT",
+    "signal_quality": "STRONG | MEDIUM | WEAK | ABSENT",
     "causality_level": "SYMPTOM | PROXIMATE_CAUSE | ROOT_CAUSE",
     "confidence": {{
       "problem_definition": "HIGH | MEDIUM | LOW",
@@ -632,7 +632,7 @@ Your output must be valid JSON:
     "diagnostic": {{
       "investigation_phase": "TRIAGE|ORIENT|CORRELATE|HYPOTHESIZE|ISOLATE|IDENTIFY_ROOT_CAUSE|VERIFY",
       "layer_focus": "INFRASTRUCTURE|RUNTIME|INTEGRATION|BUSINESS_LOGIC",
-      "signal_quality": "STRONG|WEAK|ABSENT",
+      "signal_quality": "STRONG|MEDIUM|WEAK|ABSENT",
       "causality_level": "SYMPTOM|PROXIMATE_CAUSE|ROOT_CAUSE",
       "confidence": {{
         "problem_definition": "HIGH|MEDIUM|LOW",
@@ -670,6 +670,11 @@ Your output must be valid JSON:
 - `reflect.diagnostic` is REQUIRED for all RCA/diagnostic work
 - `confidence` must be inside `diagnostic`, NOT at top level of reflect
 - All field names must match exactly (case-sensitive)
+- **ENUM VALUES MUST BE EXACT:** Do not add extra text or modify enum values
+  - Task status: ONLY "active", "done", or "blocked" (NOT "pending", "completed", "in_progress")
+  - Signal quality: ONLY "STRONG", "MEDIUM", "WEAK", or "ABSENT"
+  - Relevance: ONLY "HIGH", "MEDIUM", or "LOW" (NOT "HIGH - Most recent" or any suffix)
+  - All enum fields must use the exact value with no additions
 
 ---
 
