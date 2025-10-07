@@ -252,9 +252,10 @@ After each action, update your understanding:
 "reflect": {{
   "turn": 5,
   "outcome": "SUCCESS | FAILURE | FIRST_TURN",
-  "hypothesisResult": "CONFIRMED | INVALIDATED | INCONCLUSIVE | IRRELEVANT | N/A",
+  "hypothesisResult": "CONFIRMED | INVALIDATED | INCONCLUSIVE | IRRELEVANT | N/A",  // REQUIRED
   "insight": "What did this action teach me?",
-  
+
+  // REQUIRED: Include diagnostic metadata for all diagnostic/RCA work
   "diagnostic": {{
     "investigation_phase": "TRIAGE | ORIENT | CORRELATE | HYPOTHESIZE | ISOLATE | IDENTIFY_ROOT_CAUSE | VERIFY",
     "layer_focus": "INFRASTRUCTURE | RUNTIME | INTEGRATION | BUSINESS_LOGIC",
@@ -266,8 +267,8 @@ After each action, update your understanding:
       "fix_will_work": "HIGH | MEDIUM | LOW"
     }}
   }},
-  
-  // Only include if outcome == "FAILURE"
+
+  // OPTIONAL: Only include if outcome == "FAILURE"
   "failure": {{
     "type": "EXECUTION_FAILURE | STRATEGIC_FAILURE",
     "category": "Specific error type",
@@ -623,12 +624,52 @@ Your output must be valid JSON:
 
 ```json
 {{
-  "reflect": {{ /* See Part II */ }},
-  "strategize": {{ /* See Part II */ }},
-  "state": {{ /* See Part IV */ }},
-  "act": {{ /* See Part II */ }}
+  "reflect": {{
+    "turn": <number>,
+    "outcome": "SUCCESS|FAILURE|FIRST_TURN",
+    "hypothesisResult": "CONFIRMED|INVALIDATED|INCONCLUSIVE|IRRELEVANT|N/A",
+    "insight": "Brief learning from this turn",
+    "diagnostic": {{
+      "investigation_phase": "TRIAGE|ORIENT|CORRELATE|HYPOTHESIZE|ISOLATE|IDENTIFY_ROOT_CAUSE|VERIFY",
+      "layer_focus": "INFRASTRUCTURE|RUNTIME|INTEGRATION|BUSINESS_LOGIC",
+      "signal_quality": "STRONG|WEAK|ABSENT",
+      "causality_level": "SYMPTOM|PROXIMATE_CAUSE|ROOT_CAUSE",
+      "confidence": {{
+        "problem_definition": "HIGH|MEDIUM|LOW",
+        "root_cause_identified": "HIGH|MEDIUM|LOW",
+        "fix_will_work": "HIGH|MEDIUM|LOW"
+      }}
+    }}
+  }},
+  "strategize": {{
+    "reasoning": "Why this next step",
+    "hypothesis": {{
+      "claim": "Falsifiable statement",
+      "test": "How to test it",
+      "signal": "What confirms/denies"
+    }},
+    "ifInvalidated": "Contingency plan"
+  }},
+  "state": {{
+    "goal": "User's objective",
+    "tasks": [],
+    "facts": [],
+    "ruled_out": [],
+    "unknowns": []
+  }},
+  "act": {{
+    "tool": "tool_name",
+    "params": {{}},
+    "safe": "Safety justification (if needed)"
+  }}
 }}
 ```
+
+**CRITICAL VALIDATION RULES:**
+- `reflect.hypothesisResult` is REQUIRED in every turn
+- `reflect.diagnostic` is REQUIRED for all RCA/diagnostic work
+- `confidence` must be inside `diagnostic`, NOT at top level of reflect
+- All field names must match exactly (case-sensitive)
 
 ---
 
