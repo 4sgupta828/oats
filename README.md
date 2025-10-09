@@ -2,6 +2,8 @@
 
 **O**bservability-**A**ware **T**roubleshooting **S**ystem - An autonomous SRE agent for diagnosing and resolving infrastructure failures in cloud distributed systems.
 
+> **📦 Cloud-Ready Structure**: OATS is now organized for cloud deployment with Kubernetes. See [README-CLOUD.md](./README-CLOUD.md) for the migration guide and new architecture.
+
 OATS is a Python-based framework that transforms high-level infrastructure problems into systematic root cause analysis (RCA), powered by a blend of Large Language Models (LLMs) and deterministic execution. It embodies the expertise of a principal Site Reliability Engineer, applying the **Universal RCA Framework** to diagnose failures across the four layers of distributed systems.
 
 The core of OATS is a **ReAct (Reflect-Strategize-Act)** loop that systematically progresses through seven investigation phases, testing hypotheses bottom-up through infrastructure layers, building evidence chains, and verifying fixes with observable recovery signals.
@@ -80,20 +82,35 @@ graph TD
 
 ---
 
+## 📁 Project Structure
+
+```
+oats/
+├── services/                      # Cloud services (NEW)
+│   ├── backend-api/              # FastAPI server for job management
+│   ├── agent/                    # Containerized OATS agent
+│   │   ├── agent/                # Container entrypoint
+│   │   ├── core/                 # Core logic
+│   │   ├── reactor/              # ReAct agent
+│   │   ├── tools/                # SRE tools
+│   │   ├── executor/             # Tool execution
+│   │   ├── orchestrator/         # Orchestration
+│   │   ├── registry/             # Tool registry
+│   │   └── memory/               # Memory storage
+│   └── ui/                       # Frontend (Phase 3)
+├── infra/                        # Kubernetes manifests (NEW)
+│   └── base/                     # Base K8s resources
+├── README.md                     # This file
+└── README-CLOUD.md               # Cloud migration guide
+```
+
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-
-- Python 3.9+
-- An OpenAI or Anthropic API key
-- Access to system logs and metrics (for cloud troubleshooting)
-
-### 2. Setup
+### Option 1: Local Development (Original)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/oats.git
-cd oats
+# Navigate to agent directory
+cd services/agent
 
 # Install dependencies
 pip install -r requirements.txt
@@ -103,13 +120,17 @@ export OPENAI_API_KEY="sk-..."
 # OR
 export ANTHROPIC_API_KEY="..."
 
-# Configure LLM provider (optional - defaults to Claude)
-export UFFLOW_LLM_PROVIDER="claude"  # or "openai"
+# Configure LLM provider (optional - defaults to OpenAI)
+export UFFLOW_LLM_PROVIDER="openai"  # or "claude"
 ```
 
-### 3. Run Your First Investigation
+**Run an investigation:**
 
 ```python
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd()))
+
 from reactor.agent_controller import AgentController
 from registry.main import Registry
 
@@ -125,6 +146,32 @@ result = agent.execute_goal(
 )
 
 print(result.execution_summary)
+```
+
+### Option 2: Containerized Execution
+
+```bash
+# Build the agent container
+cd services/agent
+docker build -t oats-agent:latest .
+
+# Run investigation
+docker run \
+  -e OATS_GOAL="Why is the API returning 504 errors?" \
+  -e OPENAI_API_KEY="your-key" \
+  -v $(pwd)/output:/output \
+  oats-agent:latest
+```
+
+### Option 3: Cloud Deployment (Kubernetes)
+
+See [README-CLOUD.md](./README-CLOUD.md) for complete deployment guide.
+
+```bash
+# Quick start
+kubectl apply -f infra/base/
+curl -X POST http://backend-api/api/v1/jobs \
+  -d '{"goal": "Diagnose API 504 errors", "max_turns": 15}'
 ```
 
 ---

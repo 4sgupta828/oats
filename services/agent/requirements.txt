@@ -1,0 +1,10 @@
+# Core dependencies for OATS agent
+openai==1.3.0
+anthropic==0.7.0
+pydantic==2.5.0
+python-dotenv==1.0.0
+requests==2.31.0
+psutil==5.9.6
+
+# Additional dependencies for agent functionality
+typing-extensions>=4.5.0

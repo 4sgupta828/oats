@@ -89,4 +89,8 @@ tmp/
 .ufflow_temp
 
 #session json files
-*.json
+session_transcript_*.json
+
+# Local secrets (DO NOT COMMIT)
+infra/base/secrets.local.yaml
+*.local.yaml

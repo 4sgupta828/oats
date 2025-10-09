@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oats-backend-api
+  labels:
+    app: oats-backend-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oats-job-manager
+  labels:
+    app: oats-backend-api
+rules:
+  # Permissions to manage Jobs
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Permissions to read Job status and logs
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+
+  # Permissions to read Pod status for job monitoring
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oats-backend-api-job-manager
+  labels:
+    app: oats-backend-api
+subjects:
+  - kind: ServiceAccount
+    name: oats-backend-api
+roleRef:
+  kind: Role
+  name: oats-job-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# ServiceAccount for agent jobs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oats-agent
+  labels:
+    app: oats-agent
+---
+# Role for agent jobs (limited permissions for safety)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oats-agent-role
+  labels:
+    app: oats-agent
+rules:
+  # Read-only access to pods for diagnostics
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch"]
+
+  # Read-only access to deployments and replicasets
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+
+  # TODO: Add more specific permissions based on diagnostic needs
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oats-agent-role-binding
+  labels:
+    app: oats-agent
+subjects:
+  - kind: ServiceAccount
+    name: oats-agent
+roleRef:
+  kind: Role
+  name: oats-agent-role
+  apiGroup: rbac.authorization.k8s.io
