@@ -1,26 +1,15 @@
-FROM python:3.11-slim
+# Use a slim Python base image
+FROM python:3.9-slim
 
+# Set the working directory inside the container
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY requirements.txt .
+# Copy and install dependencies
+COPY ./services/agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy agent code
-# TODO: During migration, copy actual agent code
-COPY agent/ ./agent/
+# Copy the agent's source code into the container
+COPY ./services/agent/agent/ .
 
-# Create output directory
-RUN mkdir -p /output
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-
-# Run the agent
-ENTRYPOINT ["python", "-m", "agent.main"]
+# Define the command to run when the container starts
+CMD ["python", "main.py"]

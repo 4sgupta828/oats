@@ -1,16 +1,17 @@
-FROM python:3.11-slim
+# Use a slim Python base image
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt .
+# Install dependencies, including the Kubernetes client
+COPY ./services/backend-api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY app/ ./app/
+# Copy the backend source code
+COPY ./services/backend-api/app/ .
 
-# Expose API port
+# Expose the port the API will run on
 EXPOSE 8000
 
-# Run the FastAPI server
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start the Uvicorn server
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

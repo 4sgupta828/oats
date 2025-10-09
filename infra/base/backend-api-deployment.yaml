@@ -1,19 +1,3 @@
-apiVersion: v1
-kind: Service
-metadata:
-  name: oats-backend-api
-  labels:
-    app: oats-backend-api
-spec:
-  type: ClusterIP
-  ports:
-    - port: 8000
-      targetPort: 8000
-      protocol: TCP
-      name: http
-  selector:
-    app: oats-backend-api
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,7 +5,7 @@ metadata:
   labels:
     app: oats-backend-api
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: oats-backend-api
@@ -30,40 +14,14 @@ spec:
       labels:
         app: oats-backend-api
     spec:
-      serviceAccountName: oats-backend-api
+      serviceAccountName: oats-job-creator # Important: Use the SA defined in rbac.yaml
       containers:
         - name: backend-api
-          image: oats-backend-api:latest
-          imagePullPolicy: IfNotPresent
+          image: your-repo/oats-backend-api:latest # Replace with your image registry
           ports:
             - containerPort: 8000
-              name: http
           env:
-            - name: KUBERNETES_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: LOG_LEVEL
-              value: "INFO"
-          envFrom:
-            - secretRef:
-                name: oats-api-secrets
-          livenessProbe:
-            httpGet:
-              path: /
-              port: 8000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            httpGet:
-              path: /
-              port: 8000
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+            - name: AGENT_IMAGE
+              value: "your-repo/oats-agent:latest"
+            - name: API_KEY_SECRET_NAME
+              value: "oats-api-keys"

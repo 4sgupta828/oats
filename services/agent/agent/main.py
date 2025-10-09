@@ -1,75 +1,36 @@
-"""
-Main entrypoint for containerized OATS agent execution
-Reads goal from environment and executes the agent
-"""
 import os
 import sys
-import logging
-import json
-from pathlib import Path
-
-# Add parent directory to path to import modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from reactor.agent_controller import AgentController
-from registry.main import Registry
+from registry.main import global_registry
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+def run_agent():
+    """
+    Container entrypoint to run a single goal-oriented investigation.
+    """
+    # Load all available tools from the 'tools' directory
+    # Your existing discovery logic is perfect for this.
+    global_registry.load_ufs_from_directory('./tools')
 
-
-def main():
-    """Main entrypoint for containerized agent"""
-    logger.info("Starting OATS SRE Agent in container mode")
-
-    # Get configuration from environment
-    goal = os.getenv("OATS_GOAL")
-    max_turns = int(os.getenv("OATS_MAX_TURNS", "15"))
-    llm_provider = os.getenv("UFFLOW_LLM_PROVIDER", "openai")
-
+    # The goal is passed into the container via an environment variable.
+    goal = os.environ.get("OATS_GOAL")
     if not goal:
-        logger.error("OATS_GOAL environment variable not set")
+        print("ERROR: OATS_GOAL environment variable not set. Aborting.")
         sys.exit(1)
 
-    logger.info(f"Goal: {goal}")
-    logger.info(f"Max turns: {max_turns}")
-    logger.info(f"LLM Provider: {llm_provider}")
+    print(f"🚀 Starting OATS Agent for goal: '{goal}'")
+    agent = AgentController(global_registry)
+    result = agent.execute_goal(goal, max_turns=15)
 
-    try:
-        # Initialize the agent
-        logger.info("Initializing agent and registry...")
-        registry = Registry()
-        registry.discover_and_load_ufs()
-        agent = AgentController(registry)
+    print("\n" + "="*30 + " EXECUTION SUMMARY " + "="*30)
+    print(result.execution_summary)
+    print("="*80)
 
-        # Execute the goal
-        logger.info("Agent execution started")
-        result = agent.execute_goal(goal=goal, max_turns=max_turns)
-
-        # Save result to output directory
-        output_dir = Path("/output")
-        output_dir.mkdir(exist_ok=True)
-
-        result_file = output_dir / "result.json"
-        with open(result_file, "w") as f:
-            json.dump({
-                "goal": goal,
-                "status": result.status if hasattr(result, 'status') else "completed",
-                "summary": result.execution_summary if hasattr(result, 'execution_summary') else str(result),
-                "turns": result.turn_count if hasattr(result, 'turn_count') else max_turns
-            }, f, indent=2)
-
-        logger.info(f"Agent execution completed successfully")
-        logger.info(f"Result saved to {result_file}")
-        return 0
-
-    except Exception as e:
-        logger.error(f"Agent execution failed: {str(e)}", exc_info=True)
+    if not result.success or not result.state.is_complete:
+        print("🔥 Goal execution did not complete successfully.")
+        # Exit with a non-zero status code to signal failure to Kubernetes
         sys.exit(1)
-
+    else:
+        print("✅ Goal execution completed successfully.")
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run_agent()
