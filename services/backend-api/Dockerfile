@@ -7,6 +7,9 @@ WORKDIR /app
 COPY ./services/backend-api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the agent code (needed by backend)
+COPY ./services/agent/ ./agent/
+
 # Copy the backend source code
 COPY ./services/backend-api/app/ ./app/
 

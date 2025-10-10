@@ -1,4 +1,11 @@
 fastapi
-uvicorn
+uvicorn[standard]
 kubernetes
 pydantic
+python-socketio
+
+# Agent dependencies
+openai
+anthropic
+tiktoken
+python-dotenv
