@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './App.css'; // We will create this CSS file next
+import './App.css';
 
 function App() {
   const [goal, setGoal] = useState('');
@@ -27,16 +27,17 @@ function App() {
     const userMessage = { sender: 'user', text: goal };
     setMessages(prevMessages => [...prevMessages, userMessage]);
     setIsLoading(true);
+    const currentGoal = goal;
     setGoal('');
 
     try {
-      // The '/api' prefix is handled by our Nginx proxy
-      const response = await fetch('/api/investigate', {
+      // The proxy in package.json forwards requests to the backend API on port 8000
+      const response = await fetch('/investigate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ goal }),
+        body: JSON.stringify({ goal: currentGoal }),
       });
 
       const data = await response.json();
@@ -46,4 +47,60 @@ function App() {
       }
 
       // Add agent's confirmation message to the display
-      const agentResponse = { sender: 'agent', text: `${data.message}\n\nTo see the agent's progress, run:\n\
+      const agentResponse = {
+        sender: 'agent',
+        text: `${data.message}\n\nTo see the agent's progress, check the logs or wait for updates.`
+      };
+      setMessages(prevMessages => [...prevMessages, agentResponse]);
+
+    } catch (error) {
+      // Handle errors and display them to the user
+      const errorMessage = {
+        sender: 'agent',
+        text: `Error: ${error.message || 'Failed to start investigation. Please try again.'}`
+      };
+      setMessages(prevMessages => [...prevMessages, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>OATS SRE Co-Pilot</h1>
+      </header>
+
+      <div className="message-container">
+        {messages.map((msg, index) => (
+          <div
+            key={index}
+            className={`message ${msg.sender === 'user' ? 'user-message' : 'agent-message'}`}
+          >
+            <div className="sender-label">
+              {msg.sender === 'user' ? 'You' : 'Agent'}
+            </div>
+            <p>{msg.text}</p>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <form onSubmit={handleSubmit} className="input-form">
+        <input
+          type="text"
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          placeholder="Enter your investigation goal..."
+          disabled={isLoading}
+          className="goal-input"
+        />
+        <button type="submit" disabled={isLoading || !goal.trim()} className="submit-button">
+          {isLoading ? 'Processing...' : 'Submit'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export default App;
