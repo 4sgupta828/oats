@@ -17,12 +17,12 @@ spec:
       serviceAccountName: oats-job-creator # Important: Use the SA defined in rbac.yaml
       containers:
         - name: backend-api
-          image: oats-backend-api:v2
+          image: oats-backend-api:v3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
             - name: AGENT_IMAGE
-              value: "oats-agent:v3"
+              value: "oats-agent:v4"
             - name: API_KEY_SECRET_NAME
               value: "oats-api-keys"

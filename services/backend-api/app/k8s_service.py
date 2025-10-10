@@ -33,6 +33,14 @@ def create_agent_job(goal: str, namespace: str = "default"):
                 )
             ),
         ),
+        client.V1EnvVar(
+            name="ANTHROPIC_API_KEY",
+            value_from=client.V1EnvVarSource(
+                secret_key_ref=client.V1SecretKeySelector(
+                    name=API_KEY_SECRET_NAME, key="anthropic-api-key"
+                )
+            ),
+        ),
     ]
 
     # Define the container for the Job
