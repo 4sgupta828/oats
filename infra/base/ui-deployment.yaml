@@ -1,0 +1,23 @@
+# infra/base/ui-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oats-ui
+  labels:
+    app: oats-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oats-ui
+  template:
+    metadata:
+      labels:
+        app: oats-ui
+    spec:
+      containers:
+        - name: ui
+          # IMPORTANT: Replace this with your actual image path
+          image: your-repo/oats-ui:latest
+          ports:
+            - containerPort: 80

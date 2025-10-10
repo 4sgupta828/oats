@@ -5,6 +5,7 @@
 REGISTRY ?= your-registry
 AGENT_IMG := $(REGISTRY)/oats-agent
 BACKEND_IMG := $(REGISTRY)/oats-backend-api
+UI_IMG := $(REGISTRY)/oats-ui # New: UI image variable
 TAG ?= latest
 
 # --- Docker Build Commands ---
@@ -21,9 +22,15 @@ build-backend:
 	@echo "Building Backend API image: $(BACKEND_IMG):$(TAG)..."
 	@docker build -t $(BACKEND_IMG):$(TAG) -f ./services/backend-api/Dockerfile .
 
-# Build all container images
+# New: Target to build the UI image
+.PHONY: build-ui
+build-ui:
+	@echo "Building UI image: $(UI_IMG):$(TAG)..."
+	@docker build -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile .
+
+# Updated: 'build' now includes the UI
 .PHONY: build
-build: build-agent build-backend
+build: build-agent build-backend build-ui
 	@echo "All images built successfully."
 
 # --- Docker Push Commands (Optional, for remote clusters) ---
@@ -53,16 +60,23 @@ deploy:
 	@echo "Deploying OATS infrastructure to Kubernetes..."
 	@kubectl apply -f ./infra/base/secrets.yaml
 	@kubectl apply -f ./infra/base/rbac.yaml
-	@# Important: The deployment YAML needs to be updated with your image name.
-	@# This command uses 'sed' to substitute the placeholder on-the-fly.
+	
+	@echo "Deploying Backend API..."
 	@sed 's|your-repo/oats-backend-api:latest|$(BACKEND_IMG):$(TAG)|' ./infra/base/backend-api-deployment.yaml | kubectl apply -f -
-	@echo "Deployment complete. The backend API should be available shortly."
+	
+	@echo "Deploying UI..." # New: Deploying the UI service and deployment
+	@kubectl apply -f ./infra/base/ui-service.yaml
+	@sed 's|your-repo/oats-ui:latest|$(UI_IMG):$(TAG)|' ./infra/base/ui-deployment.yaml | kubectl apply -f -
+	
+	@echo "Deployment complete."
 
 # Delete all deployed resources
 .PHONY: clean
 clean:
 	@echo "Cleaning up OATS infrastructure from Kubernetes..."
-	@kubectl delete -f ./infra/base/backend-api-deployment.yaml --ignore-not-found
+	@kubectl delete deployment oats-backend-api --ignore-not-found
+	@kubectl delete deployment oats-ui --ignore-not-found # New: Clean up UI deployment
+	@kubectl delete service oats-ui-service --ignore-not-found # New: Clean up UI service
 	@kubectl delete -f ./infra/base/rbac.yaml --ignore-not-found
 	@kubectl delete -f ./infra/base/secrets.yaml --ignore-not-found
 	@echo "Cleanup complete."

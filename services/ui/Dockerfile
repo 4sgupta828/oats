@@ -1,22 +1,34 @@
-# Phase 3: Frontend UI for OATS Cloud
-# TODO: Implement React/Vue frontend
-FROM node:18-alpine
+# --- Stage 1: Build the React Application ---
+    FROM node:18-alpine AS builder
 
-WORKDIR /app
-
-# TODO: Add package.json and install dependencies
-# COPY package*.json ./
-# RUN npm install
-
-# TODO: Copy frontend code
-# COPY . .
-
-# TODO: Build frontend
-# RUN npm run build
-
-# Placeholder for now
-RUN echo "Frontend UI - To be implemented in Phase 3" > /app/README.txt
-
-EXPOSE 3000
-
-CMD ["sh", "-c", "cat /app/README.txt && tail -f /dev/null"]
+    # Set the working directory
+    WORKDIR /app
+    
+    # Copy package.json and package-lock.json to leverage Docker cache
+    COPY ./services/ui/package*.json ./
+    
+    # Install dependencies
+    RUN npm install
+    
+    # Copy the rest of the UI source code
+    COPY ./services/ui/ ./
+    
+    # Build the production-ready static files
+    RUN npm run build
+    
+    
+    # --- Stage 2: Serve the Application with Nginx ---
+    FROM nginx:1.25-alpine
+    
+    # Copy the built static files from the 'builder' stage
+    COPY --from=builder /app/build /usr/share/nginx/html
+    
+    # Copy our custom Nginx configuration
+    # We will create this file in the next step.
+    COPY ./services/ui/nginx.conf /etc/nginx/conf.d/default.conf
+    
+    # Expose port 80 for the web server
+    EXPOSE 80
+    
+    # Start Nginx
+    CMD ["nginx", "-g", "daemon off;"]
