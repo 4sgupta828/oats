@@ -5,10 +5,11 @@ import os
 from pathlib import Path
 from fastapi import FastAPI
 
-# Add agent directory to Python path
+# Add the agent's directory to the Python path to import its modules
 agent_path = Path(__file__).parent.parent.parent / "agent"
 sys.path.insert(0, str(agent_path))
 
+# Import the agent's core components
 from reactor.agent_controller import AgentController
 from reactor.models import ReActState, TranscriptEntry
 from registry.main import global_registry
@@ -19,73 +20,45 @@ sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 socket_app = socketio.ASGIApp(sio)
 app.mount("/", socket_app)
 
-# Global agent controller instance (shared across sessions)
 agent_controller = None
-
-# In-memory storage for active sessions
 active_sessions = {}
 
 # --- Startup Event ---
-
 @app.on_event("startup")
 async def startup_event():
-    """
-    Initialize the agent controller when the backend starts.
-    """
+    """Initializes the agent controller when the backend starts."""
     global agent_controller
     print("Initializing agent controller...")
-
-    # Load all available tools from the 'tools' directory
-    tools_path = Path(__file__).parent.parent.parent / "agent" / "tools"
+    tools_path = agent_path / "tools"
     global_registry.load_ufs_from_directory(str(tools_path))
-
-    # Create the agent controller
     agent_controller = AgentController(global_registry)
     print(f"Agent controller initialized with {len(global_registry.list_ufs())} tools")
 
 # --- WebSocket Event Handlers ---
-
 @sio.event
 async def connect(sid, environ):
-    """
-    Triggered when a new UI client connects.
-    Creates a new session with the embedded agent.
-    """
+    """Handles new UI client connections."""
     print(f"Client connected: {sid}")
-
     try:
-        # Initialize a new session with a fresh state
-        active_sessions[sid] = {
-            "state": None,  # Will be initialized when investigation starts
-            "agent_task": None
-        }
-
+        active_sessions[sid] = {"state": None, "agent_task": None}
         await sio.emit('agent_message', {'type': 'status', 'payload': 'Agent is ready. Please provide your goal.'}, to=sid)
-
     except Exception as e:
         print(f"Error during connect for {sid}: {e}")
         await sio.emit('agent_message', {'type': 'error', 'payload': f"Failed to initialize session: {e}"}, to=sid)
         await sio.disconnect(sid)
 
-
 @sio.on('start_investigation')
 async def handle_start_investigation(sid, data):
-    """
-    Receives a goal from the UI and starts the agent investigation.
-    """
+    """Receives a goal from the UI and starts the agent investigation."""
     goal = data.get('goal')
     print(f"Received goal from {sid}: {goal}")
 
     if sid in active_sessions and goal:
         try:
-            # Initialize agent state for this session
             state = ReActState(goal=goal)
             active_sessions[sid]["state"] = state
-
-            # Start the agent investigation in the background
             agent_task = asyncio.create_task(run_agent_investigation(sid, state))
             active_sessions[sid]["agent_task"] = agent_task
-
             await sio.emit('agent_message', {'type': 'status', 'payload': f"Investigation started for goal: {goal}"}, to=sid)
         except Exception as e:
             print(f"Error starting investigation for {sid}: {e}")
@@ -93,27 +66,19 @@ async def handle_start_investigation(sid, data):
 
 @sio.event
 async def disconnect(sid):
-    """
-    Triggered when a UI client disconnects.
-    Cleans up session resources.
-    """
+    """Cleans up when a UI client disconnects."""
     print(f"Client disconnected: {sid}")
     if sid in active_sessions:
         session_info = active_sessions.pop(sid)
-        # Cancel any running agent task
         if session_info.get("agent_task"):
             session_info["agent_task"].cancel()
         print(f"Cleaned up session for {sid}")
 
-# --- Background Task ---
-
+# --- Background Agent Task ---
 async def run_agent_investigation(sid, state):
-    """
-    Runs the agent investigation loop for a specific session.
-    """
+    """Runs the agent's ReAct loop for a specific session."""
     global agent_controller
     print(f"Starting agent investigation for session {sid}")
-
     try:
         available_tools = agent_controller.registry.list_ufs()
 
