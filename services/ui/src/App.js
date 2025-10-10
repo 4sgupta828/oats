@@ -18,7 +18,28 @@ const formatAgentPayload = (message) => {
         // Basic formatting for observation strings
         return `👀 Observation:\n${payload.substring(0, 1000)}${payload.length > 1000 ? '...' : ''}`;
       case 'finish':
-        return `✅ Investigation Complete: ${payload}`;
+        // Handle both old string format and new object format
+        if (typeof payload === 'string') {
+          return `✅ Investigation Complete: ${payload}`;
+        } else {
+          // New format with comprehensive completion data
+          const lines = [
+            `✅ Investigation Complete!`,
+            ``,
+            `📊 Summary:`,
+            payload.execution_summary || payload.completion_reason,
+            ``,
+            `📈 Turns Completed: ${payload.turns_completed}`,
+          ];
+
+          if (payload.final_results_file) {
+            lines.push(``);
+            lines.push(`📁 Full results saved to:`);
+            lines.push(payload.final_results_file);
+          }
+
+          return lines.join('\n');
+        }
       case 'status':
         return `ℹ️ Status: ${payload}`;
       case 'error':
@@ -62,9 +83,10 @@ function App() {
       console.log('Received message from agent:', message);
       const formattedText = formatAgentPayload(message);
       setMessages(prevMessages => [...prevMessages, { sender: 'agent', text: formattedText }]);
-      
+
       // If the message indicates completion, allow new investigations
-      if (typeof message === 'string' && message.includes('"type": "finish"')) {
+      const data = typeof message === 'string' ? JSON.parse(message) : message;
+      if (data.type === 'finish') {
         setIsInvestigating(false);
       }
     });

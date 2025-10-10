@@ -134,7 +134,23 @@ async def run_agent_investigation(sid, state):
                 if parsed_response.is_finish:
                     state.is_complete = True
                     state.completion_reason = parsed_response.act.params.get("reason", "Goal completed")
-                    await sio.emit('agent_message', {'type': 'finish', 'payload': state.completion_reason}, to=sid)
+
+                    # Save final results to file
+                    final_results_file = agent_controller._save_final_results(state, state.completion_reason)
+
+                    # Generate execution summary
+                    execution_summary = agent_controller._generate_execution_summary(state)
+
+                    # Send comprehensive completion message
+                    completion_payload = {
+                        'completion_reason': state.completion_reason,
+                        'execution_summary': execution_summary,
+                        'final_results_file': final_results_file,
+                        'turns_completed': state.turn_count,
+                        'goal': state.goal
+                    }
+
+                    await sio.emit('agent_message', {'type': 'finish', 'payload': completion_payload}, to=sid)
                     break
 
                 # 2. ACT: Execute the tool
