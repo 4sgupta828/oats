@@ -108,3 +108,35 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Add these styles to the end of your existing App.css file */
+
+.App-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.connection-status {
+  font-size: 0.8rem;
+  color: #ff4d4d; /* Red for disconnected */
+}
+
+.connection-status.connected {
+  color: #4caf50; /* Green for connected */
+}
+
+.spinner {
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-left-color: #007acc;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  align-self: flex-start;
+  margin-left: 15px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
