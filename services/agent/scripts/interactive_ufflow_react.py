@@ -20,9 +20,10 @@ from typing import Dict, Any
 from datetime import datetime
 import shutil
 
-# Add UFFLOW to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
+# Add UFFLOW to path - insert at beginning to prioritize local modules
+agent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, agent_dir)
+sys.path.insert(0, os.path.join(agent_dir, 'tools'))
 
 # Import UFFLOW components
 from core.models import Goal
@@ -65,8 +66,9 @@ class InteractiveUFFLOWReact:
         print(f"{Colors.CYAN}🔧 Setting up UFFLOW React environment...{Colors.RESET}")
 
         try:
-            # Load tools
-            global_registry.load_ufs_from_directory('./tools')
+            # Load tools - use absolute path to agent's tools directory
+            tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
+            global_registry.load_ufs_from_directory(tools_dir)
             self.registry = global_registry
 
             # Create ReAct agent controller

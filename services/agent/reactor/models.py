@@ -151,11 +151,11 @@ class ReActState(BaseModel):
     end_time: Optional[datetime] = None
 
     @model_validator(mode='after')
-    def initialize_state_with_goal(cls, values):
+    def initialize_state_with_goal(self):
         """Initialize state with goal if not provided."""
-        if values.state is None:
-            values.state = State(goal=values.goal)
-        return values
+        if self.state is None:
+            self.state = State(goal=self.goal)
+        return self
 
     def reset_for_new_goal(self, new_goal: str) -> None:
         """Reset state for a completely new goal, clearing all history."""
