@@ -20,16 +20,16 @@ const formatAgentPayload = (message) => {
       case 'finish':
         // Handle both old string format and new object format
         if (typeof payload === 'string') {
-          return `✅ Investigation Complete: ${payload}`;
+          return `✅ Analysis Complete: ${payload}`;
         } else {
           // New format with comprehensive completion data
           const lines = [
-            `✅ Investigation Complete!`,
+            `✅ OATS Analysis Complete!`,
             ``,
             `📊 Summary:`,
             payload.execution_summary || payload.completion_reason,
             ``,
-            `📈 Turns Completed: ${payload.turns_completed}`,
+            `📈 Cycles Completed: ${payload.turns_completed}`,
           ];
 
           if (payload.final_results_file) {
@@ -107,7 +107,7 @@ function App() {
     if (!goal.trim() || !isConnected || isInvestigating) return;
 
     const userMessage = { sender: 'user', text: goal };
-    setMessages(prevMessages => [userMessage]); // Clear previous messages for a new investigation
+    setMessages(prevMessages => [userMessage]); // Clear previous messages for a new analysis
     setIsInvestigating(true);
 
     // Send the goal to the backend via WebSocket
@@ -118,7 +118,8 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>OATS SRE Co-Pilot</h1>
+        <h1>OATS Framework</h1>
+        <p className="subtitle">Observe · Adapt · TakeAction · Synthesize</p>
         <div className={`connection-status ${isConnected ? 'connected' : ''}`}>
           {isConnected ? '● Connected' : '○ Disconnected'}
         </div>
@@ -141,11 +142,11 @@ function App() {
             type="text"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
-            placeholder={isInvestigating ? "Investigation in progress..." : "e.g., Diagnose high latency in the payment-service"}
+            placeholder={isInvestigating ? "OATS Framework in progress..." : "Describe your infrastructure issue (e.g., API returning 504 errors)"}
             disabled={!isConnected || isInvestigating}
           />
           <button type="submit" disabled={!isConnected || isInvestigating}>
-            {isInvestigating ? 'Running...' : 'Start Investigation'}
+            {isInvestigating ? 'Analyzing...' : 'Start Analysis'}
           </button>
         </form>
       </footer>
