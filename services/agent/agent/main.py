@@ -1,5 +1,9 @@
 import os
 import sys
+
+# Add parent directory to path to import sibling modules
+sys.path.insert(0, '/app')
+
 from reactor.agent_controller import AgentController
 from registry.main import global_registry
 

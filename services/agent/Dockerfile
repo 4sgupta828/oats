@@ -9,7 +9,7 @@ COPY ./services/agent/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the agent's source code into the container
-COPY ./services/agent/agent/ .
+COPY ./services/agent/ .
 
 # Define the command to run when the container starts
-CMD ["python", "main.py"]
+CMD ["python", "agent/main.py"]
