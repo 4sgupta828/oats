@@ -18,6 +18,7 @@ spec:
       containers:
         - name: ui
           # IMPORTANT: Replace this with your actual image path
-          image: your-repo/oats-ui:latest
+          image: oats-ui:latest
+          imagePullPolicy: IfNotPresent  # Use local Docker image
           ports:
             - containerPort: 80

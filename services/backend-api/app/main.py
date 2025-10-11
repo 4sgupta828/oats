@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 # Add the agent's directory to the Python path to import its modules
-agent_path = Path(__file__).parent.parent.parent / "agent"
+agent_path = Path(__file__).parent.parent / "agent"
 sys.path.insert(0, str(agent_path))
 
 # Import the agent's core components

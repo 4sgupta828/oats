@@ -167,11 +167,39 @@ docker run \
 
 See [README-CLOUD.md](./README-CLOUD.md) for complete deployment guide.
 
+**Local Kubernetes (Docker Desktop):**
+
 ```bash
-# Quick start
-kubectl apply -f infra/base/
-curl -X POST http://backend-api/api/v1/jobs \
-  -d '{"goal": "Diagnose API 504 errors", "max_turns": 15}'
+# 1. Build images
+REGISTRY=oats make build
+
+# 2. Deploy to k8s
+REGISTRY=oats make deploy
+
+# 3. Access the services
+# UI:          http://localhost:8080
+# Backend API: http://localhost:8000/docs
+
+# Refresh pods with latest code (rebuild + restart)
+make refresh              # Refresh all services
+make refresh-backend      # Refresh backend only
+make refresh-ui          # Refresh UI only
+
+# Quick restart (without rebuilding)
+make restart             # Restart all pods
+./scripts/restart-pods.sh backend  # Restart backend only
+```
+
+**Production deployment:**
+```bash
+# Set your registry
+export REGISTRY=your-registry
+
+# Build and push
+make build && make push
+
+# Deploy
+make deploy
 ```
 
 ---

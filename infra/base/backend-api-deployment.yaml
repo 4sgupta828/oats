@@ -17,7 +17,7 @@ spec:
       serviceAccountName: oats-job-creator # Note: Can be simplified if not creating pods anymore
       containers:
         - name: backend-api
-          image: oats-backend-api:v6
+          image: oats-backend-api:v99
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

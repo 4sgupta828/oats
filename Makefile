@@ -5,7 +5,7 @@
 REGISTRY ?= your-registry
 AGENT_IMG := $(REGISTRY)/oats-agent
 BACKEND_IMG := $(REGISTRY)/oats-backend-api
-UI_IMG := $(REGISTRY)/oats-ui # New: UI image variable
+UI_IMG := $(REGISTRY)/oats-ui# New: UI image variable
 TAG ?= latest
 
 # --- Docker Build Commands ---
@@ -60,14 +60,19 @@ deploy:
 	@echo "Deploying OATS infrastructure to Kubernetes..."
 	@kubectl apply -f ./infra/base/secrets.yaml
 	@kubectl apply -f ./infra/base/rbac.yaml
-	
+	@kubectl apply -f ./infra/base/backend-api-service.yaml
+
 	@echo "Deploying Backend API..."
-	@sed 's|your-repo/oats-backend-api:latest|$(BACKEND_IMG):$(TAG)|' ./infra/base/backend-api-deployment.yaml | kubectl apply -f -
-	
-	@echo "Deploying UI..." # New: Deploying the UI service and deployment
+	@sed -e 's|image: .*oats-backend-api.*|image: $(BACKEND_IMG):$(TAG)|' \
+	     -e 's|imagePullPolicy:.*|imagePullPolicy: Never|' \
+	     ./infra/base/backend-api-deployment.yaml | kubectl apply -f -
+
+	@echo "Deploying UI..."
 	@kubectl apply -f ./infra/base/ui-service.yaml
-	@sed 's|your-repo/oats-ui:latest|$(UI_IMG):$(TAG)|' ./infra/base/ui-deployment.yaml | kubectl apply -f -
-	
+	@sed -e 's|image: .*oats-ui.*|image: $(UI_IMG):$(TAG)|' \
+	     -e 's|imagePullPolicy:.*|imagePullPolicy: Never|' \
+	     ./infra/base/ui-deployment.yaml | kubectl apply -f -
+
 	@echo "Deployment complete."
 
 # Delete all deployed resources
@@ -83,6 +88,26 @@ clean:
 
 # --- Utility Commands ---
 
+# Refresh k8s pods with latest code (rebuild images + restart)
+.PHONY: refresh
+refresh:
+	@./scripts/refresh-k8s.sh all
+
+# Refresh only backend
+.PHONY: refresh-backend
+refresh-backend:
+	@./scripts/refresh-k8s.sh backend
+
+# Refresh only UI
+.PHONY: refresh-ui
+refresh-ui:
+	@./scripts/refresh-k8s.sh ui
+
+# Quick restart pods without rebuilding
+.PHONY: restart
+restart:
+	@./scripts/restart-pods.sh all
+
 .PHONY: help
 help:
 	@echo "Usage: make [target]"
@@ -92,4 +117,8 @@ help:
 	@echo "  deploy         Deploy all resources to the current kubectl context"
 	@echo "  clean          Remove all deployed resources from Kubernetes"
 	@echo "  push           Push all images to the configured registry"
+	@echo "  refresh        Rebuild images and refresh all pods"
+	@echo "  refresh-backend Rebuild and refresh only backend"
+	@echo "  refresh-ui     Rebuild and refresh only UI"
+	@echo "  restart        Restart pods without rebuilding"
 	@echo "  help           Show this help message"

@@ -5,11 +5,10 @@ metadata:
   labels:
     app: oats-backend-api
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: oats-backend-api
   ports:
     - protocol: TCP
-      port: 8000
+      port: 8000     # External port for accessing the backend API
       targetPort: 8000
-      nodePort: 30080
