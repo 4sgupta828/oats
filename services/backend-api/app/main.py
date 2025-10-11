@@ -16,8 +16,13 @@ from registry.main import global_registry
 
 # --- Setup ---
 app = FastAPI(title="OATS SRE Co-Pilot API")
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
-socket_app = socketio.ASGIApp(sio)
+sio = socketio.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins="*",
+    logger=True,
+    engineio_logger=True
+)
+socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
 app.mount("/", socket_app)
 
 agent_controller = None
