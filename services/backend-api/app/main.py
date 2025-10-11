@@ -25,8 +25,8 @@ sio = socketio.AsyncServer(
     ping_timeout=60,
     max_http_buffer_size=10 * 1024 * 1024  # 10MB for large messages
 )
-socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
-app.mount("/", socket_app)
+# Wrap Socket.IO and FastAPI together - Socket.IO handles /socket.io/*, FastAPI handles rest
+socket_app = socketio.ASGIApp(sio, other_asgi_app=app)
 
 agent_controller = None
 active_sessions = {}

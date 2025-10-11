@@ -53,7 +53,6 @@ function App() {
 
   useEffect(() => {
     const socket = io('http://localhost:8000', {
-      path: '/socket.io/',
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
