@@ -1,37 +1,31 @@
-# NOTE: With the agent now embedded in the backend service,
-# these extensive RBAC permissions are no longer needed.
-# The ServiceAccount is kept for compatibility, but permissions
-# can be reduced or removed in the future.
+# NOTE: The agent is now embedded in the backend service.
+# These RBAC permissions provide minimal access for the backend API.
+# Extended permissions for pod/job creation have been removed.
 
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: oats-job-creator
+  name: oats-backend
 ---
-# Legacy permissions - can be removed if agent pod creation is fully deprecated
+# Minimal permissions for backend API service
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: oats-job-manager-role
+  name: oats-backend-role
 rules:
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["create", "get", "list", "delete", "watch"]
+  # Read access to pods for monitoring/status
   - apiGroups: [""]
-    resources: ["pods", "pods/status", "pods/log"]
-    verbs: ["create", "get", "list", "delete", "watch"]
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["create", "get", "list", "delete"]
+    resources: ["pods", "pods/status"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: oats-job-manager-binding
+  name: oats-backend-binding
 subjects:
   - kind: ServiceAccount
-    name: oats-job-creator
+    name: oats-backend
 roleRef:
   kind: Role
-  name: oats-job-manager-role
+  name: oats-backend-role
   apiGroup: rbac.authorization.k8s.io

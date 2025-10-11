@@ -14,7 +14,7 @@ spec:
       labels:
         app: oats-backend-api
     spec:
-      serviceAccountName: oats-job-creator # Note: Can be simplified if not creating pods anymore
+      serviceAccountName: oats-backend
       containers:
         - name: backend-api
           image: oats-backend-api:v99

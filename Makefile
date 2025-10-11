@@ -3,43 +3,30 @@
 # --- Configuration ---
 # Replace with your container registry (e.g., docker.io/your-username, gcr.io/your-project)
 REGISTRY ?= your-registry
-AGENT_IMG := $(REGISTRY)/oats-agent
 BACKEND_IMG := $(REGISTRY)/oats-backend-api
-UI_IMG := $(REGISTRY)/oats-ui# New: UI image variable
+UI_IMG := $(REGISTRY)/oats-ui
 TAG ?= latest
 
 # --- Docker Build Commands ---
 
-# Build the SRE agent container image
-.PHONY: build-agent
-build-agent:
-	@echo "Building OATS Agent image: $(AGENT_IMG):$(TAG)..."
-	@docker build -t $(AGENT_IMG):$(TAG) -f ./services/agent/Dockerfile .
-
-# Build the backend API container image
+# Build the backend API container image (includes embedded agent)
 .PHONY: build-backend
 build-backend:
 	@echo "Building Backend API image: $(BACKEND_IMG):$(TAG)..."
 	@docker build -t $(BACKEND_IMG):$(TAG) -f ./services/backend-api/Dockerfile .
 
-# New: Target to build the UI image
+# Build the UI image
 .PHONY: build-ui
 build-ui:
 	@echo "Building UI image: $(UI_IMG):$(TAG)..."
 	@docker build -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile .
 
-# Updated: 'build' now includes the UI
+# Build all images
 .PHONY: build
-build: build-agent build-backend build-ui
+build: build-backend build-ui
 	@echo "All images built successfully."
 
 # --- Docker Push Commands (Optional, for remote clusters) ---
-
-# Push the agent image to the registry
-.PHONY: push-agent
-push-agent:
-	@echo "Pushing $(AGENT_IMG):$(TAG)..."
-	@docker push $(AGENT_IMG):$(TAG)
 
 # Push the backend image to the registry
 .PHONY: push-backend
@@ -47,9 +34,15 @@ push-backend:
 	@echo "Pushing $(BACKEND_IMG):$(TAG)..."
 	@docker push $(BACKEND_IMG):$(TAG)
 
+# Push the UI image to the registry
+.PHONY: push-ui
+push-ui:
+	@echo "Pushing $(UI_IMG):$(TAG)..."
+	@docker push $(UI_IMG):$(TAG)
+
 # Push all images
 .PHONY: push
-push: push-agent push-backend
+push: push-backend push-ui
 	@echo "All images pushed successfully."
 
 # --- Kubernetes Deployment Commands ---
