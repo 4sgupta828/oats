@@ -181,6 +181,69 @@
   margin-top: 8px;
 }
 
+/* File Operation Styling */
+.file-operation-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background-color: rgba(16, 185, 129, 0.1);
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-icon {
+  font-size: 1.1rem;
+}
+
+.filename {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #86efac;
+}
+
+.edit-range {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8rem;
+  color: #93c5fd;
+  padding: 4px 8px;
+  background-color: rgba(59, 130, 246, 0.15);
+  border-radius: 3px;
+}
+
+.code-display {
+  margin-top: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+}
+
+.code-header {
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #86efac;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.params-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #93c5fd;
+  margin-bottom: 6px;
+  margin-top: 12px;
+}
+
 /* Observation Section */
 .observation-section {
   background-color: #2a2d3a;

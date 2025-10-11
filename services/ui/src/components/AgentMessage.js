@@ -15,31 +15,146 @@ const AgentMessage = ({ message }) => {
     </div>
   );
 
-  const renderAction = () => (
-    <div className="agent-section action-section">
-      <div className="section-header">
-        <span className="section-icon">▶️</span>
-        <span className="section-title">Action</span>
-      </div>
-      <div className="section-content">
-        <div className="action-tool">{message.tool}</div>
-        <div className="action-params">
-          <SyntaxHighlighter
-            language="json"
-            style={vscDarkPlus}
-            customStyle={{
-              margin: 0,
-              padding: '8px 12px',
-              fontSize: '0.85rem',
-              borderRadius: '4px'
-            }}
-          >
-            {JSON.stringify(message.params, null, 2)}
-          </SyntaxHighlighter>
+  // Helper function to detect file extension and get appropriate language
+  const getLanguageFromFilename = (filename) => {
+    if (!filename) return 'text';
+    const ext = filename.split('.').pop().toLowerCase();
+    const languageMap = {
+      'js': 'javascript',
+      'jsx': 'jsx',
+      'ts': 'typescript',
+      'tsx': 'tsx',
+      'py': 'python',
+      'java': 'java',
+      'cpp': 'cpp',
+      'c': 'c',
+      'cs': 'csharp',
+      'rb': 'ruby',
+      'go': 'go',
+      'rs': 'rust',
+      'php': 'php',
+      'swift': 'swift',
+      'kt': 'kotlin',
+      'scala': 'scala',
+      'sh': 'bash',
+      'bash': 'bash',
+      'zsh': 'bash',
+      'sql': 'sql',
+      'html': 'html',
+      'css': 'css',
+      'scss': 'scss',
+      'json': 'json',
+      'xml': 'xml',
+      'yaml': 'yaml',
+      'yml': 'yaml',
+      'md': 'markdown',
+      'txt': 'text'
+    };
+    return languageMap[ext] || 'text';
+  };
+
+  // Helper function to check if action is a file operation
+  const isFileOperation = (tool) => {
+    return ['create_file', 'edit_file', 'write_file'].includes(tool);
+  };
+
+  const renderAction = () => {
+    const isFileOp = isFileOperation(message.tool);
+    const filename = message.params?.filename;
+    const codeContent = message.params?.content || message.params?.new_content;
+
+    // Create a params object without the code content for cleaner display
+    const displayParams = { ...message.params };
+    if (isFileOp && codeContent) {
+      delete displayParams.content;
+      delete displayParams.new_content;
+    }
+
+    return (
+      <div className="agent-section action-section">
+        <div className="section-header">
+          <span className="section-icon">▶️</span>
+          <span className="section-title">Action</span>
+        </div>
+        <div className="section-content">
+          <div className="action-tool">{message.tool}</div>
+
+          {isFileOp && codeContent ? (
+            <>
+              {/* Show file metadata */}
+              <div className="file-operation-meta">
+                <div className="file-info">
+                  <span className="file-icon">📄</span>
+                  <span className="filename">{filename}</span>
+                </div>
+                {message.params.start_line && (
+                  <div className="edit-range">
+                    Lines {message.params.start_line}-{message.params.end_line}
+                  </div>
+                )}
+              </div>
+
+              {/* Show the code with syntax highlighting */}
+              <div className="code-display">
+                <div className="code-header">
+                  <span>Code Content</span>
+                </div>
+                <SyntaxHighlighter
+                  language={getLanguageFromFilename(filename)}
+                  style={vscDarkPlus}
+                  customStyle={{
+                    margin: 0,
+                    padding: '12px',
+                    fontSize: '0.85rem',
+                    borderRadius: '0 0 4px 4px',
+                    maxHeight: '400px',
+                    overflow: 'auto'
+                  }}
+                  showLineNumbers={true}
+                >
+                  {codeContent}
+                </SyntaxHighlighter>
+              </div>
+
+              {/* Show other parameters if any */}
+              {Object.keys(displayParams).length > 1 && (
+                <div className="action-params">
+                  <div className="params-label">Other Parameters:</div>
+                  <SyntaxHighlighter
+                    language="json"
+                    style={vscDarkPlus}
+                    customStyle={{
+                      margin: 0,
+                      padding: '8px 12px',
+                      fontSize: '0.85rem',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    {JSON.stringify(displayParams, null, 2)}
+                  </SyntaxHighlighter>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="action-params">
+              <SyntaxHighlighter
+                language="json"
+                style={vscDarkPlus}
+                customStyle={{
+                  margin: 0,
+                  padding: '8px 12px',
+                  fontSize: '0.85rem',
+                  borderRadius: '4px'
+                }}
+              >
+                {JSON.stringify(message.params, null, 2)}
+              </SyntaxHighlighter>
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderObservation = () => {
     const content = message.content || '';
