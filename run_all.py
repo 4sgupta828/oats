@@ -42,8 +42,13 @@ def main():
         **os.environ,
         'PYTHONPATH': f"{project_root}/services/agent:{project_root}/services/backend-api"
     }
+    # Note: --reload is disabled to prevent disconnections when agent creates files
+    # To enable hot-reload during development, add '--reload' flag back
     backend_process = subprocess.Popen(
-        [venv_python, '-m', 'uvicorn', 'app.main:socket_app', '--host', '0.0.0.0', '--port', '8000', '--reload'],
+        [
+            venv_python, '-m', 'uvicorn', 'app.main:socket_app',
+            '--host', '0.0.0.0', '--port', '8000'
+        ],
         cwd=os.path.join(project_root, 'services/backend-api'),
         env=backend_env
     )
