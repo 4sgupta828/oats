@@ -110,6 +110,245 @@
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
 }
 
+/* --- Agent Message Sections --- */
+.agent-section {
+  margin-bottom: 16px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.agent-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.section-icon {
+  font-size: 1.1rem;
+}
+
+.section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+.section-content {
+  padding: 12px 14px;
+  line-height: 1.6;
+}
+
+/* Thought Section */
+.thought-section {
+  background-color: #2a2d3a;
+  border-left: 3px solid #7c3aed;
+}
+
+.thought-section .section-header {
+  background-color: #1f2233;
+  color: #c4b5fd;
+}
+
+/* Action Section */
+.action-section {
+  background-color: #2d3a2a;
+  border-left: 3px solid #10b981;
+}
+
+.action-section .section-header {
+  background-color: #1f2a1f;
+  color: #86efac;
+}
+
+.action-tool {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #86efac;
+  margin-bottom: 8px;
+}
+
+.action-params {
+  margin-top: 8px;
+}
+
+/* Observation Section */
+.observation-section {
+  background-color: #2a2d3a;
+  border-left: 3px solid #3b82f6;
+}
+
+.observation-section .section-header {
+  background-color: #1f2233;
+  color: #93c5fd;
+}
+
+.observation-content {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.85rem;
+  background-color: var(--code-background);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Command Output Blocks */
+.command-output {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.output-block {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.stdout-block {
+  background-color: #1a2a1a;
+  border: 1px solid #2a4a2a;
+}
+
+.stderr-block {
+  background-color: #2a1a1a;
+  border: 1px solid #4a2a2a;
+}
+
+.output-label {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  background-color: rgba(0, 0, 0, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stdout-block .output-label {
+  color: #86efac;
+}
+
+.stderr-block .output-label {
+  color: #fca5a5;
+}
+
+.output-content {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.85rem;
+  padding: 12px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.expand-button {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--background-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  width: 100%;
+}
+
+.expand-button:hover {
+  background-color: #404040;
+}
+
+/* Status Section */
+.status-section {
+  background-color: #2a2d3a;
+  border-left: 3px solid #6366f1;
+}
+
+.status-section .section-header {
+  background-color: #1f2233;
+  color: #a5b4fc;
+}
+
+/* Error Section */
+.error-section {
+  background-color: #3a2a2a;
+  border-left: 3px solid #ef4444;
+}
+
+.error-section .section-header {
+  background-color: #2a1f1f;
+  color: #fca5a5;
+}
+
+.error-section .section-content {
+  color: #fca5a5;
+}
+
+/* Finish Section */
+.finish-section {
+  background-color: #2a3a2a;
+  border-left: 3px solid #10b981;
+}
+
+.finish-section .section-header {
+  background-color: #1f2a1f;
+  color: #86efac;
+}
+
+.finish-summary {
+  margin-bottom: 12px;
+}
+
+.finish-label {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #86efac;
+}
+
+.finish-stat,
+.finish-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  background-color: rgba(16, 185, 129, 0.1);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.stat-icon {
+  font-size: 1rem;
+}
+
+.finish-file code {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.85rem;
+  background-color: var(--code-background);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* User Message Content */
+.user-message-content {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
 /* --- Input Form Footer --- */
 .input-form-container {
   border-top: 1px solid var(--border-color);

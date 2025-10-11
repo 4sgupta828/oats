@@ -1,38 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import './App.css';
+import AgentMessage from './components/AgentMessage';
 
 const formatAgentPayload = (message) => {
   try {
     const data = typeof message === 'string' ? JSON.parse(message) : message;
     const { type, payload } = data;
 
+    // Return structured data instead of plain text
     switch (type) {
       case 'thought':
-        return `🧠 Thought: ${payload}`;
+        return { type: 'thought', content: payload };
       case 'action':
-        return `▶️ Action: ${payload.tool} with params ${JSON.stringify(payload.params)}`;
+        return {
+          type: 'action',
+          tool: payload.tool,
+          params: payload.params
+        };
       case 'observation':
-        return `👀 Observation:\n${payload.substring(0, 1000)}${payload.length > 1000 ? '...' : ''}`;
+        return {
+          type: 'observation',
+          content: payload,
+          isLarge: payload.length > 1000
+        };
       case 'finish':
-        const lines = [
-          `✅ OATS Analysis Complete!`, ``, `📊 Summary:`,
-          payload.execution_summary || payload.completion_reason, ``,
-          `📈 Cycles Completed: ${payload.turns_completed}`,
-        ];
-        if (payload.final_results_file) {
-          lines.push(``, `📁 Full results saved to:`, payload.final_results_file);
-        }
-        return lines.join('\n');
+        return {
+          type: 'finish',
+          summary: payload.execution_summary || payload.completion_reason,
+          turnsCompleted: payload.turns_completed,
+          resultsFile: payload.final_results_file
+        };
       case 'status':
-        return `ℹ️ Status: ${payload}`;
+        return { type: 'status', content: payload };
       case 'error':
-        return `🔥 Error: ${payload}`;
+        return { type: 'error', content: payload };
       default:
-        return JSON.stringify(payload, null, 2);
+        return { type: 'unknown', content: JSON.stringify(payload, null, 2) };
     }
   } catch (error) {
-    return `ℹ️ Status: ${message}`;
+    return { type: 'status', content: message };
   }
 };
 
@@ -45,18 +52,76 @@ function App() {
   const socketRef = useRef(null);
 
   useEffect(() => {
-    const socket = io();
+    const socket = io('http://localhost:8000', {
+      path: '/socket.io/',
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      transports: ['polling', 'websocket']
+    });
+
     socketRef.current = socket;
-    socket.on('connect', () => setIsConnected(true));
-    socket.on('disconnect', () => setIsConnected(false));
+
+    socket.on('connect', () => {
+      console.log('Connected to backend');
+      setIsConnected(true);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('Disconnected from backend:', reason);
+      setIsConnected(false);
+
+      // Show error message about disconnection
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: {
+          type: 'error',
+          content: `Connection lost: ${reason}. Attempting to reconnect...`
+        }
+      }]);
+    });
+
+    socket.on('reconnect', (attemptNumber) => {
+      console.log('Reconnected to backend after', attemptNumber, 'attempts');
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: {
+          type: 'status',
+          content: 'Connection restored!'
+        }
+      }]);
+    });
+
+    socket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('Reconnection attempt', attemptNumber);
+    });
+
+    socket.on('reconnect_failed', () => {
+      console.error('Failed to reconnect to backend');
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: {
+          type: 'error',
+          content: 'Failed to reconnect to backend. Please refresh the page.'
+        }
+      }]);
+      setIsInvestigating(false);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Connection error:', error);
+    });
+
     socket.on('agent_message', (message) => {
-      const formattedText = formatAgentPayload(message);
-      setMessages(prev => [...prev, { sender: 'agent', text: formattedText }]);
-      const data = typeof message === 'string' ? JSON.parse(message) : message;
-      if (data.type === 'finish') {
+      const formattedData = formatAgentPayload(message);
+      setMessages(prev => [...prev, { sender: 'agent', data: formattedData }]);
+      if (formattedData.type === 'finish') {
         setIsInvestigating(false);
       }
     });
+
     return () => socket.disconnect();
   }, []);
 
@@ -88,7 +153,11 @@ function App() {
         {messages.map((msg, index) => (
           <div key={index} className={`message ${msg.sender === 'user' ? 'user-message' : 'agent-message'}`}>
             <div className="sender-label">{msg.sender === 'user' ? 'You' : 'Agent'}</div>
-            {msg.text.split('\n').map((line, i) => <p key={i}>{line}</p>)}
+            {msg.sender === 'user' ? (
+              <div className="user-message-content">{msg.text}</div>
+            ) : (
+              <AgentMessage message={msg.data} />
+            )}
           </div>
         ))}
         {isInvestigating && messages.length > 0 && messages[messages.length - 1]?.sender === 'agent' && (

@@ -20,7 +20,10 @@ sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
     logger=True,
-    engineio_logger=True
+    engineio_logger=True,
+    ping_interval=25,
+    ping_timeout=60,
+    max_http_buffer_size=10 * 1024 * 1024  # 10MB for large messages
 )
 socket_app = socketio.ASGIApp(sio, socketio_path="socket.io")
 app.mount("/", socket_app)
@@ -89,6 +92,11 @@ async def run_agent_investigation(sid, state):
 
         # Main ReAct Loop
         while not state.is_complete and state.turn_count < state.max_turns:
+            # Check if session still exists (client disconnected)
+            if sid not in active_sessions:
+                print(f"Session {sid} no longer exists, stopping investigation")
+                break
+
             try:
                 # 1. REASON: Get the next step from the LLM
                 parsed_response = agent_controller._parse_llm_response(
@@ -98,7 +106,10 @@ async def run_agent_investigation(sid, state):
                 )
 
                 # Send thought process back to the UI
-                await sio.emit('agent_message', {'type': 'thought', 'payload': parsed_response.strategize.reasoning}, to=sid)
+                try:
+                    await sio.emit('agent_message', {'type': 'thought', 'payload': parsed_response.strategize.reasoning}, to=sid)
+                except Exception as emit_error:
+                    print(f"Failed to send thought to {sid}: {emit_error}")
 
                 # Check for finish action
                 if parsed_response.is_finish:
@@ -120,16 +131,26 @@ async def run_agent_investigation(sid, state):
                         'goal': state.goal
                     }
 
-                    await sio.emit('agent_message', {'type': 'finish', 'payload': completion_payload}, to=sid)
+                    try:
+                        await sio.emit('agent_message', {'type': 'finish', 'payload': completion_payload}, to=sid)
+                    except Exception as emit_error:
+                        print(f"Failed to send finish message to {sid}: {emit_error}")
                     break
 
                 # 2. ACT: Execute the tool
                 action_payload = parsed_response.act.dict()
-                await sio.emit('agent_message', {'type': 'action', 'payload': action_payload}, to=sid)
+                try:
+                    await sio.emit('agent_message', {'type': 'action', 'payload': action_payload}, to=sid)
+                except Exception as emit_error:
+                    print(f"Failed to send action to {sid}: {emit_error}")
+
                 observation = agent_controller.tool_executor.execute_action(action_payload)
 
                 # Send observation back to the UI
-                await sio.emit('agent_message', {'type': 'observation', 'payload': observation}, to=sid)
+                try:
+                    await sio.emit('agent_message', {'type': 'observation', 'payload': observation}, to=sid)
+                except Exception as emit_error:
+                    print(f"Failed to send observation to {sid}: {emit_error}")
 
                 # 3. OBSERVE & UPDATE: Update the agent's state
                 entry = TranscriptEntry(
