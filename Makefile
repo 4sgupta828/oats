@@ -47,10 +47,10 @@ push: push-backend push-ui
 
 # --- Kubernetes Deployment Commands ---
 
-# Apply all base infrastructure manifests
+# Apply all base infrastructure manifests (local k8s - uses local images)
 .PHONY: deploy
 deploy:
-	@echo "Deploying OATS infrastructure to Kubernetes..."
+	@echo "Deploying OATS infrastructure to Kubernetes (local mode)..."
 	@kubectl apply -f ./infra/base/secrets.yaml
 	@kubectl apply -f ./infra/base/rbac.yaml
 	@kubectl apply -f ./infra/base/backend-api-service.yaml
@@ -67,6 +67,27 @@ deploy:
 	     ./infra/base/ui-deployment.yaml | kubectl apply -f -
 
 	@echo "Deployment complete."
+
+# Deploy to cloud k8s (pulls from registry)
+.PHONY: deploy-cloud
+deploy-cloud:
+	@echo "Deploying OATS infrastructure to Cloud Kubernetes..."
+	@kubectl apply -f ./infra/base/rbac.yaml
+	@kubectl apply -f ./infra/base/backend-api-service.yaml
+
+	@echo "Deploying Backend API..."
+	@sed -e 's|image: .*oats-backend-api.*|image: $(BACKEND_IMG):$(TAG)|' \
+	     -e 's|imagePullPolicy:.*|imagePullPolicy: Always|' \
+	     ./infra/base/backend-api-deployment.yaml | kubectl apply -f -
+
+	@echo "Deploying UI..."
+	@kubectl apply -f ./infra/base/ui-service.yaml
+	@sed -e 's|image: .*oats-ui.*|image: $(UI_IMG):$(TAG)|' \
+	     -e 's|imagePullPolicy:.*|imagePullPolicy: Always|' \
+	     ./infra/base/ui-deployment.yaml | kubectl apply -f -
+
+	@echo "Cloud deployment complete."
+	@echo "Note: Secrets must be created separately with kubectl create secret"
 
 # Delete all deployed resources
 .PHONY: clean
@@ -107,7 +128,8 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build          Build all Docker images"
-	@echo "  deploy         Deploy all resources to the current kubectl context"
+	@echo "  deploy         Deploy all resources to local Kubernetes"
+	@echo "  deploy-cloud   Deploy all resources to cloud Kubernetes (EKS/GKE/AKS)"
 	@echo "  clean          Remove all deployed resources from Kubernetes"
 	@echo "  push           Push all images to the configured registry"
 	@echo "  refresh        Rebuild images and refresh all pods"
@@ -115,3 +137,9 @@ help:
 	@echo "  refresh-ui     Rebuild and refresh only UI"
 	@echo "  restart        Restart pods without rebuilding"
 	@echo "  help           Show this help message"
+	@echo ""
+	@echo "Cloud Deployment Quick Start:"
+	@echo "  1. Set REGISTRY: export REGISTRY=<aws-account-id>.dkr.ecr.<region>.amazonaws.com"
+	@echo "  2. Build: make build"
+	@echo "  3. Push: make push"
+	@echo "  4. Deploy: make deploy-cloud"

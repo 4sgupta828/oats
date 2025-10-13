@@ -5,13 +5,13 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Copy package.json and package-lock.json to leverage Docker cache
-COPY ./services/ui/package*.json ./
+COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy the rest of the UI source code
-COPY ./services/ui/ ./
+COPY . ./
 
 # Build the production-ready static files
 RUN npm run build
@@ -24,7 +24,7 @@ FROM nginx:1.25-alpine
 COPY --from=builder /app/build /usr/share/nginx/html
 
 # Copy our custom Nginx configuration
-COPY ./services/ui/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80 for the web server
 EXPOSE 80

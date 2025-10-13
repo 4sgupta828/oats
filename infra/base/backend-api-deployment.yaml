@@ -22,14 +22,18 @@ spec:
           ports:
             - containerPort: 8000
           env:
+            # LLM Provider (claude is default in config.py)
+            - name: UFFLOW_LLM_PROVIDER
+              value: "claude"
             # API keys for the embedded agent
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: oats-api-keys
-                  key: openai-api-key
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: oats-api-keys
                   key: anthropic-api-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oats-api-keys
+                  key: openai-api-key
+                  optional: true

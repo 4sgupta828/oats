@@ -52,7 +52,12 @@ function App() {
   const socketRef = useRef(null);
 
   useEffect(() => {
-    const socket = io('http://localhost:8000', {
+    // Connect directly to backend LoadBalancer
+    // Get backend URL from environment variable injected at build time
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://a19ebab9dc68f476bb249e3a2e3af44d-1020250872.us-west-2.elb.amazonaws.com:8000';
+    console.log('Connecting to backend:', backendUrl);
+
+    const socket = io(backendUrl, {
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
