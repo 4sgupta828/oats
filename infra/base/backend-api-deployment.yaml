@@ -37,3 +37,8 @@ spec:
                   name: oats-api-keys
                   key: openai-api-key
                   optional: true
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: oats-api-keys
+                  key: github-token
