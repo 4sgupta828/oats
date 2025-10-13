@@ -4,6 +4,11 @@ kubernetes
 pydantic
 python-socketio
 
+# Event-driven architecture dependencies
+asyncpg
+psycopg2-binary
+sse-starlette
+
 # Agent dependencies
 openai
 anthropic
