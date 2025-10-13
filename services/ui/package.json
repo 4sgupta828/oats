@@ -8,8 +8,7 @@
     "socket.io-client": "^4.7.5",
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.5.0",
-    "remark-gfm": "^4.0.0",
-    "aiohttp": "^3.8.0"
+    "remark-gfm": "^4.0.0"
   },
   "scripts": {
     "start": "react-scripts start",
