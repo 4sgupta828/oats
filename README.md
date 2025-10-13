@@ -163,9 +163,67 @@ docker run \
   oats-agent:latest
 ```
 
-### Option 3: Cloud Deployment (Kubernetes)
+### Option 3: Cloud Deployment (AWS EKS) ☁️
 
-See [README-CLOUD.md](./README-CLOUD.md) for complete deployment guide.
+**🤖 OATS uses Claude (Anthropic) by default.** Set your API key:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**🚀 Quick Deploy to AWS:**
+
+```bash
+# One-command deployment
+./DEPLOY.sh
+```
+
+That's it! The script will:
+- Create ECR repositories
+- Create EKS cluster (2 nodes, ~15 min)
+- Build and push images
+- Deploy OATS to AWS with Claude
+
+**Manual deployment:**
+```bash
+# 1. Configure AWS
+source .env.aws  # Pre-configured with your account: 911167909198
+
+# 2. Interactive deployment menu
+./scripts/deploy-aws.sh
+
+# 3. Or step by step:
+REGISTRY=$REGISTRY make build push deploy-cloud
+```
+
+**Access your cloud deployment:**
+```bash
+# Port-forward (no LoadBalancer costs)
+kubectl port-forward service/oats-backend-api-service 8000:8000
+
+# Or enable LoadBalancer
+kubectl patch service oats-backend-api-service -p '{"spec":{"type":"LoadBalancer"}}'
+```
+
+**Test the self-operating agent:**
+```bash
+curl -X POST http://localhost:8000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Check health of all pods in default namespace", "max_turns": 10}'
+```
+
+**Cost Management:**
+```bash
+# Stop cluster when not in use (saves ~$60/month)
+eksctl scale nodegroup --cluster=oats-dev --name=oats-nodes --nodes=0
+
+# Restart when needed
+eksctl scale nodegroup --cluster=oats-dev --name=oats-nodes --nodes=2
+```
+
+📚 **Full docs:**
+- [Quick Start Guide](./docs/CLOUD_QUICK_START.md)
+- [Complete AWS Deployment Guide](./docs/AWS_DEPLOYMENT.md)
+- [Architecture & Migration](./README-CLOUD.md)
 
 **Local Kubernetes (Docker Desktop):**
 
@@ -173,33 +231,15 @@ See [README-CLOUD.md](./README-CLOUD.md) for complete deployment guide.
 # 1. Build images
 REGISTRY=oats make build
 
-# 2. Deploy to k8s
+# 2. Deploy to local k8s
 REGISTRY=oats make deploy
 
 # 3. Access the services
 # UI:          http://localhost:8080
 # Backend API: http://localhost:8000/docs
 
-# Refresh pods with latest code (rebuild + restart)
-make refresh              # Refresh all services
-make refresh-backend      # Refresh backend only
-make refresh-ui          # Refresh UI only
-
-# Quick restart (without rebuilding)
-make restart             # Restart all pods
-./scripts/restart-pods.sh backend  # Restart backend only
-```
-
-**Production deployment:**
-```bash
-# Set your registry
-export REGISTRY=your-registry
-
-# Build and push
-make build && make push
-
-# Deploy
-make deploy
+# Refresh pods with latest code
+make refresh
 ```
 
 ---
