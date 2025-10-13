@@ -118,7 +118,7 @@ def execute_tool(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> ToolRes
                 error=error_msg,
                 duration_ms=int((time.time() - start_time) * 1000)
             )
-            UFFlowLogger.log_tool_execution(tool_name, inputs, result.dict())
+            UFFlowLogger.log_tool_execution(tool_name, inputs, result.model_dump())
             return result
 
         # 3. Execute in sandbox
@@ -131,7 +131,7 @@ def execute_tool(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> ToolRes
             result.duration_ms = int((time.time() - start_time) * 1000)
 
         # Log the execution result
-        UFFlowLogger.log_tool_execution(tool_name, inputs, result.dict())
+        UFFlowLogger.log_tool_execution(tool_name, inputs, result.model_dump())
 
         UFFlowLogger.log_execution_end(
             "executor",
@@ -151,7 +151,7 @@ def execute_tool(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> ToolRes
             error=str(e),
             duration_ms=duration
         )
-        UFFlowLogger.log_tool_execution(tool_name, inputs, result.dict())
+        UFFlowLogger.log_tool_execution(tool_name, inputs, result.model_dump())
         UFFlowLogger.log_execution_end(
             "executor",
             f"execute_tool:{tool_name}",
@@ -170,7 +170,7 @@ def execute_tool(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> ToolRes
             error=f"Unexpected execution error: {str(e)}",
             duration_ms=duration
         )
-        UFFlowLogger.log_tool_execution(tool_name, inputs, result.dict())
+        UFFlowLogger.log_tool_execution(tool_name, inputs, result.model_dump())
         UFFlowLogger.log_execution_end(
             "executor",
             f"execute_tool:{tool_name}",

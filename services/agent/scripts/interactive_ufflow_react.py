@@ -66,6 +66,20 @@ class InteractiveUFFLOWReact:
         print(f"{Colors.CYAN}🔧 Setting up UFFLOW React environment...{Colors.RESET}")
 
         try:
+            # Initialize customer configuration and providers
+            try:
+                from config.customer_config import initialize_customer_config
+                from providers import initialize_providers
+                
+                customer_config = initialize_customer_config()
+                if customer_config.validate_config():
+                    initialize_providers(customer_config.config)
+                    print(f"{Colors.GREEN}✅ Initialized providers for customer: {customer_config.get_customer_id()}{Colors.RESET}")
+                else:
+                    print(f"{Colors.YELLOW}⚠️  Customer config validation failed, continuing with default tools only{Colors.RESET}")
+            except Exception as e:
+                print(f"{Colors.YELLOW}⚠️  Failed to initialize providers: {e}, continuing with default tools only{Colors.RESET}")
+            
             # Load tools - use absolute path to agent's tools directory
             tools_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'tools')
             global_registry.load_ufs_from_directory(tools_dir)
@@ -392,7 +406,7 @@ class InteractiveUFFLOWReact:
                     self.session_transcript.append({
                         'goal': goal.description,
                         'turn': entry.turn,
-                        'entry': entry.dict()
+                        'entry': entry.model_dump()
                     })
 
             return execution_data

@@ -1,0 +1,33 @@
+# Customer Configuration Template for OATS Agent
+# Copy and customize this file for each customer deployment
+
+customer_id: "default"
+environment: "development"
+
+observability:
+  logs:
+    provider: "cloudwatch"
+    config:
+      region: "us-east-1"
+      log_groups:
+        - "/aws/lambda/test-function"
+      # No role_arn - uses default AWS credentials
+
+  metrics:
+    provider: "cloudwatch"
+    config:
+      region: "us-east-1"
+      namespace: "AWS/EC2"
+
+  traces:
+    provider: "xray"
+    config:
+      region: "us-east-1"
+
+  code:
+    provider: "github"
+    config:
+      token: "${GITHUB_TOKEN}"
+      org: "octocat"
+      repos:
+        - "Hello-World"

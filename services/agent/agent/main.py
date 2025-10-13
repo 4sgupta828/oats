@@ -6,11 +6,24 @@ sys.path.insert(0, '/app')
 
 from reactor.agent_controller import AgentController
 from registry.main import global_registry
+from providers import initialize_providers
+from config.customer_config import initialize_customer_config
 
 def run_agent():
     """
     Container entrypoint to run a single goal-oriented investigation.
     """
+    # Initialize customer configuration and providers
+    try:
+        customer_config = initialize_customer_config()
+        if customer_config.validate_config():
+            initialize_providers(customer_config.config)
+            print(f"✅ Initialized providers for customer: {customer_config.get_customer_id()}")
+        else:
+            print("⚠️  Customer config validation failed, continuing with default tools only")
+    except Exception as e:
+        print(f"⚠️  Failed to initialize providers: {e}, continuing with default tools only")
+    
     # Load all available tools from the 'tools' directory
     # Your existing discovery logic is perfect for this.
     global_registry.load_ufs_from_directory('./tools')

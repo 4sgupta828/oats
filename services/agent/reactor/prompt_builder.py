@@ -100,7 +100,7 @@ class ReActPromptBuilder:
     def _format_state(self, state) -> str:
         """Format current state for prompt."""
         import json
-        return json.dumps(state.dict(), indent=2)
+        return json.dumps(state.model_dump(), indent=2)
 
     def _format_transcript_history_with_aggression(self, transcript: List[TranscriptEntry], aggression_level: int) -> str:
         """Format transcript with specific aggression level for testing."""
@@ -109,9 +109,9 @@ class ReActPromptBuilder:
 
         for entry in transcript:
             history_parts.append(f"Turn {entry.turn}:")
-            history_parts.append(f"Reflect: {json.dumps(entry.reflect.dict())}")
-            history_parts.append(f"Strategize: {json.dumps(entry.strategize.dict())}")
-            history_parts.append(f"Act: {json.dumps(entry.act.dict())}")
+            history_parts.append(f"Reflect: {json.dumps(entry.reflect.model_dump())}")
+            history_parts.append(f"Strategize: {json.dumps(entry.strategize.model_dump())}")
+            history_parts.append(f"Act: {json.dumps(entry.act.model_dump())}")
             truncated_obs = self._truncate_observation(entry.observation, aggression_level, force_truncate=(aggression_level > 0))
             history_parts.append(f"Observation: {truncated_obs}")
             history_parts.append("")  # Empty line between turns

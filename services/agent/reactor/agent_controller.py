@@ -157,7 +157,7 @@ class AgentController:
                         break
 
                     # D. Act: Execute the action
-                    observation = self.tool_executor.execute_action(parsed_response.act.dict())
+                    observation = self.tool_executor.execute_action(parsed_response.act.model_dump())
 
                     # E. Observe & Update: Add to transcript
                     turn_duration = int((time.time() - turn_start_time) * 1000)
@@ -272,9 +272,9 @@ class AgentController:
             for i, entry in enumerate(state.transcript):
                 results_content.extend([
                     f"--- TURN {entry.turn} ---",
-                    f"Reflect: {json.dumps(entry.reflect.dict(), indent=2)}",
-                    f"Strategize: {json.dumps(entry.strategize.dict(), indent=2)}",
-                    f"Act: {json.dumps(entry.act.dict(), indent=2)}",
+                    f"Reflect: {json.dumps(entry.reflect.model_dump(), indent=2)}",
+                    f"Strategize: {json.dumps(entry.strategize.model_dump(), indent=2)}",
+                    f"Act: {json.dumps(entry.act.model_dump(), indent=2)}",
                     f"Observation: {entry.observation}",  # Full observation, not truncated
                     ""
                 ])
