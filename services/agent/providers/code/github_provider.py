@@ -37,12 +37,16 @@ class GitHubCodeProvider(CodeProvider):
         except ImportError:
             raise ImportError("PyGithub package is required for GitHub provider")
     
-    def search(self, query: str, 
+    def search(self, query: str,
                repo: Optional[str] = None,
                file_patterns: Optional[List[str]] = None,
                branch: str = "main") -> ProviderResult:
         """Search code using GitHub API"""
-        
+        import time
+        operation_start = time.time()
+
+        logger.info(f"GitHub search starting: query='{query[:50]}...' repo={repo}")
+
         if not self.client:
             return ProviderResult(
                 success=False,
@@ -50,32 +54,32 @@ class GitHubCodeProvider(CodeProvider):
                 metadata={'provider': 'github'},
                 error="GitHub client not initialized - check token configuration"
             )
-        
+
         try:
             # Build search query
             search_query = query
-            
+
             # Add repository filter
             if repo:
                 search_query += f" repo:{repo}"
             elif self.repos:
                 repo_filter = " repo:" + " repo:".join(self.repos)
                 search_query += repo_filter
-            
+
             # Add organization filter
             if self.org and not repo:
                 search_query += f" org:{self.org}"
-            
+
             # Add file pattern filters
             if file_patterns:
                 for pattern in file_patterns:
                     search_query += f" extension:{pattern.replace('*', '')}"
-            
+
             logger.info(f"GitHub search query: {search_query}")
-            
+
             # Execute search
             results = self.client.search_code(search_query)
-            
+
             # Format results
             search_results = []
             for item in results[:50]:  # Limit to 50 results
@@ -86,7 +90,10 @@ class GitHubCodeProvider(CodeProvider):
                     'url': item.html_url,
                     'score': item.score
                 })
-            
+
+            operation_duration = time.time() - operation_start
+            logger.info(f"GitHub search completed in {operation_duration:.2f}s: {len(search_results)} results")
+
             return ProviderResult(
                 success=True,
                 data=search_results,
@@ -94,16 +101,21 @@ class GitHubCodeProvider(CodeProvider):
                     "provider": "github",
                     "query": search_query,
                     "result_count": len(search_results),
-                    "total_results": results.totalCount
+                    "total_results": results.totalCount,
+                    "duration_seconds": round(operation_duration, 2)
                 }
             )
-            
+
         except Exception as e:
-            logger.error(f"GitHub search failed: {e}")
+            operation_duration = time.time() - operation_start
+            logger.error(f"GitHub search failed after {operation_duration:.2f}s: {e}")
             return ProviderResult(
                 success=False,
                 data=None,
-                metadata={"provider": "github"},
+                metadata={
+                    "provider": "github",
+                    "duration_seconds": round(operation_duration, 2)
+                },
                 error=str(e)
             )
     

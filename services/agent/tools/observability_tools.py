@@ -9,8 +9,48 @@ from pydantic import Field
 from typing import Optional, Dict, List
 from core.sdk import uf, UfInput
 from core.logging_config import get_logger
+import re
 
 logger = get_logger('observability_tools')
+
+
+# Validation helpers
+def validate_time_range(time_range: str) -> bool:
+    """Validate time range format (e.g., 15m, 1h, 24h)"""
+    return bool(re.match(r'^\d+[mhd]$', time_range))
+
+
+def create_error_response(error: Exception, context: str) -> dict:
+    """Create error response with full context for LLM to understand
+
+    We pass the raw error to the LLM instead of trying to categorize it.
+    The LLM is better at understanding errors contextually than rule-based matching.
+    """
+    return {
+        "status": "error",
+        "error": f"{context}: {str(error)}",
+        "context": context,
+        "error_details": str(error)
+    }
+
+
+def normalize_log_entry(entry: Dict, provider: str) -> Dict:
+    """Normalize log entry to consistent format across providers"""
+    if provider == "cloudwatch":
+        # CloudWatch returns list of [{field, value}, ...]
+        if isinstance(entry, list):
+            normalized = {}
+            for item in entry:
+                if isinstance(item, dict):
+                    field = item.get('field', '').lstrip('@')
+                    value = item.get('value', '')
+                    normalized[field] = value
+            return normalized
+        else:
+            return entry
+    else:
+        # Other providers - return as-is
+        return entry
 
 
 class QueryLogsInput(UfInput):
@@ -21,41 +61,71 @@ class QueryLogsInput(UfInput):
     limit: int = Field(default=100, description="Max results to return")
 
 
-@uf(name="query_logs", version="1.0.0", 
+@uf(name="query_logs", version="1.0.0",
    description="Search logs across configured log backends. Supports natural language queries that are translated to provider-specific syntax. Use this for investigating errors, warnings, and application behavior.")
 def query_logs(inputs: QueryLogsInput) -> dict:
     """Search logs using the configured log provider"""
     try:
+        # Input validation
+        if not validate_time_range(inputs.time_range):
+            return {
+                "status": "error",
+                "error": f"Invalid time_range '{inputs.time_range}'. Use format: 15m, 1h, 24h",
+                "suggestion": "Use a valid time range like '15m' (15 minutes), '1h' (1 hour), or '24h' (24 hours)"
+            }
+
+        if len(inputs.query) > 1000:
+            return {
+                "status": "error",
+                "error": "Query too long (max 1000 characters)",
+                "suggestion": "Simplify your query or break it into multiple smaller queries"
+            }
+
+        if not inputs.query.strip():
+            return {
+                "status": "error",
+                "error": "Query cannot be empty",
+                "suggestion": "Provide a search term like 'error', 'exception', or a specific error message"
+            }
+
+        # Cap limit to reasonable value
+        safe_limit = min(inputs.limit, 500)
+        if inputs.limit > 500:
+            logger.warning(f"Limit {inputs.limit} capped to 500 for performance")
+
         from providers import get_log_provider
-        
+
         provider = get_log_provider()
         result = provider.query(
             query=inputs.query,
             time_range=inputs.time_range,
             filters=inputs.filters,
-            limit=inputs.limit
+            limit=safe_limit
         )
-        
+
         if result.success:
+            # Normalize results for consistent format
+            normalized_data = [
+                normalize_log_entry(entry, result.metadata.get("provider", "unknown"))
+                for entry in result.data
+            ]
+
             return {
                 "status": "success",
-                "data": result.data,
+                "data": normalized_data,
                 "metadata": result.metadata,
-                "provider": result.metadata.get("provider", "unknown")
+                "provider": result.metadata.get("provider", "unknown"),
+                "count": len(normalized_data)
             }
         else:
-            return {
-                "status": "error",
-                "error": result.error,
-                "provider": result.metadata.get("provider", "unknown")
-            }
-            
+            return create_error_response(
+                Exception(result.error),
+                "Log query failed"
+            )
+
     except Exception as e:
-        logger.error(f"Error querying logs: {e}")
-        return {
-            "status": "error",
-            "error": f"Failed to query logs: {str(e)}"
-        }
+        logger.error(f"Error querying logs: {e}", exc_info=True)
+        return create_error_response(e, "Log query failed")
 
 
 class QueryMetricsInput(UfInput):
@@ -71,8 +141,32 @@ class QueryMetricsInput(UfInput):
 def query_metrics(inputs: QueryMetricsInput) -> dict:
     """Query metrics using the configured metric provider"""
     try:
+        # Input validation
+        if not validate_time_range(inputs.time_range):
+            return {
+                "status": "error",
+                "error": f"Invalid time_range '{inputs.time_range}'. Use format: 15m, 1h, 24h",
+                "suggestion": "Use a valid time range like '15m' (15 minutes), '1h' (1 hour), or '24h' (24 hours)"
+            }
+
+        if not inputs.metric_name.strip():
+            return {
+                "status": "error",
+                "error": "Metric name cannot be empty",
+                "suggestion": "Provide a metric name like 'CPUUtilization', 'http_requests_total', or 'api.latency'"
+            }
+
+        # Validate aggregation
+        valid_aggregations = ["avg", "sum", "min", "max", "p50", "p90", "p95", "p99"]
+        if inputs.aggregation not in valid_aggregations:
+            return {
+                "status": "error",
+                "error": f"Invalid aggregation '{inputs.aggregation}'",
+                "suggestion": f"Use one of: {', '.join(valid_aggregations)}"
+            }
+
         from providers import get_metric_provider
-        
+
         provider = get_metric_provider()
         result = provider.query(
             metric_name=inputs.metric_name,
@@ -80,7 +174,7 @@ def query_metrics(inputs: QueryMetricsInput) -> dict:
             time_range=inputs.time_range,
             aggregation=inputs.aggregation
         )
-        
+
         if result.success:
             return {
                 "status": "success",
@@ -89,18 +183,14 @@ def query_metrics(inputs: QueryMetricsInput) -> dict:
                 "provider": result.metadata.get("provider", "unknown")
             }
         else:
-            return {
-                "status": "error",
-                "error": result.error,
-                "provider": result.metadata.get("provider", "unknown")
-            }
-            
+            return create_error_response(
+                Exception(result.error),
+                "Metric query failed"
+            )
+
     except Exception as e:
-        logger.error(f"Error querying metrics: {e}")
-        return {
-            "status": "error",
-            "error": f"Failed to query metrics: {str(e)}"
-        }
+        logger.error(f"Error querying metrics: {e}", exc_info=True)
+        return create_error_response(e, "Metric query failed")
 
 
 class QueryTracesInput(UfInput):
@@ -117,8 +207,24 @@ class QueryTracesInput(UfInput):
 def query_traces(inputs: QueryTracesInput) -> dict:
     """Query traces using the configured trace provider"""
     try:
+        # Input validation
+        if not validate_time_range(inputs.time_range):
+            return {
+                "status": "error",
+                "error": f"Invalid time_range '{inputs.time_range}'. Use format: 15m, 1h, 24h",
+                "suggestion": "Use a valid time range like '15m' (15 minutes), '1h' (1 hour), or '24h' (24 hours)"
+            }
+
+        # Validate that at least one search parameter is provided
+        if not inputs.trace_id and not inputs.service and not inputs.operation:
+            return {
+                "status": "error",
+                "error": "Must provide at least one of: trace_id, service, or operation",
+                "suggestion": "Specify a trace_id for exact lookup, or service/operation to search for traces"
+            }
+
         from providers import get_trace_provider
-        
+
         provider = get_trace_provider()
         result = provider.query(
             trace_id=inputs.trace_id,
@@ -127,7 +233,7 @@ def query_traces(inputs: QueryTracesInput) -> dict:
             time_range=inputs.time_range,
             filters=inputs.filters
         )
-        
+
         if result.success:
             return {
                 "status": "success",
@@ -136,18 +242,14 @@ def query_traces(inputs: QueryTracesInput) -> dict:
                 "provider": result.metadata.get("provider", "unknown")
             }
         else:
-            return {
-                "status": "error",
-                "error": result.error,
-                "provider": result.metadata.get("provider", "unknown")
-            }
-            
+            return create_error_response(
+                Exception(result.error),
+                "Trace query failed"
+            )
+
     except Exception as e:
-        logger.error(f"Error querying traces: {e}")
-        return {
-            "status": "error",
-            "error": f"Failed to query traces: {str(e)}"
-        }
+        logger.error(f"Error querying traces: {e}", exc_info=True)
+        return create_error_response(e, "Trace query failed")
 
 
 class SearchCodeInput(UfInput):
@@ -163,8 +265,23 @@ class SearchCodeInput(UfInput):
 def search_code(inputs: SearchCodeInput) -> dict:
     """Search code using the configured code provider"""
     try:
+        # Input validation
+        if not inputs.query.strip():
+            return {
+                "status": "error",
+                "error": "Search query cannot be empty",
+                "suggestion": "Provide a search term like 'error', 'class UserService', or a specific function name"
+            }
+
+        if len(inputs.query) > 500:
+            return {
+                "status": "error",
+                "error": "Query too long (max 500 characters)",
+                "suggestion": "Simplify your search query or search for a more specific term"
+            }
+
         from providers import get_code_provider
-        
+
         provider = get_code_provider()
         result = provider.search(
             query=inputs.query,
@@ -172,7 +289,7 @@ def search_code(inputs: SearchCodeInput) -> dict:
             file_patterns=inputs.file_patterns,
             branch=inputs.branch
         )
-        
+
         if result.success:
             return {
                 "status": "success",
@@ -181,18 +298,14 @@ def search_code(inputs: SearchCodeInput) -> dict:
                 "provider": result.metadata.get("provider", "unknown")
             }
         else:
-            return {
-                "status": "error",
-                "error": result.error,
-                "provider": result.metadata.get("provider", "unknown")
-            }
-            
+            return create_error_response(
+                Exception(result.error),
+                "Code search failed"
+            )
+
     except Exception as e:
-        logger.error(f"Error searching code: {e}")
-        return {
-            "status": "error",
-            "error": f"Failed to search code: {str(e)}"
-        }
+        logger.error(f"Error searching code: {e}", exc_info=True)
+        return create_error_response(e, "Code search failed")
 
 
 class CorrelateSignalsInput(UfInput):
