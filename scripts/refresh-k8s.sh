@@ -118,6 +118,15 @@ main() {
     check_kubectl
     check_docker
 
+    # Apply secrets if secrets.local.yaml exists
+    if [ -f "infra/base/secrets.local.yaml" ]; then
+        log_info "Applying secrets from secrets.local.yaml..."
+        kubectl apply -f infra/base/secrets.local.yaml
+    else
+        log_warn "secrets.local.yaml not found, skipping secrets update"
+        log_warn "See infra/base/SECRETS-README.md for setup instructions"
+    fi
+
     case $component in
         backend)
             rebuild_backend
