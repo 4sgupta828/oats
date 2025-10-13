@@ -145,7 +145,7 @@ class GitHubCodeProvider(CodeProvider):
         """List available repositories"""
         if not self.client:
             return []
-        
+
         try:
             if self.org:
                 org = self.client.get_organization(self.org)
@@ -153,13 +153,139 @@ class GitHubCodeProvider(CodeProvider):
             else:
                 user = self.client.get_user()
                 repos = [repo.full_name for repo in user.get_repos()]
-            
+
             # Filter by configured repos if specified
             if self.repos:
                 repos = [repo for repo in repos if any(config_repo in repo for config_repo in self.repos)]
-            
+
             return repos
-            
+
         except Exception as e:
             logger.error(f"Failed to list repositories: {e}")
             return []
+
+    def get_commits(self, repo: str,
+                    branch: str = "main",
+                    limit: int = 20,
+                    since: Optional[str] = None,
+                    author: Optional[str] = None,
+                    path: Optional[str] = None,
+                    include_diffs: bool = True) -> ProviderResult:
+        """Get commit history with optional diffs"""
+        import time
+        from datetime import datetime, timedelta
+
+        operation_start = time.time()
+
+        logger.info(f"GitHub get_commits starting: repo={repo} branch={branch} limit={limit}")
+
+        if not self.client:
+            return ProviderResult(
+                success=False,
+                data=None,
+                metadata={'provider': 'github'},
+                error="GitHub client not initialized - check token configuration"
+            )
+
+        try:
+            repository = self.client.get_repo(repo)
+
+            # Parse 'since' parameter if provided
+            since_datetime = None
+            if since:
+                # Support relative time formats like '24h', '7d'
+                import re
+                match = re.match(r'^(\d+)([hd])$', since)
+                if match:
+                    amount = int(match.group(1))
+                    unit = match.group(2)
+                    if unit == 'h':
+                        since_datetime = datetime.now() - timedelta(hours=amount)
+                    elif unit == 'd':
+                        since_datetime = datetime.now() - timedelta(days=amount)
+                else:
+                    # Try parsing as ISO timestamp
+                    try:
+                        since_datetime = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                    except ValueError:
+                        logger.warning(f"Invalid 'since' format: {since}, ignoring")
+
+            # Get commits
+            commits_query = repository.get_commits(
+                sha=branch,
+                since=since_datetime,
+                author=author,
+                path=path
+            )
+
+            # Process commits
+            commits_data = []
+            for i, commit in enumerate(commits_query):
+                if i >= limit:
+                    break
+
+                commit_info = {
+                    'sha': commit.sha,
+                    'author': {
+                        'name': commit.commit.author.name,
+                        'email': commit.commit.author.email,
+                        'date': commit.commit.author.date.isoformat()
+                    },
+                    'message': commit.commit.message,
+                    'timestamp': commit.commit.author.date.isoformat(),
+                    'url': commit.html_url,
+                    'stats': {
+                        'total': commit.stats.total,
+                        'additions': commit.stats.additions,
+                        'deletions': commit.stats.deletions
+                    },
+                    'files': []
+                }
+
+                # Add file changes
+                if commit.files:
+                    for file in commit.files:
+                        file_info = {
+                            'filename': file.filename,
+                            'status': file.status,  # 'added', 'modified', 'removed', 'renamed'
+                            'additions': file.additions,
+                            'deletions': file.deletions,
+                            'changes': file.changes
+                        }
+
+                        # Include diff/patch if requested
+                        if include_diffs and file.patch:
+                            file_info['diff'] = file.patch
+
+                        commit_info['files'].append(file_info)
+
+                commits_data.append(commit_info)
+
+            operation_duration = time.time() - operation_start
+            logger.info(f"GitHub get_commits completed in {operation_duration:.2f}s: {len(commits_data)} commits")
+
+            return ProviderResult(
+                success=True,
+                data=commits_data,
+                metadata={
+                    "provider": "github",
+                    "repo": repo,
+                    "branch": branch,
+                    "commit_count": len(commits_data),
+                    "include_diffs": include_diffs,
+                    "duration_seconds": round(operation_duration, 2)
+                }
+            )
+
+        except Exception as e:
+            operation_duration = time.time() - operation_start
+            logger.error(f"GitHub get_commits failed after {operation_duration:.2f}s: {e}")
+            return ProviderResult(
+                success=False,
+                data=None,
+                metadata={
+                    "provider": "github",
+                    "duration_seconds": round(operation_duration, 2)
+                },
+                error=str(e)
+            )

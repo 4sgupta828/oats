@@ -81,21 +81,51 @@ class TraceProvider(ABC):
 
 class CodeProvider(ABC):
     """Abstract interface for code search providers (GitHub, GitLab, Bitbucket, etc.)"""
-    
+
     @abstractmethod
-    def search(self, query: str, 
+    def search(self, query: str,
                repo: Optional[str] = None,
                file_patterns: Optional[List[str]] = None,
                branch: str = "main") -> ProviderResult:
         """Search source code repositories"""
         pass
-    
+
     @abstractmethod
     def get_file_content(self, repo: str, path: str, branch: str = "main") -> str:
         """Retrieve specific file content"""
         pass
-    
+
     @abstractmethod
     def list_repos(self) -> List[str]:
         """List available repositories"""
+        pass
+
+    @abstractmethod
+    def get_commits(self, repo: str,
+                    branch: str = "main",
+                    limit: int = 20,
+                    since: Optional[str] = None,
+                    author: Optional[str] = None,
+                    path: Optional[str] = None,
+                    include_diffs: bool = True) -> ProviderResult:
+        """Get commit history with optional diffs
+
+        Args:
+            repo: Repository name/path
+            branch: Branch to get commits from
+            limit: Maximum number of commits to return
+            since: ISO timestamp or relative time (e.g., '24h') to get commits since
+            author: Filter by commit author
+            path: Filter commits that touched specific path
+            include_diffs: Whether to include file diffs in the response
+
+        Returns:
+            ProviderResult with list of commits containing:
+            - sha: Commit hash
+            - author: Commit author info
+            - message: Commit message
+            - timestamp: Commit timestamp
+            - stats: File change statistics
+            - files: List of changed files (with diffs if include_diffs=True)
+        """
         pass
