@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """Initialize OATS database schema."""
 
-import asyncio
-import asyncpg
+import psycopg2
 import os
 import sys
 from pathlib import Path
 
-async def init_database(connection_string: str):
+def init_database(connection_string: str):
     """Initialize database with schema."""
     print(f"Connecting to database...")
 
     try:
-        conn = await asyncpg.connect(connection_string)
+        conn = psycopg2.connect(connection_string)
         print("✅ Connected to database")
 
         # Read schema file
@@ -21,21 +20,25 @@ async def init_database(connection_string: str):
             schema_sql = f.read()
 
         print("Executing schema...")
-        await conn.execute(schema_sql)
+        with conn.cursor() as cur:
+            cur.execute(schema_sql)
+        conn.commit()
         print("✅ Schema initialized successfully")
 
         # Verify tables were created
-        tables = await conn.fetch("""
-            SELECT tablename FROM pg_tables
-            WHERE schemaname = 'public'
-            AND tablename LIKE 'agent_%'
-        """)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                AND tablename LIKE 'agent_%'
+            """)
+            tables = cur.fetchall()
 
         print(f"\nCreated tables:")
         for table in tables:
-            print(f"  - {table['tablename']}")
+            print(f"  - {table[0]}")
 
-        await conn.close()
+        conn.close()
         print("\n✅ Database initialization complete!")
 
     except Exception as e:
@@ -59,7 +62,7 @@ def main():
     print("=" * 50)
     print()
 
-    asyncio.run(init_database(connection_string))
+    init_database(connection_string)
 
 if __name__ == "__main__":
     main()
