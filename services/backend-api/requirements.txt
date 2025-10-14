@@ -2,7 +2,6 @@ fastapi
 uvicorn[standard]
 kubernetes
 pydantic
-python-socketio
 sse-starlette
 
 # Database

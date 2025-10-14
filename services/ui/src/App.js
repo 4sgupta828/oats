@@ -1,53 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
 import './App.css';
 import AgentMessage from './components/AgentMessage';
 import { useSSE } from './hooks/useSSE';
 
-// Feature detection: Use SSE if backend supports it, fallback to WebSocket
-const USE_SSE = process.env.REACT_APP_USE_SSE === 'true';
-
-const formatAgentPayload = (message) => {
-  try {
-    const data = typeof message === 'string' ? JSON.parse(message) : message;
-    const { type, payload } = data;
-
-    // Return structured data instead of plain text
-    switch (type) {
-      case 'thought':
-        return { type: 'thought', content: payload };
-      case 'action':
-        return {
-          type: 'action',
-          tool: payload.tool,
-          params: payload.params
-        };
-      case 'observation':
-        return {
-          type: 'observation',
-          content: payload,
-          isLarge: payload.length > 1000
-        };
-      case 'finish':
-        return {
-          type: 'finish',
-          summary: payload.execution_summary || payload.completion_reason,
-          turnsCompleted: payload.turns_completed,
-          resultsFile: payload.final_results_file
-        };
-      case 'status':
-        return { type: 'status', content: payload };
-      case 'error':
-        return { type: 'error', content: payload };
-      default:
-        return { type: 'unknown', content: JSON.stringify(payload, null, 2) };
-    }
-  } catch (error) {
-    return { type: 'status', content: message };
-  }
-};
-
-// Format SSE events to match WebSocket format
+// Format SSE events to UI-friendly format
 const formatSSEEvent = (event) => {
   const eventData = event.data || {};
 
@@ -106,20 +62,17 @@ const formatSSEEvent = (event) => {
 function App() {
   const [goal, setGoal] = useState('');
   const [messages, setMessages] = useState([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isInvestigating, setIsInvestigating] = useState(false);
   const messagesEndRef = useRef(null);
-  const socketRef = useRef(null);
 
   // Get backend URL from environment variable
   const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
-  // Use SSE hook if enabled
-  const sseHook = useSSE(USE_SSE ? backendUrl : null);
+  // Use SSE hook
+  const sseHook = useSSE(backendUrl);
 
   // Process SSE events
   useEffect(() => {
-    if (!USE_SSE || !sseHook.events) return;
+    if (!sseHook.events) return;
 
     sseHook.events.forEach(event => {
       const formatted = formatSSEEvent(event);
@@ -139,120 +92,25 @@ function App() {
     });
   }, [sseHook.events]);
 
-  // Update connection status from SSE
-  useEffect(() => {
-    if (USE_SSE) {
-      setIsConnected(sseHook.isConnected);
-      setIsInvestigating(sseHook.isExecuting);
-    }
-  }, [sseHook.isConnected, sseHook.isExecuting]);
-
-  useEffect(() => {
-    // Skip WebSocket setup if using SSE
-    if (USE_SSE) {
-      setIsConnected(true);
-      return;
-    }
-
-    console.log('Connecting to backend:', backendUrl);
-
-    const socket = io(backendUrl, {
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      timeout: 20000,
-      transports: ['polling', 'websocket']
-    });
-
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('Connected to backend');
-      setIsConnected(true);
-    });
-
-    socket.on('disconnect', (reason) => {
-      console.log('Disconnected from backend:', reason);
-      setIsConnected(false);
-
-      // Show error message about disconnection
-      setMessages(prev => [...prev, {
-        sender: 'agent',
-        data: {
-          type: 'error',
-          content: `Connection lost: ${reason}. Attempting to reconnect...`
-        }
-      }]);
-    });
-
-    socket.on('reconnect', (attemptNumber) => {
-      console.log('Reconnected to backend after', attemptNumber, 'attempts');
-      setMessages(prev => [...prev, {
-        sender: 'agent',
-        data: {
-          type: 'status',
-          content: 'Connection restored!'
-        }
-      }]);
-    });
-
-    socket.on('reconnect_attempt', (attemptNumber) => {
-      console.log('Reconnection attempt', attemptNumber);
-    });
-
-    socket.on('reconnect_failed', () => {
-      console.error('Failed to reconnect to backend');
-      setMessages(prev => [...prev, {
-        sender: 'agent',
-        data: {
-          type: 'error',
-          content: 'Failed to reconnect to backend. Please refresh the page.'
-        }
-      }]);
-      setIsInvestigating(false);
-    });
-
-    socket.on('connect_error', (error) => {
-      console.error('Connection error:', error);
-    });
-
-    socket.on('agent_message', (message) => {
-      const formattedData = formatAgentPayload(message);
-      setMessages(prev => [...prev, { sender: 'agent', data: formattedData }]);
-      if (formattedData.type === 'finish') {
-        setIsInvestigating(false);
-      }
-    });
-
-    return () => socket.disconnect();
-  }, []);
-
+  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!goal.trim() || !isConnected || isInvestigating) return;
+    if (!goal.trim() || !sseHook.isConnected || sseHook.isExecuting) return;
 
     setMessages([{ sender: 'user', text: goal }]);
     setGoal('');
 
-    if (USE_SSE) {
-      // Use SSE
-      try {
-        await sseHook.startExecution(goal.trim());
-      } catch (error) {
-        setMessages(prev => [...prev, {
-          sender: 'agent',
-          data: { type: 'error', content: `Failed to start execution: ${error.message}` }
-        }]);
-      }
-    } else {
-      // Use WebSocket
-      setIsInvestigating(true);
-      socketRef.current.emit('start_investigation', { goal });
+    try {
+      await sseHook.startExecution(goal.trim());
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: { type: 'error', content: `Failed to start execution: ${error.message}` }
+      }]);
     }
   };
 
@@ -260,15 +118,18 @@ function App() {
     <div className="App">
       <header className="App-header">
         <div>
-            <h1>OATS Framework</h1>
-            <p className="subtitle">Observe · Adapt · TakeAction · Synthesize</p>
+          <h1>OATS Framework</h1>
+          <p className="subtitle">Observe · Adapt · TakeAction · Synthesize</p>
         </div>
-        <div className={`connection-status ${isConnected ? 'connected' : ''}`}>
-          {isConnected ? '● Connected' : '○ Disconnected'}
-          {USE_SSE && <span className="transport-type"> (SSE)</span>}
-          {!USE_SSE && <span className="transport-type"> (WebSocket)</span>}
+        <div className={`connection-status ${sseHook.isConnected ? 'connected' : ''}`}>
+          {sseHook.isConnected ? '● Connected' : '○ Connecting...'}
+          <span className="transport-type"> (SSE)</span>
+          {sseHook.executionId && (
+            <span className="execution-id"> | Execution: {sseHook.executionId.slice(0, 8)}...</span>
+          )}
         </div>
       </header>
+
       <div className="message-container">
         {messages.map((msg, index) => (
           <div key={index} className={`message ${msg.sender === 'user' ? 'user-message' : 'agent-message'}`}>
@@ -280,23 +141,38 @@ function App() {
             )}
           </div>
         ))}
-        {isInvestigating && messages.length > 0 && messages[messages.length - 1]?.sender === 'agent' && (
+
+        {sseHook.isExecuting && messages.length > 0 && messages[messages.length - 1]?.sender === 'agent' && (
           <div className="spinner"></div>
         )}
         <div ref={messagesEndRef} />
       </div>
+
       <form onSubmit={handleSubmit} className="input-form">
         <input
           className="goal-input"
           type="text"
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
-          placeholder={isInvestigating ? "Analysis in progress..." : "Describe your infrastructure issue..."}
-          disabled={!isConnected || isInvestigating}
+          placeholder={sseHook.isExecuting ? "Analysis in progress..." : "Describe your infrastructure issue..."}
+          disabled={!sseHook.isConnected || sseHook.isExecuting}
         />
-        <button type="submit" className="submit-button" disabled={!isConnected || isInvestigating}>
-          {isInvestigating ? 'Analyzing...' : 'Start Analysis'}
+        <button
+          type="submit"
+          className="submit-button"
+          disabled={!sseHook.isConnected || sseHook.isExecuting}
+        >
+          {sseHook.isExecuting ? 'Analyzing...' : 'Start Analysis'}
         </button>
+        {sseHook.isExecuting && (
+          <button
+            type="button"
+            className="interrupt-button"
+            onClick={sseHook.stopExecution}
+          >
+            Stop
+          </button>
+        )}
       </form>
     </div>
   );
