@@ -62,29 +62,6 @@ CREATE TRIGGER update_agent_executions_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- Function to notify on new events (for LISTEN/NOTIFY pattern)
-CREATE OR REPLACE FUNCTION notify_new_event()
-RETURNS TRIGGER AS $$
-BEGIN
-    PERFORM pg_notify(
-        'execution_' || NEW.execution_id::text,
-        json_build_object(
-            'event_id', NEW.id,
-            'turn', NEW.turn_number,
-            'type', NEW.event_type
-        )::text
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to notify listeners when new events are inserted
-DROP TRIGGER IF EXISTS trigger_notify_new_event ON agent_events;
-CREATE TRIGGER trigger_notify_new_event
-    AFTER INSERT ON agent_events
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_new_event();
-
 -- Function for cleanup of old events (data retention)
 CREATE OR REPLACE FUNCTION cleanup_old_events(retention_days INTEGER DEFAULT 30)
 RETURNS INTEGER AS $$

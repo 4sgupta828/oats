@@ -4,6 +4,7 @@ import asyncio
 import sys
 import os
 import json
+import threading
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -12,18 +13,16 @@ from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
 # Add the agent's directory to the Python path
-agent_path = Path(__file__).parent.parent / "agent"
+agent_path = Path(__file__).parent.parent.parent / "agent"
 sys.path.insert(0, str(agent_path))
 
 # Import agent components
-from reactor.async_agent_controller import AsyncAgentController
-from reactor.event_emitter import EventStoreEmitter
+from reactor.agent_controller import AgentController
 from registry.main import global_registry
 
 # Import event-driven components
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database.event_store import get_event_store, close_event_store
-from database.events import EventType, ExecutionStatus
 
 # --- Setup ---
 app = FastAPI(
@@ -58,7 +57,7 @@ class SubmitFeedbackRequest(BaseModel):
 
 # --- Startup/Shutdown Events ---
 @app.on_event("startup")
-async def startup_event():
+def startup_event():
     """Initialize services on startup."""
     global event_store
 
@@ -79,7 +78,7 @@ async def startup_event():
 
     try:
         # Initialize event store
-        event_store = await get_event_store()
+        event_store = get_event_store()
         print("✅ Event store initialized")
 
         # Initialize agent registry
@@ -99,11 +98,11 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+def shutdown_event():
     """Cleanup on shutdown."""
     print("\n🛑 Shutting down OATS Agent API...")
     if event_store:
-        await close_event_store()
+        close_event_store()
         print("✅ Event store closed")
     print("✅ Shutdown complete\n")
 
@@ -130,12 +129,12 @@ async def root():
 
 
 @app.get("/health")
-async def health_check():
+def health_check():
     """Detailed health check."""
     try:
         # Test event store connection
         if event_store:
-            await event_store.get_execution_status("test")  # Will fail but tests connection
+            event_store.get_execution_status("test")  # Will fail but tests connection
     except Exception:
         pass  # Expected to fail with test ID
 
@@ -146,12 +145,12 @@ async def health_check():
             "agent_registry": len(global_registry.list_ufs()) > 0,
             "tools_loaded": len(global_registry.list_ufs())
         },
-        "architecture": "Event-Driven (SSE + PostgreSQL LISTEN/NOTIFY)"
+        "architecture": "Event-Driven (SSE + PostgreSQL polling)"
     }
 
 
 @app.post("/api/v1/executions")
-async def start_execution(request: StartExecutionRequest, background_tasks: BackgroundTasks):
+def start_execution(request: StartExecutionRequest, background_tasks: BackgroundTasks):
     """Start a new agent execution."""
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
@@ -165,16 +164,15 @@ async def start_execution(request: StartExecutionRequest, background_tasks: Back
             raise HTTPException(400, "Goal too long (max 10000 characters)")
 
         # Create execution in database
-        execution_id = await event_store.create_execution(
-            goal=request.goal.strip(),
-            user_id=request.user_id,
-            max_turns=request.max_turns,
-        )
+        execution_id = event_store.create_execution(request.goal.strip())
 
-        # Start agent in background
-        background_tasks.add_task(
-            run_async_agent_execution, execution_id, request.goal.strip(), request.max_turns
+        # Start agent in background thread
+        thread = threading.Thread(
+            target=run_agent_execution,
+            args=(execution_id, request.goal.strip(), request.max_turns),
+            daemon=True
         )
+        thread.start()
 
         print(f"🚀 Started execution {execution_id} for goal: {request.goal[:100]}...")
 
@@ -196,24 +194,39 @@ async def start_execution(request: StartExecutionRequest, background_tasks: Back
 async def stream_events(execution_id: str, last_event_id: int = 0):
     """
     Stream execution events via Server-Sent Events.
-    Uses PostgreSQL LISTEN/NOTIFY for real-time push (< 10ms latency).
+    Uses polling for real-time updates (simple sync implementation).
     """
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
 
     async def event_generator():
         try:
-            async for event in event_store.listen_for_events(execution_id, last_event_id):
-                yield {
-                    "id": str(event['id']),
-                    "event": event['event_type'],
-                    "data": json.dumps({
-                        'turn': event['turn_number'],
-                        'success': event['success'],
-                        'data': event['event_data'],
-                        'timestamp': event['created_at'].isoformat()
-                    })
-                }
+            current_last_id = last_event_id
+
+            while True:
+                # Poll for new events
+                events = event_store.get_events_since(execution_id, current_last_id)
+
+                for event in events:
+                    yield {
+                        "id": str(event['id']),
+                        "event": event['event_type'],
+                        "data": json.dumps({
+                            'turn': event['turn_number'],
+                            'success': event['success'],
+                            'data': event['event_data'],
+                            'timestamp': event['created_at'].isoformat()
+                        })
+                    }
+                    current_last_id = event['id']
+
+                # Check if execution is complete
+                status = event_store.get_execution_status(execution_id)
+                if status and status['status'] in ['completed', 'failed', 'cancelled']:
+                    break
+
+                # Short delay before next poll
+                await asyncio.sleep(0.5)
 
         except asyncio.CancelledError:
             print(f"SSE stream cancelled for execution {execution_id}")
@@ -228,7 +241,7 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
 
 
 @app.post("/api/v1/executions/{execution_id}/feedback")
-async def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
+def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
     """Submit user feedback for an execution."""
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
@@ -240,7 +253,7 @@ async def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
             raise HTTPException(400, f"Invalid feedback_type. Must be one of: {valid_types}")
 
         # Submit feedback
-        await event_store.submit_feedback(
+        event_store.submit_feedback(
             execution_id,
             feedback.turn_number,
             feedback.feedback_type,
@@ -264,13 +277,13 @@ async def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
 
 
 @app.get("/api/v1/executions/{execution_id}/status")
-async def get_execution_status(execution_id: str):
+def get_execution_status(execution_id: str):
     """Get current execution status and metadata."""
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
 
     try:
-        status = await event_store.get_execution_status(execution_id)
+        status = event_store.get_execution_status(execution_id)
         if not status:
             raise HTTPException(404, "Execution not found")
 
@@ -284,7 +297,7 @@ async def get_execution_status(execution_id: str):
 
 
 @app.get("/api/v1/executions")
-async def list_executions(user_id: Optional[str] = None, limit: int = 50):
+def list_executions(limit: int = 50):
     """List recent executions."""
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
@@ -293,11 +306,10 @@ async def list_executions(user_id: Optional[str] = None, limit: int = 50):
         if limit > 100:
             limit = 100  # Cap at 100
 
-        executions = await event_store.list_executions(user_id, limit)
+        executions = event_store.list_executions(limit)
         return {
             "executions": executions,
-            "count": len(executions),
-            "user_id": user_id
+            "count": len(executions)
         }
 
     except Exception as e:
@@ -305,30 +317,10 @@ async def list_executions(user_id: Optional[str] = None, limit: int = 50):
         raise HTTPException(500, f"Failed to list executions: {str(e)}")
 
 
-@app.get("/api/v1/executions/{execution_id}/summary")
-async def get_execution_summary(execution_id: str):
-    """Get detailed execution summary for debugging/analytics."""
-    if not event_store:
-        raise HTTPException(500, "Event store not initialized")
-
-    try:
-        summary = await event_store.get_execution_summary(execution_id)
-        if not summary:
-            raise HTTPException(404, "Execution not found")
-
-        return summary
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Failed to get execution summary: {e}")
-        raise HTTPException(500, f"Failed to get execution summary: {str(e)}")
-
-
 # --- Background Agent Execution ---
 
-async def run_async_agent_execution(execution_id: str, goal: str, max_turns: int):
-    """Run agent execution in background with event emission."""
+def run_agent_execution(execution_id: str, goal: str, max_turns: int):
+    """Run agent execution in background thread with event emission."""
     if not event_store:
         print("Event store not initialized")
         return
@@ -336,44 +328,28 @@ async def run_async_agent_execution(execution_id: str, goal: str, max_turns: int
     print(f"🤖 Starting agent execution {execution_id}")
 
     try:
-        # Create async agent controller with event emitter
-        emitter = EventStoreEmitter(event_store)
-        async_agent = AsyncAgentController(global_registry, emitter)
+        # Create sync agent controller with event store
+        agent = AgentController(global_registry, event_store)
 
-        # Execute goal with event emission and timeout
-        async with asyncio.timeout(600):  # 10 minute max execution time
-            result = await async_agent.execute_goal_async(goal, max_turns, execution_id)
+        # Execute goal with event emission
+        result = agent.execute_goal(goal, max_turns, execution_id)
 
-            if result.success:
-                await event_store.update_execution_status(execution_id, ExecutionStatus.COMPLETED)
-                print(f"✅ Agent execution {execution_id} completed successfully")
-            else:
-                await event_store.update_execution_status(execution_id, ExecutionStatus.FAILED)
-                print(f"⚠️  Agent execution {execution_id} failed")
-
-    except asyncio.TimeoutError:
-        print(f"⏰ Agent execution {execution_id} timed out (10 minutes)")
-        await event_store.emit_event(
-            execution_id, 0, EventType.EXECUTION_FAILED,
-            {"error": "Execution timeout (10 minutes)", "reason": "timeout"},
-            success=False
-        )
-        await event_store.update_execution_status(execution_id, ExecutionStatus.FAILED)
-
-    except asyncio.CancelledError:
-        print(f"🛑 Agent execution {execution_id} cancelled")
-        await event_store.update_execution_status(execution_id, ExecutionStatus.CANCELLED)
-        raise
+        if result.success:
+            event_store.update_status(execution_id, 'completed')
+            print(f"✅ Agent execution {execution_id} completed successfully")
+        else:
+            event_store.update_status(execution_id, 'failed')
+            print(f"⚠️  Agent execution {execution_id} failed")
 
     except Exception as e:
         print(f"❌ Agent execution {execution_id} crashed: {e}")
         import traceback
-        await event_store.emit_event(
-            execution_id, 0, EventType.EXECUTION_FAILED,
+        event_store.emit_event(
+            execution_id, 0, 'execution_failed',
             {"error": str(e), "traceback": traceback.format_exc()},
             success=False
         )
-        await event_store.update_execution_status(execution_id, ExecutionStatus.FAILED)
+        event_store.update_status(execution_id, 'failed')
 
 
 if __name__ == "__main__":

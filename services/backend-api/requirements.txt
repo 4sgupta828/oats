@@ -5,7 +5,7 @@ pydantic
 sse-starlette
 
 # Database
-asyncpg
+psycopg2-binary
 
 # Agent dependencies
 openai

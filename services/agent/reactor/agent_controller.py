@@ -56,8 +56,9 @@ class AgentController:
 
     _environment_setup_done = False
 
-    def __init__(self, registry: Registry):
+    def __init__(self, registry: Registry, event_store=None):
         self.registry = registry
+        self.event_store = event_store
         self.llm_client = OpenAIClientManager()
         self.tool_executor = ReActToolExecutor(registry)
         self.prompt_builder = ReActPromptBuilder()
@@ -67,18 +68,25 @@ class AgentController:
             self._setup_python_environment()
             AgentController._environment_setup_done = True
 
-    def execute_goal(self, goal: str, max_turns: Optional[int] = None) -> ReActResult:
+    def execute_goal(self, goal: str, max_turns: Optional[int] = None, execution_id: str = None) -> ReActResult:
         """
         Execute a goal using the ReAct framework.
 
         Args:
             goal: High-level user objective
             max_turns: Maximum number of turns to prevent infinite loops
+            execution_id: Optional execution ID for event tracking
 
         Returns:
             ReActResult with success status and final state
         """
         start_time = time.time()
+
+        # Create execution if event store available
+        if self.event_store and not execution_id:
+            execution_id = self.event_store.create_execution(goal)
+            self._emit(execution_id, 0, 'execution_started',
+                      {'goal': goal, 'max_turns': max_turns})
 
         UFFlowLogger.log_execution_start(
             "reactor",
@@ -107,15 +115,42 @@ class AgentController:
             # Main ReAct loop
             while state.turn_count < state.max_turns and not state.is_complete:
                 turn_start_time = time.time()
+                turn_number = state.turn_count + 1
 
                 try:
-                    logger.info(f"Starting turn {state.turn_count + 1}/{state.max_turns}")
+                    logger.info(f"Starting turn {turn_number}/{state.max_turns}")
+
+                    # ═══════════════════════════════════════════════════════
+                    # (a) TURN START - LLM INVOCATION
+                    # ═══════════════════════════════════════════════════════
+                    self._emit(execution_id, turn_number, 'turn_started', {})
+
+                    # Check for user feedback
+                    if self.event_store:
+                        feedback = self.event_store.check_feedback(execution_id, turn_number)
+                        if feedback:
+                            # (d) USER INTERVENTION
+                            self._emit(execution_id, turn_number,
+                                     'user_feedback_received', feedback)
+
+                            if feedback['feedback_type'] == 'interrupt':
+                                self._emit(execution_id, turn_number,
+                                         'user_interrupt', feedback)
+                                self.event_store.update_status(execution_id, 'paused')
+                                break
+
+                            # Handle other feedback types
+                            self._handle_feedback(state, feedback)
 
                     # A. Reason: Build prompt and get LLM response
                     messages = self.prompt_builder.build_messages_for_openai(state, available_tools)
 
                     # Generate JSON schema for structured output enforcement
                     json_schema = self._get_response_json_schema()
+
+                    # Call LLM
+                    self._emit(execution_id, turn_number, 'llm_called',
+                              {'messages_count': len(messages)})
 
                     raw_response = self.llm_client.create_completion_text(
                         messages=messages,
@@ -125,8 +160,45 @@ class AgentController:
                     # B. Reason: Parse the response
                     parsed_response = self._parse_llm_response(raw_response)
 
+                    # ═══════════════════════════════════════════════════════
+                    # (b) LLM RESPONSE PARSING
+                    # ═══════════════════════════════════════════════════════
+                    self._emit(execution_id, turn_number,
+                             'llm_response_success',
+                             {
+                                 'reflect': parsed_response.reflect.model_dump(),
+                                 'strategize': parsed_response.strategize.model_dump(),
+                                 'action': {
+                                     'tool': parsed_response.act.tool,
+                                     'params': parsed_response.act.params
+                                 }
+                             },
+                             success=True)
+
                     # B.1. Update state from response
                     state.state = parsed_response.state
+
+                    # ═══════════════════════════════════════════════════════
+                    # (e) LLM ESCALATION - Check if LLM needs user input
+                    # ═══════════════════════════════════════════════════════
+                    if self._llm_requests_input(parsed_response):
+                        self._emit(execution_id, turn_number,
+                                 'llm_requests_input',
+                                 {'request': self._extract_input_request(parsed_response)})
+                        if self.event_store:
+                            self.event_store.update_status(execution_id, 'paused')
+                        break
+
+                    if self._llm_requests_approval(parsed_response):
+                        self._emit(execution_id, turn_number,
+                                 'llm_requests_approval',
+                                 {
+                                     'action': parsed_response.act.tool,
+                                     'reason': 'Requires approval'
+                                 })
+                        if self.event_store:
+                            self.event_store.update_status(execution_id, 'paused')
+                        break
 
                     # C. Check for goal achievement
                     if parsed_response.is_finish:
@@ -154,10 +226,36 @@ class AgentController:
 
                         state.is_complete = True
                         state.completion_reason = completion_reason
+
+                        self._emit(execution_id, turn_number,
+                                 'execution_completed',
+                                 {'reason': completion_reason},
+                                 success=True)
                         break
+
+                    # ═══════════════════════════════════════════════════════
+                    # (c) TOOL EXECUTION
+                    # ═══════════════════════════════════════════════════════
+                    self._emit(execution_id, turn_number, 'tool_started',
+                              {
+                                  'tool': parsed_response.act.tool,
+                                  'params': parsed_response.act.params
+                              })
 
                     # D. Act: Execute the action
                     observation = self.tool_executor.execute_action(parsed_response.act.model_dump())
+
+                    # Determine success from observation
+                    tool_success = not observation.startswith("ERROR")
+
+                    self._emit(execution_id, turn_number,
+                             'tool_success' if tool_success else 'tool_failed',
+                             {
+                                 'tool': parsed_response.act.tool,
+                                 'observation': observation[:1000],  # Truncate for event log
+                                 'observation_length': len(observation)
+                             },
+                             success=tool_success)
 
                     # E. Observe & Update: Add to transcript
                     turn_duration = int((time.time() - turn_start_time) * 1000)
@@ -223,6 +321,18 @@ class AgentController:
 
             logger.info(f"ReAct execution completed: success={success}, turns={state.turn_count}")
 
+            # Update final status in event store
+            if self.event_store:
+                if not success:
+                    self._emit(execution_id, state.turn_count,
+                             'execution_failed',
+                             {'reason': 'Max turns reached' if state.turn_count >= state.max_turns else 'Interrupted'},
+                             success=False)
+
+                self.event_store.update_status(
+                    execution_id, 'completed' if success else 'failed'
+                )
+
             return ReActResult(
                 success=success,
                 state=state,
@@ -234,6 +344,14 @@ class AgentController:
             error_msg = f"Unexpected error during ReAct execution: {e}"
             logger.error(error_msg)
 
+            if self.event_store and execution_id:
+                import traceback
+                self._emit(execution_id, state.turn_count,
+                         'execution_failed',
+                         {'error': str(e), 'traceback': traceback.format_exc()},
+                         success=False)
+                self.event_store.update_status(execution_id, 'failed')
+
             UFFlowLogger.log_execution_end(
                 "reactor",
                 "execute_goal",
@@ -244,6 +362,47 @@ class AgentController:
             )
 
             return self._create_error_result(state, error_msg)
+
+    def _emit(self, execution_id: str, turn_number: int,
+              event_type: str, event_data: dict, success: bool = None):
+        """Helper to emit events (no-op if no event store)."""
+        if self.event_store and execution_id:
+            self.event_store.emit_event(
+                execution_id, turn_number, event_type, event_data, success
+            )
+
+    def _llm_requests_input(self, parsed_response) -> bool:
+        """Check if LLM is requesting user input."""
+        # Example: LLM uses special tool 'request_user_input'
+        return parsed_response.act.tool == 'request_user_input'
+
+    def _llm_requests_approval(self, parsed_response) -> bool:
+        """Check if LLM is requesting approval for risky action."""
+        # Example: Check if action has 'safe' field indicating approval needed
+        return (hasattr(parsed_response.act, 'safe') and
+                parsed_response.act.safe is not None and
+                'approval' in str(parsed_response.act.safe).lower())
+
+    def _extract_input_request(self, parsed_response) -> str:
+        """Extract what input LLM is requesting."""
+        return parsed_response.act.params.get('request', 'Input needed')
+
+    def _handle_feedback(self, state, feedback: dict):
+        """Incorporate user feedback into state."""
+        feedback_type = feedback['feedback_type']
+        feedback_data = feedback['feedback_data']
+
+        if feedback_type == 'input':
+            # Add user input as special observation
+            user_input = feedback_data.get('input', '')
+            # Will be picked up in next turn's prompt
+            if not hasattr(state, 'pending_user_input'):
+                state.pending_user_input = user_input
+
+        elif feedback_type == 'approval':
+            # User approved risky action
+            if not hasattr(state, 'user_approved_action'):
+                state.user_approved_action = feedback_data.get('action', '')
 
     def _save_final_results(self, state: ReActState, completion_reason: str) -> str:
         """Save final results to a file for complete output preservation."""
