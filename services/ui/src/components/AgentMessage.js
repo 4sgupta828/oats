@@ -3,8 +3,10 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ArtifactViewer from './ArtifactViewer';
 
-const AgentMessage = ({ message, backendUrl }) => {
+const AgentMessage = ({ message, backendUrl, onUserPromptResponse }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [promptResponse, setPromptResponse] = useState('');
+  const [isSubmittingPrompt, setIsSubmittingPrompt] = useState(false);
 
   const renderThought = () => (
     <div className="agent-section thought-section">
@@ -252,6 +254,60 @@ const AgentMessage = ({ message, backendUrl }) => {
     </div>
   );
 
+  const renderUserPrompt = () => {
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!promptResponse.trim() || isSubmittingPrompt) return;
+
+      setIsSubmittingPrompt(true);
+      try {
+        await onUserPromptResponse(message.turn, promptResponse.trim());
+        setPromptResponse('');
+      } catch (error) {
+        console.error('Failed to submit prompt response:', error);
+        alert('Failed to submit response: ' + error.message);
+      } finally {
+        setIsSubmittingPrompt(false);
+      }
+    };
+
+    return (
+      <div className="agent-section user-prompt-section">
+        <div className="section-header">
+          <span className="section-icon">❓</span>
+          <span className="section-title">Agent Needs Your Input</span>
+        </div>
+        <div className="section-content">
+          <div className="user-prompt-question">
+            <strong>Question:</strong>
+            <p>{message.question}</p>
+          </div>
+          <form onSubmit={handleSubmit} className="user-prompt-form">
+            <input
+              type="text"
+              value={promptResponse}
+              onChange={(e) => setPromptResponse(e.target.value)}
+              placeholder="Type your response here..."
+              disabled={isSubmittingPrompt}
+              className="user-prompt-input"
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={!promptResponse.trim() || isSubmittingPrompt}
+              className="user-prompt-submit"
+            >
+              {isSubmittingPrompt ? 'Sending...' : 'Submit'}
+            </button>
+          </form>
+          <div className="user-prompt-hint">
+            You can also type 'stop', 'cancel', 'skip', or 'abort' to control the agent.
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Route to the appropriate renderer based on message type
   switch (message.type) {
     case 'thought':
@@ -266,6 +322,8 @@ const AgentMessage = ({ message, backendUrl }) => {
       return renderStatus();
     case 'error':
       return renderError();
+    case 'user_prompt':
+      return renderUserPrompt();
     default:
       return renderUnknown();
   }

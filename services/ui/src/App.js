@@ -119,7 +119,18 @@ const formatSSEEvent = (event) => {
         content: `💬 Feedback: ${feedbackData.guidance || 'User provided guidance'}`
       };
 
+    case 'user_prompt_requested':
+      console.log('[DEBUG] user_prompt_requested event received:', event);
+      const formatted = {
+        type: 'user_prompt',
+        question: eventData.question || 'Please provide input',
+        turn: event.turn
+      };
+      console.log('[DEBUG] Formatted user_prompt message:', formatted);
+      return formatted;
+
     default:
+      console.log('[DEBUG] Unknown event type:', event.type);
       return null;
   }
 };
@@ -141,7 +152,9 @@ function App() {
     if (!sseHook.events) return;
 
     sseHook.events.forEach(event => {
+      console.log('[DEBUG] Processing event:', event.type, event);
       const formatted = formatSSEEvent(event);
+      console.log('[DEBUG] Formatted result:', formatted);
       if (formatted) {
         setMessages(prev => {
           // Avoid duplicates
@@ -149,7 +162,9 @@ function App() {
             msg.sender === 'agent' &&
             JSON.stringify(msg.data) === JSON.stringify(formatted)
           );
+          console.log('[DEBUG] Is duplicate?', isDuplicate);
           if (!isDuplicate) {
+            console.log('[DEBUG] Adding message to UI:', formatted);
             return [...prev, { sender: 'agent', data: formatted }];
           }
           return prev;
@@ -193,6 +208,41 @@ function App() {
     }
   };
 
+  const handleUserPromptResponse = async (turnNumber, response) => {
+    if (!sseHook.executionId) {
+      throw new Error('No active execution');
+    }
+
+    try {
+      const apiUrl = `${backendUrl}/api/v1/executions/${sseHook.executionId}/feedback`;
+      const requestBody = {
+        turn_number: turnNumber,
+        interrupt_type: 'user_prompt_response',
+        message: response
+      };
+
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || `HTTP ${res.status}`);
+      }
+
+      // Add user response message to UI
+      setMessages(prev => [...prev, {
+        sender: 'user',
+        text: `💬 Response: ${response}`
+      }]);
+    } catch (error) {
+      console.error('Failed to submit user prompt response:', error);
+      throw error;
+    }
+  };
+
   return (
     <div className="App">
       <header className="App-header">
@@ -216,7 +266,11 @@ function App() {
             {msg.sender === 'user' ? (
               <div className="user-message-content">{msg.text}</div>
             ) : (
-              <AgentMessage message={msg.data} backendUrl={backendUrl} />
+              <AgentMessage
+                message={msg.data}
+                backendUrl={backendUrl}
+                onUserPromptResponse={handleUserPromptResponse}
+              />
             )}
           </div>
         ))}

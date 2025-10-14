@@ -296,7 +296,7 @@ def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
 
     try:
         # Validate interrupt type
-        valid_types = ['feedback', 'pause', 'stop', 'interrupt', 'input', 'approval']  # Include legacy types
+        valid_types = ['feedback', 'pause', 'stop', 'interrupt', 'input', 'approval', 'user_prompt_response']  # Include user_prompt_response
         if feedback.interrupt_type not in valid_types:
             raise HTTPException(400, f"Invalid interrupt_type. Must be one of: {valid_types}")
 
@@ -306,7 +306,13 @@ def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
             interrupt_type = 'pause'
 
         # Prepare feedback data
-        feedback_data = {"message": feedback.message} if feedback.message else {}
+        feedback_data = {}
+        if feedback.message:
+            # For user_prompt_response, store the message as 'response'
+            if interrupt_type == 'user_prompt_response':
+                feedback_data = {"response": feedback.message}
+            else:
+                feedback_data = {"message": feedback.message}
 
         # Submit feedback
         event_store.submit_feedback(

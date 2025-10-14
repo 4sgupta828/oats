@@ -22,8 +22,11 @@ LARGE_OUTPUT_CHAR_THRESHOLD = 2000
 class ReActToolExecutor:
     """Executes tools for ReAct agent with simplified interface."""
 
-    def __init__(self, registry: Registry):
+    def __init__(self, registry: Registry, event_store=None):
         self.registry = registry
+        self.event_store = event_store
+        self.execution_id = None
+        self.turn_number = 0
         self._last_full_stdout = None  # Store full stdout for final result extraction
         # Create temp directory inside repo to adhere to workspace security rules
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,6 +34,11 @@ class ReActToolExecutor:
         os.makedirs(temp_base, exist_ok=True)
         self._temp_dir = tempfile.mkdtemp(prefix="observations_", dir=temp_base)
         logger.info(f"Initialized observation temp directory: {self._temp_dir}")
+
+    def set_execution_context(self, execution_id: str, turn_number: int):
+        """Set execution context for tools that need it."""
+        self.execution_id = execution_id
+        self.turn_number = turn_number
 
     def execute_action(self, action: Dict[str, Any]) -> str:
         """
@@ -51,6 +59,19 @@ class ReActToolExecutor:
             parameters = action.get("params") or action.get("parameters", {})
 
             logger.info(f"Executing action: {tool_name} with params: {parameters}")
+
+            # Set execution context for tools that need it (like user_prompt)
+            from core.sdk import set_execution_context
+            logger.info(f"[DEBUG] Tool executor: event_store={self.event_store is not None}, execution_id={self.execution_id}, turn={self.turn_number}")
+            if self.event_store and self.execution_id:
+                logger.info(f"[DEBUG] Setting execution context for tool {tool_name}")
+                set_execution_context({
+                    'event_store': self.event_store,
+                    'execution_id': self.execution_id,
+                    'turn_number': self.turn_number
+                })
+            else:
+                logger.warning(f"[DEBUG] No execution context to set - falling back to CLI for tool {tool_name}")
 
             # Python environment setup now handled at agent startup
 

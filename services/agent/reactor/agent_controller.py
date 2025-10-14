@@ -60,7 +60,7 @@ class AgentController:
         self.registry = registry
         self.event_store = event_store
         self.llm_client = OpenAIClientManager()
-        self.tool_executor = ReActToolExecutor(registry)
+        self.tool_executor = ReActToolExecutor(registry, event_store)
         self.prompt_builder = ReActPromptBuilder()
 
         # Setup Python environment at startup (only once)
@@ -273,7 +273,9 @@ class AgentController:
                                   'params': parsed_response.act.params
                               })
 
-                    # D. Act: Execute the action
+                    # D. Act: Execute the action with execution context
+                    # Set execution context for tools that need it (like user_prompt)
+                    self.tool_executor.set_execution_context(execution_id, turn_number)
                     observation = self.tool_executor.execute_action(parsed_response.act.model_dump())
 
                     # Determine success from observation

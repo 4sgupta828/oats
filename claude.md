@@ -1,1 +1,0 @@
-DO NOT Create a summary document everytime. Only when I ask for it.

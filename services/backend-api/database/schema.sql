@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS user_feedback (
     feedback_data JSONB NOT NULL DEFAULT '{}'::jsonb,
     processed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT valid_feedback_type CHECK (feedback_type IN ('interrupt', 'input', 'approval'))
+    CONSTRAINT valid_feedback_type CHECK (feedback_type IN ('feedback', 'pause', 'stop', 'interrupt', 'input', 'approval', 'user_prompt_response'))
 );
 
 -- Indexes for performance

@@ -499,3 +499,96 @@
 .feedback-button:hover {
   background-color: #6d28d9 !important;
 }
+
+/* User Prompt Section */
+.user-prompt-section {
+  background-color: #3a2d2a;
+  border-left: 3px solid #f59e0b;
+}
+
+.user-prompt-section .section-header {
+  background-color: #2a1f1f;
+  color: #fbbf24;
+}
+
+.user-prompt-question {
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: rgba(245, 158, 11, 0.1);
+  border-radius: 4px;
+  border-left: 3px solid #f59e0b;
+}
+
+.user-prompt-question strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #fbbf24;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.user-prompt-question p {
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.user-prompt-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.user-prompt-input {
+  flex-grow: 1;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.user-prompt-input:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.user-prompt-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.user-prompt-submit {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background-color: #f59e0b;
+  color: #1e1e1e;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.user-prompt-submit:hover:not(:disabled) {
+  background-color: #d97706;
+}
+
+.user-prompt-submit:disabled {
+  background-color: var(--background-tertiary);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.user-prompt-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 8px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}

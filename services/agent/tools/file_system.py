@@ -341,59 +341,155 @@ def file_exists(inputs: FileExistsInput) -> dict:
 @uf(name="user_prompt", version="1.0.0", description="Prompts the user for input, advice, or feedback when the agent needs clarification or guidance.")
 def user_prompt(inputs: UserPromptInput) -> dict:
     """Prompts the user with a question and returns their response with flow control info."""
-    print(f"\n🤖 Agent Question: {inputs.question}")
-    print("👤 Please provide your response (or type 'stop', 'cancel', 'skip', 'abort'):")
+    import time
+
+    # Try to get event_store from thread-local storage or global context
+    event_store = None
+    execution_id = None
+    turn_number = 0
 
     try:
-        user_response = input("> ").strip()
+        # Attempt to get event store from the execution context
+        from core.sdk import get_execution_context
+        context = get_execution_context()
+        print(f"[DEBUG] user_prompt: Got context: {context}")
+        if context:
+            event_store = context.get('event_store')
+            execution_id = context.get('execution_id')
+            turn_number = context.get('turn_number', 0)
+            print(f"[DEBUG] user_prompt: event_store={event_store is not None}, execution_id={execution_id}, turn_number={turn_number}")
+    except Exception as e:
+        print(f"[DEBUG] user_prompt: Failed to get context: {e}")
 
-        # Handle special control commands
-        control_commands = {
-            'stop', 'cancel', 'abort', 'quit', 'exit', 'halt'
+    # If we have event store, use event-driven flow (for UI)
+    if event_store and execution_id:
+        print(f"[DEBUG] user_prompt: Using event-driven flow")
+        print(f"\n🤖 Agent Question: {inputs.question}")
+        print("👤 Waiting for user response via UI...")
+
+        # Emit event that user prompt is needed
+        event_store.emit_event(
+            execution_id,
+            turn_number,
+            'user_prompt_requested',
+            {'question': inputs.question},
+            success=None
+        )
+
+        # Poll for user response (check feedback table)
+        max_wait_seconds = 300  # 5 minutes timeout
+        poll_interval = 0.5  # Check every 500ms
+        waited = 0
+
+        while waited < max_wait_seconds:
+            # Check for user response via feedback mechanism
+            feedback = event_store.check_feedback(execution_id, turn_number)
+
+            if feedback and feedback.get('feedback_type') == 'user_prompt_response':
+                feedback_data = feedback.get('feedback_data', {})
+                user_response = feedback_data.get('response', '')
+
+                print(f"👤 User responded: {user_response}")
+
+                # Handle special control commands
+                control_commands = {'stop', 'cancel', 'abort', 'quit', 'exit', 'halt'}
+                skip_commands = {'skip', 'next', 'continue', 'pass'}
+                response_lower = user_response.lower()
+
+                if response_lower in control_commands:
+                    return {
+                        "response": user_response,
+                        "action": "stop",
+                        "message": f"User requested to {response_lower} the operation"
+                    }
+                elif response_lower in skip_commands:
+                    return {
+                        "response": user_response,
+                        "action": "skip",
+                        "message": f"User requested to {response_lower} this step"
+                    }
+                else:
+                    return {
+                        "response": user_response,
+                        "action": "continue",
+                        "message": "Normal user response"
+                    }
+
+            # Check if execution was aborted
+            if event_store.check_abort_flag(execution_id):
+                print("\n🛑 Execution aborted while waiting for user input")
+                return {
+                    "response": "",
+                    "action": "abort",
+                    "message": "Execution aborted"
+                }
+
+            time.sleep(poll_interval)
+            waited += poll_interval
+
+        # Timeout
+        print("\n⏰ Timeout waiting for user response")
+        return {
+            "response": "",
+            "action": "skip",
+            "message": "Timeout waiting for user response"
         }
 
-        skip_commands = {
-            'skip', 'next', 'continue', 'pass'
-        }
+    # Fallback to CLI input (for direct CLI usage)
+    else:
+        print(f"\n🤖 Agent Question: {inputs.question}")
+        print("👤 Please provide your response (or type 'stop', 'cancel', 'skip', 'abort'):")
 
-        response_lower = user_response.lower()
+        try:
+            user_response = input("> ").strip()
 
-        if response_lower in control_commands:
-            print(f"User requested to {response_lower}. Stopping current operation.")
-            return {
-                "response": user_response,
-                "action": "stop",
-                "message": f"User requested to {response_lower} the operation"
+            # Handle special control commands
+            control_commands = {
+                'stop', 'cancel', 'abort', 'quit', 'exit', 'halt'
             }
-        elif response_lower in skip_commands:
-            print(f"User requested to {response_lower}. Skipping current step.")
-            return {
-                "response": user_response,
-                "action": "skip",
-                "message": f"User requested to {response_lower} this step"
+
+            skip_commands = {
+                'skip', 'next', 'continue', 'pass'
             }
-        else:
-            print(f"User responded: {user_response}")
+
+            response_lower = user_response.lower()
+
+            if response_lower in control_commands:
+                print(f"User requested to {response_lower}. Stopping current operation.")
+                return {
+                    "response": user_response,
+                    "action": "stop",
+                    "message": f"User requested to {response_lower} the operation"
+                }
+            elif response_lower in skip_commands:
+                print(f"User requested to {response_lower}. Skipping current step.")
+                return {
+                    "response": user_response,
+                    "action": "skip",
+                    "message": f"User requested to {response_lower} this step"
+                }
+            else:
+                print(f"User responded: {user_response}")
+                return {
+                    "response": user_response,
+                    "action": "continue",
+                    "message": "Normal user response"
+                }
+
+        except KeyboardInterrupt:
+            print("\n🛑 User interrupted with Ctrl+C")
             return {
-                "response": user_response,
+                "response": "",
+                "action": "abort",
+                "message": "User interrupted with Ctrl+C"
+            }
+        except EOFError:
+            print("\n📝 No response provided (EOF)")
+            return {
+                "response": "",
                 "action": "continue",
-                "message": "Normal user response"
+                "message": "No response provided"
             }
-
-    except KeyboardInterrupt:
-        print("\n🛑 User interrupted with Ctrl+C")
-        return {
-            "response": "",
-            "action": "abort",
-            "message": "User interrupted with Ctrl+C"
-        }
-    except EOFError:
-        print("\n📝 No response provided (EOF)")
-        return {
-            "response": "",
-            "action": "continue",
-            "message": "No response provided"
-        }
 
 @uf(
     name="edit_file",

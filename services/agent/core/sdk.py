@@ -1,8 +1,9 @@
 # uf_flow/core/sdk.py
 
-from typing import Callable, Type, Any
-from pydantic import BaseModel, create_model
+from typing import Callable, Type, Any, Optional, Dict
+from pydantic import BaseModel
 import inspect
+import threading
 
 from .models import UFDescriptor, InputResolver, Invocation
 from .logging_config import get_logger
@@ -11,6 +12,22 @@ logger = get_logger('sdk')
 
 # A clear alias for developers to use as a base class for their input schemas.
 UfInput = BaseModel
+
+# Thread-local storage for execution context
+_execution_context = threading.local()
+
+def set_execution_context(context: Dict[str, Any]):
+    """Set execution context for the current thread."""
+    _execution_context.data = context
+
+def get_execution_context() -> Optional[Dict[str, Any]]:
+    """Get execution context for the current thread."""
+    return getattr(_execution_context, 'data', None)
+
+def clear_execution_context():
+    """Clear execution context for the current thread."""
+    if hasattr(_execution_context, 'data'):
+        delattr(_execution_context, 'data')
 
 def uf(
     name: str,

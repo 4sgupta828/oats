@@ -82,7 +82,9 @@ export function useSSE(backendUrl) {
       'interrupt_received',
       'feedback_injected',
       'llm_requests_input',
-      'llm_requests_approval'
+      'llm_requests_approval',
+      'user_prompt_requested',
+      'user_feedback_received'
     ];
 
     eventTypes.forEach(eventType => {
