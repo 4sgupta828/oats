@@ -3,6 +3,10 @@ uvicorn[standard]
 kubernetes
 pydantic
 python-socketio
+sse-starlette
+
+# Database
+asyncpg
 
 # Agent dependencies
 openai

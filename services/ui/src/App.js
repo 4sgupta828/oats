@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import './App.css';
 import AgentMessage from './components/AgentMessage';
+import { useSSE } from './hooks/useSSE';
+
+// Feature detection: Use SSE if backend supports it, fallback to WebSocket
+const USE_SSE = process.env.REACT_APP_USE_SSE === 'true';
 
 const formatAgentPayload = (message) => {
   try {
@@ -43,6 +47,62 @@ const formatAgentPayload = (message) => {
   }
 };
 
+// Format SSE events to match WebSocket format
+const formatSSEEvent = (event) => {
+  const eventData = event.data || {};
+
+  switch (event.type) {
+    case 'turn_started':
+      return { type: 'status', content: `Starting turn ${event.turn}...` };
+
+    case 'llm_called':
+      return { type: 'status', content: 'AI is reasoning...' };
+
+    case 'llm_response_success':
+      const strategize = eventData.strategize || {};
+      return {
+        type: 'thought',
+        content: strategize.reasoning || 'AI completed reasoning'
+      };
+
+    case 'tool_started':
+      return {
+        type: 'action',
+        tool: eventData.tool_name,
+        params: eventData.parameters
+      };
+
+    case 'tool_success':
+      return {
+        type: 'observation',
+        content: eventData.observation || 'Tool executed successfully',
+        isLarge: eventData.observation_length > 1000
+      };
+
+    case 'tool_failed':
+      return {
+        type: 'error',
+        content: `Tool failed: ${eventData.error_message}`
+      };
+
+    case 'execution_completed':
+      return {
+        type: 'finish',
+        summary: eventData.completion_reason || 'Goal completed',
+        turnsCompleted: eventData.turns_completed
+      };
+
+    case 'execution_failed':
+      return {
+        type: 'error',
+        content: `Execution failed: ${eventData.reason || eventData.error}`
+      };
+
+    default:
+      return null;
+  }
+};
+
 function App() {
   const [goal, setGoal] = useState('');
   const [messages, setMessages] = useState([]);
@@ -51,10 +111,49 @@ function App() {
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
 
+  // Get backend URL from environment variable
+  const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+
+  // Use SSE hook if enabled
+  const sseHook = useSSE(USE_SSE ? backendUrl : null);
+
+  // Process SSE events
   useEffect(() => {
-    // Connect directly to backend LoadBalancer
-    // Get backend URL from environment variable injected at build time
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://a19ebab9dc68f476bb249e3a2e3af44d-1020250872.us-west-2.elb.amazonaws.com:8000';
+    if (!USE_SSE || !sseHook.events) return;
+
+    sseHook.events.forEach(event => {
+      const formatted = formatSSEEvent(event);
+      if (formatted) {
+        setMessages(prev => {
+          // Avoid duplicates
+          const isDuplicate = prev.some(msg =>
+            msg.sender === 'agent' &&
+            JSON.stringify(msg.data) === JSON.stringify(formatted)
+          );
+          if (!isDuplicate) {
+            return [...prev, { sender: 'agent', data: formatted }];
+          }
+          return prev;
+        });
+      }
+    });
+  }, [sseHook.events]);
+
+  // Update connection status from SSE
+  useEffect(() => {
+    if (USE_SSE) {
+      setIsConnected(sseHook.isConnected);
+      setIsInvestigating(sseHook.isExecuting);
+    }
+  }, [sseHook.isConnected, sseHook.isExecuting]);
+
+  useEffect(() => {
+    // Skip WebSocket setup if using SSE
+    if (USE_SSE) {
+      setIsConnected(true);
+      return;
+    }
+
     console.log('Connecting to backend:', backendUrl);
 
     const socket = io(backendUrl, {
@@ -133,13 +232,28 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!goal.trim() || !isConnected || isInvestigating) return;
+
     setMessages([{ sender: 'user', text: goal }]);
-    setIsInvestigating(true);
-    socketRef.current.emit('start_investigation', { goal });
     setGoal('');
+
+    if (USE_SSE) {
+      // Use SSE
+      try {
+        await sseHook.startExecution(goal.trim());
+      } catch (error) {
+        setMessages(prev => [...prev, {
+          sender: 'agent',
+          data: { type: 'error', content: `Failed to start execution: ${error.message}` }
+        }]);
+      }
+    } else {
+      // Use WebSocket
+      setIsInvestigating(true);
+      socketRef.current.emit('start_investigation', { goal });
+    }
   };
 
   return (
@@ -151,6 +265,8 @@ function App() {
         </div>
         <div className={`connection-status ${isConnected ? 'connected' : ''}`}>
           {isConnected ? '● Connected' : '○ Disconnected'}
+          {USE_SSE && <span className="transport-type"> (SSE)</span>}
+          {!USE_SSE && <span className="transport-type"> (WebSocket)</span>}
         </div>
       </header>
       <div className="message-container">
