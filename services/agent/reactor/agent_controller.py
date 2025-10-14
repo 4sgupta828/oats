@@ -279,6 +279,9 @@ class AgentController:
                     # Determine success from observation
                     tool_success = not observation.startswith("ERROR")
 
+                    # Extract artifact path if present (from large output)
+                    artifact_path = self._extract_artifact_path(observation)
+
                     # Store complete tool output with intelligent truncation
                     tool_event_data = {
                         'tool': parsed_response.act.tool,
@@ -287,6 +290,11 @@ class AgentController:
                         'observation_truncated': len(observation) > 3000,
                         'tool_params': parsed_response.act.params
                     }
+
+                    # Add artifact information if available
+                    if artifact_path:
+                        tool_event_data['artifact_path'] = artifact_path
+                        tool_event_data['artifact_type'] = self._detect_artifact_type(artifact_path)
 
                     self._emit(execution_id, turn_number,
                              'tool_success' if tool_success else 'tool_failed',
@@ -1169,6 +1177,55 @@ class AgentController:
             logger.error(f"Failed to create virtual environment: {e}")
 
         return False
+
+    def _extract_artifact_path(self, observation: str) -> Optional[str]:
+        """Extract artifact file path from observation if present."""
+        # Look for the pattern "Full output saved to: /path/to/file"
+        import re
+        match = re.search(r'Full output saved to:\s*([^\s\n]+)', observation)
+        if match:
+            full_path = match.group(1)
+            # Extract relative path from temp directory
+            if '.ufflow_temp' in full_path:
+                parts = full_path.split('.ufflow_temp/')
+                if len(parts) > 1:
+                    return parts[1]  # Return relative path
+        return None
+
+    def _detect_artifact_type(self, artifact_path: str) -> str:
+        """Detect artifact type from file path/extension."""
+        if not artifact_path:
+            return 'text'
+
+        # Extract extension
+        _, ext = os.path.splitext(artifact_path.lower())
+
+        # Map extensions to types
+        type_map = {
+            '.json': 'json',
+            '.log': 'logs',
+            '.txt': 'text',
+            '.md': 'markdown',
+            '.csv': 'table',
+            '.yaml': 'yaml',
+            '.yml': 'yaml',
+            '.xml': 'xml',
+            '.html': 'html'
+        }
+
+        # Check for code file extensions
+        code_exts = {'.py', '.js', '.ts', '.java', '.go', '.rs', '.cpp', '.c', '.rb', '.php'}
+        if ext in code_exts:
+            return 'code'
+
+        # Check for trace/metric patterns in filename
+        filename_lower = artifact_path.lower()
+        if 'trace' in filename_lower or 'span' in filename_lower:
+            return 'traces'
+        if 'metric' in filename_lower or 'stats' in filename_lower:
+            return 'metrics'
+
+        return type_map.get(ext, 'text')
 
     def _create_error_result(self, state: ReActState, error_message: str) -> ReActResult:
         """Create error result for failed executions."""

@@ -1,0 +1,251 @@
+.artifact-viewer {
+  margin: 12px 0;
+}
+
+.artifact-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #2a2a3e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.artifact-toggle:hover {
+  background: #343450;
+  border-color: #555;
+}
+
+.artifact-toggle-icon {
+  font-size: 0.85rem;
+  color: #888;
+  min-width: 16px;
+}
+
+.artifact-label {
+  flex: 1;
+  font-weight: 500;
+}
+
+.artifact-type-badge {
+  padding: 3px 8px;
+  background: #444;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.artifact-panel {
+  margin-top: 8px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #1e1e2e;
+  overflow: hidden;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.artifact-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #252535;
+  border-bottom: 1px solid #444;
+}
+
+.artifact-path {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.artifact-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.artifact-close:hover {
+  background: #444;
+  color: #fff;
+}
+
+.artifact-content {
+  max-height: 600px;
+  overflow: auto;
+}
+
+.artifact-text {
+  margin: 0;
+  padding: 16px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  color: #e0e0e0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: #1e1e2e;
+  max-height: 600px;
+  overflow: auto;
+}
+
+.artifact-markdown {
+  padding: 16px;
+  color: #e0e0e0;
+  line-height: 1.6;
+}
+
+.artifact-markdown pre {
+  background: #252535;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.artifact-logs {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  padding: 8px 0;
+}
+
+.log-line {
+  padding: 4px 16px;
+  border-left: 3px solid transparent;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.log-error {
+  background: rgba(255, 59, 48, 0.1);
+  border-left-color: #ff3b30;
+  color: #ffaaaa;
+}
+
+.log-warning {
+  background: rgba(255, 204, 0, 0.1);
+  border-left-color: #ffcc00;
+  color: #ffd966;
+}
+
+.log-info {
+  background: rgba(50, 173, 230, 0.1);
+  border-left-color: #32ade6;
+  color: #88d5f0;
+}
+
+.log-debug {
+  background: rgba(142, 142, 147, 0.1);
+  border-left-color: #8e8e93;
+  color: #c0c0c0;
+}
+
+.log-default {
+  color: #d0d0d0;
+}
+
+.artifact-metrics table,
+.artifact-table table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px;
+}
+
+.artifact-metrics th,
+.artifact-metrics td,
+.artifact-table th,
+.artifact-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #444;
+}
+
+.artifact-metrics th,
+.artifact-table th {
+  background: #252535;
+  color: #aaa;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+}
+
+.artifact-metrics td,
+.artifact-table td {
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.artifact-metrics tr:hover,
+.artifact-table tr:hover {
+  background: #252535;
+}
+
+.artifact-loading,
+.artifact-error,
+.artifact-empty {
+  padding: 32px;
+  text-align: center;
+  color: #888;
+  font-style: italic;
+}
+
+.artifact-error {
+  color: #ff6b6b;
+}
+
+.artifact-traces {
+  padding: 0;
+}
+
+/* Scrollbar styling */
+.artifact-content::-webkit-scrollbar,
+.artifact-text::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.artifact-content::-webkit-scrollbar-track,
+.artifact-text::-webkit-scrollbar-track {
+  background: #1e1e2e;
+}
+
+.artifact-content::-webkit-scrollbar-thumb,
+.artifact-text::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+.artifact-content::-webkit-scrollbar-thumb:hover,
+.artifact-text::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ArtifactViewer from './ArtifactViewer';
 
-const AgentMessage = ({ message }) => {
+const AgentMessage = ({ message, backendUrl }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const renderThought = () => (
@@ -181,6 +182,15 @@ const AgentMessage = ({ message }) => {
             >
               {isExpanded ? '▲ Show Less' : '▼ Show More'}
             </button>
+          )}
+
+          {/* Show artifact viewer if artifact is available */}
+          {message.artifactPath && (
+            <ArtifactViewer
+              artifactPath={message.artifactPath}
+              artifactType={message.artifactType || 'text'}
+              backendUrl={backendUrl}
+            />
           )}
         </div>
       </div>

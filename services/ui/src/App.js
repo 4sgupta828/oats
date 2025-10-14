@@ -53,7 +53,9 @@ const formatSSEEvent = (event) => {
         content: eventData.observation || 'Tool executed successfully',
         isLarge: eventData.observation_length > 1000,
         isTruncated: eventData.observation_truncated,
-        fullLength: eventData.observation_length
+        fullLength: eventData.observation_length,
+        artifactPath: eventData.artifact_path,
+        artifactType: eventData.artifact_type
       };
 
     case 'tool_failed':
@@ -61,7 +63,9 @@ const formatSSEEvent = (event) => {
         type: 'error',
         content: `❌ Tool '${eventData.tool}' failed:\n${eventData.observation || eventData.error_message || 'Unknown error'}`,
         isTruncated: eventData.observation_truncated,
-        fullLength: eventData.observation_length
+        fullLength: eventData.observation_length,
+        artifactPath: eventData.artifact_path,
+        artifactType: eventData.artifact_type
       };
 
     case 'execution_completed':
@@ -212,7 +216,7 @@ function App() {
             {msg.sender === 'user' ? (
               <div className="user-message-content">{msg.text}</div>
             ) : (
-              <AgentMessage message={msg.data} />
+              <AgentMessage message={msg.data} backendUrl={backendUrl} />
             )}
           </div>
         ))}
