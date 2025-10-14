@@ -638,20 +638,23 @@ head -50 /tmp/results.json | jq '.[] | select(.severity=="high")'
 
 ---
 
-### Virtual Environment Execution
+### Virtual Environment & Package Management
 
 **Critical:** Each shell command runs in fresh session. `source` doesn't persist.
 
-**Solution:** Use direct paths
+**Principle:** Always invoke Python and pip as modules (`python3 -m`), never as standalone commands.
+
 ```bash
 # ✅ Correct
-venv/bin/python3 script.py
-venv/bin/pip install requests
+python3 -m pip install faker && python3 script.py
+python3 -m venv venv && venv/bin/python3 -m pip install requests
 
 # ❌ Wrong
-source venv/bin/activate
-python script.py  # Fails - new session
+pip install faker && python3 script.py           # Which pip? May use wrong interpreter
+source venv/bin/activate && python script.py    # Session doesn't persist
 ```
+
+**Why:** `python3 -m pip` guarantees pip matches the Python interpreter. Bare `pip` may use system pip while `python3` uses venv, causing package mismatches.
 
 ---
 

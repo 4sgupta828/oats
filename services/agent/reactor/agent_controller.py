@@ -8,15 +8,15 @@ import re
 import hashlib
 import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Union
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from typing import Dict, Any, List, Optional
+from pydantic import BaseModel, Field, field_validator
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.logging_config import get_logger, UFFlowLogger
 from core.config import config
 from registry.main import Registry
 from core.llm import OpenAIClientManager
-from reactor.models import ReActState, ReActResult, TranscriptEntry, ParsedLLMResponse
+from reactor.models import ReActState, ReActResult, ParsedLLMResponse
 from reactor.prompt_builder import ReActPromptBuilder
 from reactor.tool_executor import ReActToolExecutor
 
@@ -323,7 +323,7 @@ class AgentController:
                     logger.error(f"Error in turn {state.turn_count + 1}: {e}")
 
                     # Add error observation to transcript
-                    from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis, State
+                    from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis
                     error_entry = TranscriptEntry(
                         turn=state.turn_count + 1,
                         reflect=ReflectSection(
@@ -619,6 +619,10 @@ class AgentController:
 
             # Validate and create ParsedLLMResponse
             from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis
+
+            # Handle wrapped response format (if LLM returns {"response": {...}})
+            if "response" in response_data and isinstance(response_data["response"], dict):
+                response_data = response_data["response"]
 
             reflect = ReflectSection(**response_data.get("reflect", {}))
 
@@ -1182,6 +1186,8 @@ class AgentController:
         """Extract artifact file path from observation if present."""
         # Look for the pattern "Full output saved to: /path/to/file"
         import re
+
+        # Pattern 1: Large output saved to temp file
         match = re.search(r'Full output saved to:\s*([^\s\n]+)', observation)
         if match:
             full_path = match.group(1)
@@ -1190,6 +1196,12 @@ class AgentController:
                 parts = full_path.split('.ufflow_temp/')
                 if len(parts) > 1:
                     return parts[1]  # Return relative path
+
+        # Pattern 2: File created/modified (from create_file, write_file, edit_file)
+        match = re.search(r'Artifact available:\s*([^\s\n]+)', observation)
+        if match:
+            return match.group(1).strip()
+
         return None
 
     def _detect_artifact_type(self, artifact_path: str) -> str:

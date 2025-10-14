@@ -383,17 +383,28 @@ def get_artifact(file_path: str):
     from fastapi.responses import FileResponse
 
     try:
-        # Security: Ensure file is within the agent's temp directory
-        # Get the agent temp directory path
-        agent_temp_base = agent_path / ".ufflow_temp"
+        resolved_path = None
 
-        # Resolve the requested file path
-        requested_file = agent_temp_base / file_path
-        resolved_path = requested_file.resolve()
+        # Check if this is a temp file (observations_xxx/) or a regular workspace file
+        if file_path.startswith('observations_'):
+            # This is a temp file from large output
+            agent_temp_base = agent_path / ".ufflow_temp"
+            requested_file = agent_temp_base / file_path
+            resolved_path = requested_file.resolve()
 
-        # Security check: Ensure resolved path is within temp directory
-        if not str(resolved_path).startswith(str(agent_temp_base.resolve())):
-            raise HTTPException(403, "Access denied: File path outside artifact directory")
+            # Security check: Ensure resolved path is within temp directory
+            if not str(resolved_path).startswith(str(agent_temp_base.resolve())):
+                raise HTTPException(403, "Access denied: File path outside artifact directory")
+        else:
+            # This is a regular workspace file (from create_file, write_file, etc.)
+            # Resolve relative to agent's parent directory (repo root)
+            workspace_root = agent_path.parent.parent
+            requested_file = workspace_root / file_path
+            resolved_path = requested_file.resolve()
+
+            # Security check: Ensure resolved path is within workspace
+            if not str(resolved_path).startswith(str(workspace_root.resolve())):
+                raise HTTPException(403, "Access denied: File path outside workspace")
 
         # Check if file exists
         if not resolved_path.exists():

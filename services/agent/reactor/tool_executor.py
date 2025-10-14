@@ -77,8 +77,8 @@ class ReActToolExecutor:
             # Execute tool using existing infrastructure
             result = execute_tool(uf_descriptor, parameters)
 
-            # Format observation
-            observation = self._format_observation(tool_name, result)
+            # Format observation (pass parameters for read_file artifact handling)
+            observation = self._format_observation(tool_name, result, parameters)
 
             duration = time.time() - start_time
             logger.info(f"Tool execution completed in {duration:.2f}s with status: {result.status}")
@@ -192,7 +192,7 @@ class ReActToolExecutor:
             logger.error(f"Error resolving tool '{tool_name}': {e}")
             return None
 
-    def _format_observation(self, tool_name: str, result: ToolResult) -> str:
+    def _format_observation(self, tool_name: str, result: ToolResult, parameters: Optional[Dict[str, Any]] = None) -> str:
         """Format tool result into observation string using 3-layer funnel."""
 
         if result.status == "failure":
@@ -216,8 +216,16 @@ class ReActToolExecutor:
         if result.output is not None:
             # Handle different output types
             if isinstance(result.output, dict):
-                # For structured output (usually from execute_shell)
+                # For structured output (usually from execute_shell or file operations)
                 key_info = []
+
+                # Special handling for file operations - add artifact reference
+                if tool_name in ['create_file', 'write_file', 'edit_file'] and 'filepath' in result.output:
+                    filepath = result.output.get('filepath', '')
+                    # Add artifact marker for created/modified files
+                    key_info.append(f"📄 File created/modified: {filepath}")
+                    key_info.append(f"  - Artifact available: {filepath}")
+
                 for key, value in result.output.items():
                     if key == "stdout" and isinstance(value, str):
                         # Store full stdout for final result extraction
@@ -248,6 +256,14 @@ class ReActToolExecutor:
 
             elif isinstance(result.output, str):
                 # For string output (search results, file contents, etc.)
+
+                # Special handling for read_file - add artifact reference from parameters
+                if tool_name == 'read_file' and parameters and 'filename' in parameters:
+                    filename = parameters['filename']
+                    observation_parts.append(f"📄 File read: {filename}")
+                    observation_parts.append(f"  - Artifact available: {filename}")
+                    observation_parts.append("")  # Empty line for separation
+
                 if self._is_large_output(result.output):
                     # LAYER 1: Save to file
                     saved_path = self._save_large_output_to_file(result.output, tool_name)
