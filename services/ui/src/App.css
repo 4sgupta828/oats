@@ -47,6 +47,28 @@
   color: #4caf50; /* Green for connected */
 }
 
+/* Reconnect Banner */
+.reconnect-banner {
+  background-color: #2563eb;
+  color: white;
+  padding: 12px 25px;
+  text-align: center;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #1d4ed8;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* --- Message Area --- */
 .message-container {
   flex-grow: 1;

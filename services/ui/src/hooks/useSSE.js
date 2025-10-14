@@ -4,12 +4,33 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  * Hook for Server-Sent Events streaming
  */
 export function useSSE(backendUrl) {
-  const [executionId, setExecutionId] = useState(null);
+  // Persist execution ID in localStorage for reconnection after refresh
+  const [executionId, setExecutionId] = useState(() => {
+    return localStorage.getItem('oats_execution_id') || null;
+  });
+
   const [events, setEvents] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(() => {
+    return localStorage.getItem('oats_is_executing') === 'true';
+  });
+
   const eventSourceRef = useRef(null);
   const processedEventIds = useRef(new Set());
+  const lastEventIdRef = useRef(0);
+
+  // Persist execution state to localStorage
+  useEffect(() => {
+    if (executionId) {
+      localStorage.setItem('oats_execution_id', executionId);
+    } else {
+      localStorage.removeItem('oats_execution_id');
+    }
+  }, [executionId]);
+
+  useEffect(() => {
+    localStorage.setItem('oats_is_executing', isExecuting.toString());
+  }, [isExecuting]);
 
   // Start a new execution
   const startExecution = useCallback(async (goal, maxTurns = 15) => {
@@ -17,6 +38,7 @@ export function useSSE(backendUrl) {
       setIsExecuting(true);
       setEvents([]);
       processedEventIds.current.clear();
+      lastEventIdRef.current = 0;
 
       const response = await fetch(`${backendUrl}/api/v1/executions`, {
         method: 'POST',
@@ -43,12 +65,41 @@ export function useSSE(backendUrl) {
     }
   }, [backendUrl]);
 
+  // Reconnect to an existing execution
+  const reconnectToExecution = useCallback(async (execId) => {
+    try {
+      // Check if execution exists and is still running
+      const response = await fetch(`${backendUrl}/api/v1/executions/${execId}/status`);
+
+      if (!response.ok) {
+        throw new Error(`Execution not found: ${execId}`);
+      }
+
+      const status = await response.json();
+
+      // Set execution ID and state based on backend status
+      setExecutionId(execId);
+      setIsExecuting(status.status === 'running');
+
+      console.log(`Reconnected to execution ${execId} with status: ${status.status}`);
+      return status;
+
+    } catch (error) {
+      console.error('Failed to reconnect to execution:', error);
+      // Clear stale execution ID
+      setExecutionId(null);
+      setIsExecuting(false);
+      throw error;
+    }
+  }, [backendUrl]);
+
   // Listen for events when execution ID changes
   useEffect(() => {
     if (!executionId) return;
 
+    // Use last_event_id for reconnection support
     const eventSource = new EventSource(
-      `${backendUrl}/api/v1/executions/${executionId}/events`
+      `${backendUrl}/api/v1/executions/${executionId}/events?last_event_id=${lastEventIdRef.current}`
     );
 
     eventSourceRef.current = eventSource;
@@ -95,10 +146,16 @@ export function useSSE(backendUrl) {
             ...data
           };
 
-          // Deduplicate events
+          // Deduplicate events and track last event ID
           if (!processedEventIds.current.has(event.id)) {
             processedEventIds.current.add(event.id);
             setEvents(prev => [...prev, event]);
+
+            // Update last event ID for reconnection
+            const eventId = parseInt(event.id, 10);
+            if (!isNaN(eventId) && eventId > lastEventIdRef.current) {
+              lastEventIdRef.current = eventId;
+            }
 
             // Check if execution is complete
             if (eventType === 'execution_completed' || eventType === 'execution_failed' || eventType === 'execution_aborted' || eventType === 'execution_stopped') {
@@ -174,10 +231,24 @@ export function useSSE(backendUrl) {
     }
   }, [executionId, backendUrl, events]);
 
+  // Auto-reconnect on mount if there's a persisted execution ID
+  useEffect(() => {
+    const persistedId = localStorage.getItem('oats_execution_id');
+    const wasExecuting = localStorage.getItem('oats_is_executing') === 'true';
+
+    if (persistedId && wasExecuting) {
+      console.log('Detected persisted execution, attempting to reconnect...');
+      reconnectToExecution(persistedId).catch(err => {
+        console.error('Auto-reconnect failed:', err);
+      });
+    }
+  }, []); // Run only once on mount
+
   return {
     startExecution,
     stopExecution,
     submitFeedback,
+    reconnectToExecution,
     events,
     isConnected,
     isExecuting,
