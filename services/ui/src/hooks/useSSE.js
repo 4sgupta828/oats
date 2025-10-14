@@ -84,7 +84,9 @@ export function useSSE(backendUrl) {
       'llm_requests_input',
       'llm_requests_approval',
       'user_prompt_requested',
-      'user_feedback_received'
+      'user_feedback_received',
+      'context_summarized',
+      'execution_continued'
     ];
 
     eventTypes.forEach(eventType => {
@@ -176,10 +178,69 @@ export function useSSE(backendUrl) {
     }
   }, [executionId, backendUrl, events]);
 
+  // Resume execution with new or refined goal
+  const resumeExecution = useCallback(async (mode, goal, keepLastNTurns = 3, maxTurns = 15) => {
+    if (!executionId) {
+      throw new Error('No execution to resume');
+    }
+
+    try {
+      setIsExecuting(true);
+
+      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          goal,
+          max_turns: maxTurns,
+          keep_last_n_turns: keepLastNTurns
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      // For NEW mode, we get a new execution ID
+      if (mode === 'new' && result.execution_id !== executionId) {
+        // Close current SSE connection
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+        }
+
+        // Clear events and reset state
+        setEvents([]);
+        processedEventIds.current.clear();
+
+        // Set new execution ID (this will trigger new SSE connection)
+        setExecutionId(result.execution_id);
+      }
+      // For CONTINUE mode, execution ID stays the same, just clear events
+      else if (mode === 'continue') {
+        // Clear old events to show fresh resumption
+        setEvents([]);
+        processedEventIds.current.clear();
+      }
+
+      console.log('Execution resumed successfully:', result);
+      return result;
+
+    } catch (error) {
+      console.error('Failed to resume execution:', error);
+      setIsExecuting(false);
+      throw error;
+    }
+  }, [executionId, backendUrl]);
+
   return {
     startExecution,
     stopExecution,
     submitFeedback,
+    resumeExecution,
     events,
     isConnected,
     isExecuting,

@@ -217,6 +217,63 @@ class EventStore:
             )
             return [dict(row) for row in cur.fetchall()]
 
+    def get_execution_summary(self, execution_id: str) -> Optional[Dict]:
+        """
+        Get execution summary including event statistics.
+        Used for resume/continue decision making.
+        """
+        conn = self._get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get execution info
+            cur.execute(
+                """
+                SELECT id, goal, status, created_at, updated_at, completed_at
+                FROM agent_executions
+                WHERE id = %s
+                """,
+                (execution_id,)
+            )
+            execution = cur.fetchone()
+            if not execution:
+                return None
+
+            # Get event statistics
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) as total_events,
+                    MAX(turn_number) as max_turn,
+                    COUNT(CASE WHEN event_type = 'tool_success' THEN 1 END) as successful_tools,
+                    COUNT(CASE WHEN event_type = 'tool_failed' THEN 1 END) as failed_tools,
+                    COUNT(CASE WHEN event_type LIKE '%_completed' THEN 1 END) as completion_events
+                FROM agent_events
+                WHERE execution_id = %s
+                """,
+                (execution_id,)
+            )
+            stats = cur.fetchone()
+
+            return {
+                **dict(execution),
+                "event_stats": dict(stats) if stats else {}
+            }
+
+    def update_execution_goal(self, execution_id: str, new_goal: str):
+        """Update the goal of an existing execution (for continue mode)."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE agent_executions SET goal = %s, updated_at = NOW() WHERE id = %s",
+                    (new_goal, execution_id)
+                )
+                conn.commit()
+                logger.info(f"Updated execution {execution_id} goal to: {new_goal[:100]}...")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to update execution goal: {e}")
+            raise
+
 
 # Global event store instance
 _event_store: Optional[EventStore] = None

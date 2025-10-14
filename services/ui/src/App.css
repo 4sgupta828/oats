@@ -461,6 +461,30 @@
   opacity: 0.6;
 }
 
+/* Input Controls - Container for Start and Resume buttons */
+.input-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Resume Button */
+.resume-button {
+  background-color: #10b981 !important;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.resume-button:hover {
+  background-color: #059669 !important;
+}
+
 /* Execution Controls */
 .execution-controls {
   display: flex;

@@ -59,6 +59,12 @@ class SubmitFeedbackRequest(BaseModel):
     interrupt_type: str  # 'feedback', 'pause', 'stop' (or legacy: 'interrupt', 'input', 'approval')
     message: Optional[str] = None  # User's guidance/feedback message
 
+class ResumeExecutionRequest(BaseModel):
+    mode: str  # 'new' or 'continue'
+    goal: str
+    max_turns: Optional[int] = 15
+    keep_last_n_turns: Optional[int] = 3  # For continue mode: how many recent turns to keep
+
 
 # --- Startup/Shutdown Events ---
 @app.on_event("startup")
@@ -288,6 +294,128 @@ def abort_execution(execution_id: str):
         raise HTTPException(500, f"Failed to abort execution: {str(e)}")
 
 
+@app.post("/api/v1/executions/{execution_id}/resume")
+def resume_execution(execution_id: str, request: ResumeExecutionRequest):
+    """
+    Resume or restart an execution with new/refined goal.
+
+    Two modes:
+    - 'new': Start completely fresh (resets turns, clears history)
+    - 'continue': Keep learnings but summarize old context (preserves facts, ruled-out, diagnosis)
+    """
+    if not event_store:
+        raise HTTPException(500, "Event store not initialized")
+
+    try:
+        # Validate mode
+        if request.mode not in ['new', 'continue']:
+            raise HTTPException(400, "mode must be 'new' or 'continue'")
+
+        # Validate goal
+        if not request.goal or not request.goal.strip():
+            raise HTTPException(400, "Goal cannot be empty")
+
+        # Check if execution exists
+        status = event_store.get_execution_status(execution_id)
+        if not status:
+            raise HTTPException(404, "Execution not found")
+
+        # Get execution summary for context
+        summary = event_store.get_execution_summary(execution_id)
+
+        if request.mode == 'new':
+            # NEW MODE: Start fresh with a new execution
+            print(f"🔄 Starting NEW goal for execution {execution_id}")
+
+            # Create new execution with new goal
+            new_execution_id = event_store.create_execution(request.goal.strip())
+
+            # Emit event indicating this is related to previous execution
+            event_store.emit_event(
+                new_execution_id, 0, 'execution_started',
+                {
+                    'goal': request.goal.strip(),
+                    'mode': 'new',
+                    'previous_execution_id': execution_id,
+                    'max_turns': request.max_turns
+                },
+                success=True
+            )
+
+            # Start agent in background thread (fresh state)
+            thread = threading.Thread(
+                target=run_agent_execution,
+                args=(new_execution_id, request.goal.strip(), request.max_turns),
+                daemon=True
+            )
+            thread.start()
+
+            print(f"🚀 Started NEW execution {new_execution_id} (reset from {execution_id})")
+
+            return {
+                "execution_id": new_execution_id,
+                "previous_execution_id": execution_id,
+                "mode": "new",
+                "status": "started",
+                "goal": request.goal.strip(),
+                "max_turns": request.max_turns,
+                "message": "Started fresh execution with new goal"
+            }
+
+        else:  # mode == 'continue'
+            # CONTINUE MODE: Resume with summarized context
+            print(f"🔄 CONTINUING execution {execution_id} with summarized context")
+
+            # Update execution goal in database
+            event_store.update_execution_goal(execution_id, request.goal.strip())
+
+            # Update status back to running
+            event_store.update_status(execution_id, 'running')
+
+            # Emit continuation event
+            event_store.emit_event(
+                execution_id, 0, 'execution_continued',
+                {
+                    'old_goal': summary['goal'],
+                    'new_goal': request.goal.strip(),
+                    'mode': 'continue',
+                    'keep_last_n_turns': request.keep_last_n_turns,
+                    'previous_turns': summary['event_stats'].get('max_turn', 0)
+                },
+                success=True
+            )
+
+            # Start agent in background thread (with state reconstruction & summarization)
+            thread = threading.Thread(
+                target=run_agent_resume,
+                args=(execution_id, request.goal.strip(), request.max_turns, request.keep_last_n_turns),
+                daemon=True
+            )
+            thread.start()
+
+            print(f"🚀 Resumed execution {execution_id} with summarized context")
+
+            return {
+                "execution_id": execution_id,
+                "mode": "continue",
+                "status": "resumed",
+                "old_goal": summary['goal'],
+                "new_goal": request.goal.strip(),
+                "max_turns": request.max_turns,
+                "keep_last_n_turns": request.keep_last_n_turns,
+                "previous_turns": summary['event_stats'].get('max_turn', 0),
+                "message": "Resumed execution with summarized context"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Failed to resume execution: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to resume execution: {str(e)}")
+
+
 @app.post("/api/v1/executions/{execution_id}/feedback")
 def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
     """Submit user interrupt/feedback for an execution."""
@@ -473,6 +601,170 @@ def run_agent_execution(execution_id: str, goal: str, max_turns: int):
             success=False
         )
         event_store.update_status(execution_id, 'failed')
+
+
+def run_agent_resume(execution_id: str, goal: str, max_turns: int, keep_last_n_turns: int):
+    """
+    Run agent execution in continue mode - reconstruct state from DB and summarize.
+    """
+    if not event_store:
+        print("Event store not initialized")
+        return
+
+    print(f"🤖 Resuming agent execution {execution_id} with summarized context")
+
+    try:
+        # Import here to avoid circular imports
+        from reactor.models import ReActState
+
+        # Step 1: Reconstruct state from events
+        print(f"📥 Reconstructing state from execution {execution_id}")
+        state = reconstruct_state_from_events(execution_id)
+
+        if not state:
+            raise ValueError(f"Could not reconstruct state from execution {execution_id}")
+
+        print(f"✅ State reconstructed: {state.turn_count} turns, {len(state.transcript)} transcript entries")
+
+        # Step 2: Apply summarization with new goal
+        print(f"📝 Summarizing context (keeping last {keep_last_n_turns} turns)")
+        stats = state.continue_with_summarized_context(goal, keep_last_n_turns)
+
+        # Emit summarization event
+        event_store.emit_event(
+            execution_id,
+            state.turn_count + 1,
+            'context_summarized',
+            stats,
+            success=True
+        )
+
+        print(f"✅ Context summarized: {stats['turns_summarized']} turns condensed, "
+              f"{stats['facts_count']} facts preserved")
+
+        # Step 3: Resume execution with summarized state
+        agent = AgentController(global_registry, event_store)
+        result = agent.execute_goal(goal, max_turns, execution_id, existing_state=state)
+
+        if result.success:
+            event_store.update_status(execution_id, 'completed')
+            print(f"✅ Agent execution {execution_id} completed successfully (resumed)")
+        else:
+            event_store.update_status(execution_id, 'failed')
+            print(f"⚠️  Agent execution {execution_id} failed (resumed)")
+
+    except Exception as e:
+        print(f"❌ Agent execution {execution_id} crashed during resume: {e}")
+        import traceback
+        traceback.print_exc()
+        event_store.emit_event(
+            execution_id, 0, 'execution_failed',
+            {"error": str(e), "traceback": traceback.format_exc(), "phase": "resume"},
+            success=False
+        )
+        event_store.update_status(execution_id, 'failed')
+
+
+def reconstruct_state_from_events(execution_id: str):
+    """
+    Reconstruct ReActState from stored events.
+    This is a simplified reconstruction that extracts key state from the last LLM response.
+    """
+    try:
+        from reactor.models import ReActState, State, TranscriptEntry
+        from reactor.models import ReflectSection, StrategizeSection, ActSection, Hypothesis
+        import json
+
+        # Get execution info
+        summary = event_store.get_execution_summary(execution_id)
+        if not summary:
+            return None
+
+        goal = summary['goal']
+        max_turn = summary['event_stats'].get('max_turn', 0)
+
+        # Get all events for this execution
+        events = event_store.get_events_since(execution_id, 0)
+
+        # Create initial state
+        state = ReActState(goal=goal, max_turns=15)
+        state.turn_count = max_turn
+
+        # Reconstruct transcript from events
+        turn_data = {}  # turn_number -> {llm_response, tool_result}
+
+        for event in events:
+            turn = event['turn_number']
+            event_type = event['event_type']
+            data = event['event_data']
+
+            if turn not in turn_data:
+                turn_data[turn] = {}
+
+            if event_type == 'llm_response_success':
+                turn_data[turn]['llm_response'] = data
+            elif event_type in ['tool_success', 'tool_failed']:
+                turn_data[turn]['tool_result'] = data
+
+        # Build transcript entries from turn data
+        for turn_num in sorted(turn_data.keys()):
+            if turn_num == 0:
+                continue  # Skip turn 0 (metadata events)
+
+            turn = turn_data[turn_num]
+            llm_resp = turn.get('llm_response', {})
+            tool_result = turn.get('tool_result', {})
+
+            # Reconstruct transcript entry from event data
+            if llm_resp and 'reflect' in llm_resp:
+                try:
+                    # Safely get strategize data
+                    strategize_data = llm_resp.get('strategize', {})
+                    hypothesis_data = strategize_data.get('hypothesis', {})
+
+                    # Safely get action data
+                    action_data = llm_resp.get('action', {})
+
+                    # Create entry only if we have minimal required data
+                    if not strategize_data or not action_data:
+                        print(f"⚠️  Incomplete data for turn {turn_num}, skipping")
+                        continue
+
+                    entry = TranscriptEntry(
+                        turn=turn_num,
+                        reflect=ReflectSection(**llm_resp['reflect']),
+                        strategize=StrategizeSection(
+                            reasoning=strategize_data.get('reasoning', ''),
+                            hypothesis=Hypothesis(**hypothesis_data) if hypothesis_data else Hypothesis(claim='N/A', test='N/A', signal='N/A'),
+                            ifInvalidated=strategize_data.get('ifInvalidated', 'N/A')
+                        ),
+                        state=State(**llm_resp.get('state', {'goal': goal})) if 'state' in llm_resp else State(goal=goal),
+                        act=ActSection(**action_data) if action_data else ActSection(tool='unknown', params={}),
+                        observation=tool_result.get('observation', 'N/A'),
+                        duration_ms=0
+                    )
+                    state.transcript.append(entry)
+
+                    # Update state from the entry (preserve latest state)
+                    if entry.state:
+                        state.state = entry.state
+
+                except Exception as e:
+                    print(f"⚠️  Could not reconstruct turn {turn_num}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    continue
+
+        print(f"📊 Reconstructed state: {len(state.transcript)} transcript entries, "
+              f"{len(state.state.facts) if state.state else 0} facts")
+
+        return state
+
+    except Exception as e:
+        print(f"❌ Failed to reconstruct state: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 if __name__ == "__main__":

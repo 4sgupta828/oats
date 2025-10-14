@@ -68,7 +68,8 @@ class AgentController:
             self._setup_python_environment()
             AgentController._environment_setup_done = True
 
-    def execute_goal(self, goal: str, max_turns: Optional[int] = None, execution_id: str = None) -> ReActResult:
+    def execute_goal(self, goal: str, max_turns: Optional[int] = None, execution_id: str = None,
+                     existing_state: Optional[ReActState] = None) -> ReActResult:
         """
         Execute a goal using the ReAct framework.
 
@@ -76,6 +77,7 @@ class AgentController:
             goal: High-level user objective
             max_turns: Maximum number of turns to prevent infinite loops
             execution_id: Optional execution ID for event tracking
+            existing_state: Optional existing ReActState to resume from (for continue mode)
 
         Returns:
             ReActResult with success status and final state
@@ -95,10 +97,18 @@ class AgentController:
             max_turns=max_turns
         )
 
-        # Initialize state
+        # Initialize or reuse state
         if max_turns is None:
             max_turns = config.get_max_turns()
-        state = ReActState(goal=goal, max_turns=max_turns)
+
+        if existing_state:
+            # Resume with existing state (continue mode)
+            state = existing_state
+            state.max_turns = max_turns  # Update max_turns for continuation
+            logger.info(f"Resuming execution from turn {state.turn_count} with goal: '{goal}'")
+        else:
+            # Start fresh
+            state = ReActState(goal=goal, max_turns=max_turns)
 
         try:
             logger.info(f"Starting ReAct execution for goal: '{goal}'")

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import AgentMessage from './components/AgentMessage';
 import FeedbackModal from './components/FeedbackModal';
+import ResumeModal from './components/ResumeModal';
 import { useSSE } from './hooks/useSSE';
 
 // Format SSE events to UI-friendly format
@@ -129,6 +130,18 @@ const formatSSEEvent = (event) => {
       console.log('[DEBUG] Formatted user_prompt message:', formatted);
       return formatted;
 
+    case 'context_summarized':
+      return {
+        type: 'status',
+        content: `📝 Context summarized: ${eventData.turns_summarized || 0} turns condensed, ${eventData.facts_count || 0} facts preserved`
+      };
+
+    case 'execution_continued':
+      return {
+        type: 'status',
+        content: `🔄 Investigation continued with refined goal (${eventData.previous_turns || 0} previous turns)`
+      };
+
     default:
       console.log('[DEBUG] Unknown event type:', event.type);
       return null;
@@ -139,6 +152,9 @@ function App() {
   const [goal, setGoal] = useState('');
   const [messages, setMessages] = useState([]);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
+  const [executionComplete, setExecutionComplete] = useState(false);
+  const [executionSummary, setExecutionSummary] = useState(null);
   const messagesEndRef = useRef(null);
 
   // Get backend URL from environment variable
@@ -153,6 +169,17 @@ function App() {
 
     sseHook.events.forEach(event => {
       console.log('[DEBUG] Processing event:', event.type, event);
+
+      // Check if execution is complete
+      if (event.type === 'execution_completed' || event.type === 'execution_failed') {
+        setExecutionComplete(true);
+        // Store basic summary
+        setExecutionSummary({
+          turns: event.turn || 0,
+          status: event.type === 'execution_completed' ? 'completed' : 'failed'
+        });
+      }
+
       const formatted = formatSSEEvent(event);
       console.log('[DEBUG] Formatted result:', formatted);
       if (formatted) {
@@ -184,6 +211,7 @@ function App() {
 
     setMessages([{ sender: 'user', text: goal }]);
     setGoal('');
+    setExecutionComplete(false); // Reset completion state
 
     try {
       await sseHook.startExecution(goal.trim());
@@ -192,6 +220,27 @@ function App() {
         sender: 'agent',
         data: { type: 'error', content: `Failed to start execution: ${error.message}` }
       }]);
+    }
+  };
+
+  const handleResumeSubmit = async (mode, resumeGoal, keepLastNTurns) => {
+    try {
+      // Add user message showing resume intent
+      setMessages(prev => [...prev, {
+        sender: 'user',
+        text: `${mode === 'new' ? '🆕 Starting new investigation' : '🔄 Continuing investigation'}: ${resumeGoal}`
+      }]);
+
+      // Reset completion state
+      setExecutionComplete(false);
+
+      await sseHook.resumeExecution(mode, resumeGoal, keepLastNTurns);
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: { type: 'error', content: `Failed to resume execution: ${error.message}` }
+      }]);
+      throw error;
     }
   };
 
@@ -291,13 +340,25 @@ function App() {
           disabled={sseHook.isExecuting}
         />
         {!sseHook.isExecuting ? (
-          <button
-            type="submit"
-            className="submit-button"
-            disabled={sseHook.isExecuting}
-          >
-            Start Analysis
-          </button>
+          <div className="input-controls">
+            <button
+              type="submit"
+              className="submit-button"
+              disabled={sseHook.isExecuting}
+            >
+              Start Analysis
+            </button>
+            {executionComplete && sseHook.executionId && (
+              <button
+                type="button"
+                className="resume-button"
+                onClick={() => setIsResumeModalOpen(true)}
+                title="Resume or continue investigation"
+              >
+                🔄 Resume
+              </button>
+            )}
+          </div>
         ) : (
           <div className="execution-controls">
             <button
@@ -324,6 +385,13 @@ function App() {
         isOpen={isFeedbackModalOpen}
         onClose={() => setIsFeedbackModalOpen(false)}
         onSubmit={handleFeedbackSubmit}
+      />
+
+      <ResumeModal
+        isOpen={isResumeModalOpen}
+        onClose={() => setIsResumeModalOpen(false)}
+        onSubmit={handleResumeSubmit}
+        executionSummary={executionSummary}
       />
     </div>
   );
