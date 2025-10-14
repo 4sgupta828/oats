@@ -226,7 +226,7 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
                     break
 
                 # Short delay before next poll
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
 
         except asyncio.CancelledError:
             print(f"SSE stream cancelled for execution {execution_id}")
