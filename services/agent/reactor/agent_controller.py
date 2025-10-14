@@ -163,16 +163,22 @@ class AgentController:
                     # ═══════════════════════════════════════════════════════
                     # (b) LLM RESPONSE PARSING
                     # ═══════════════════════════════════════════════════════
+                    # Store complete LLM response with truncation for storage
+                    llm_event_data = {
+                        'reflect': parsed_response.reflect.model_dump(),
+                        'strategize': parsed_response.strategize.model_dump(),
+                        'action': {
+                            'tool': parsed_response.act.tool,
+                            'params': parsed_response.act.params
+                        },
+                        'raw_response': raw_response[:5000] if len(raw_response) > 5000 else raw_response,
+                        'raw_response_length': len(raw_response),
+                        'raw_response_truncated': len(raw_response) > 5000
+                    }
+
                     self._emit(execution_id, turn_number,
                              'llm_response_success',
-                             {
-                                 'reflect': parsed_response.reflect.model_dump(),
-                                 'strategize': parsed_response.strategize.model_dump(),
-                                 'action': {
-                                     'tool': parsed_response.act.tool,
-                                     'params': parsed_response.act.params
-                                 }
-                             },
+                             llm_event_data,
                              success=True)
 
                     # B.1. Update state from response
@@ -248,13 +254,18 @@ class AgentController:
                     # Determine success from observation
                     tool_success = not observation.startswith("ERROR")
 
+                    # Store complete tool output with intelligent truncation
+                    tool_event_data = {
+                        'tool': parsed_response.act.tool,
+                        'observation': observation[:3000] if len(observation) > 3000 else observation,
+                        'observation_length': len(observation),
+                        'observation_truncated': len(observation) > 3000,
+                        'tool_params': parsed_response.act.params
+                    }
+
                     self._emit(execution_id, turn_number,
                              'tool_success' if tool_success else 'tool_failed',
-                             {
-                                 'tool': parsed_response.act.tool,
-                                 'observation': observation[:1000],  # Truncate for event log
-                                 'observation_length': len(observation)
-                             },
+                             tool_event_data,
                              success=tool_success)
 
                     # E. Observe & Update: Add to transcript

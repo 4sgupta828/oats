@@ -24,15 +24,39 @@ def timeout_context(seconds: int):
     def timeout_handler(signum, frame):
         raise TimeoutError(f"Execution timed out after {seconds} seconds")
 
-    # Set up signal handler (Unix only)
+    # Set up signal handler (Unix only, main thread only)
     if hasattr(signal, 'SIGALRM'):
-        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(seconds)
         try:
+            # Check if we're in the main thread
+            import threading
+            if threading.current_thread() is threading.main_thread():
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(seconds)
+                try:
+                    yield
+                finally:
+                    signal.alarm(0)  # Cancel the alarm
+                    signal.signal(signal.SIGALRM, old_handler)
+            else:
+                # In non-main thread, use threading.Timer as fallback
+                logger.warning("Running in non-main thread - using Timer-based timeout")
+                import threading
+                timer_expired = [False]
+
+                def timer_timeout():
+                    timer_expired[0] = True
+
+                timer = threading.Timer(seconds, timer_timeout)
+                timer.start()
+                try:
+                    yield
+                    if timer_expired[0]:
+                        raise TimeoutError(f"Execution timed out after {seconds} seconds")
+                finally:
+                    timer.cancel()
+        except Exception as e:
+            logger.warning(f"Could not set up timeout: {e}")
             yield
-        finally:
-            signal.alarm(0)  # Cancel the alarm
-            signal.signal(signal.SIGALRM, old_handler)
     else:
         # Windows fallback - no timeout enforcement
         logger.warning("Timeout enforcement not available on this platform")

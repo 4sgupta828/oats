@@ -21,6 +21,19 @@ class EventStore:
         """Get or create database connection."""
         if self._conn is None or self._conn.closed:
             self._conn = psycopg2.connect(self.conn_string)
+        # Check if connection is in a bad state and rollback
+        try:
+            if self._conn.get_transaction_status() == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
+                self._conn.rollback()
+                logger.warning("Rolled back failed transaction")
+        except Exception as e:
+            logger.error(f"Failed to check transaction status: {e}")
+            # Try to reconnect
+            try:
+                self._conn.close()
+            except:
+                pass
+            self._conn = psycopg2.connect(self.conn_string)
         return self._conn
 
     def close(self):
@@ -34,31 +47,41 @@ class EventStore:
     def create_execution(self, goal: str) -> str:
         """Create new execution."""
         conn = self._get_connection()
-        with conn.cursor() as cur:
-            execution_id = str(uuid.uuid4())
-            cur.execute(
-                "INSERT INTO agent_executions (id, goal, status) VALUES (%s, %s, 'running')",
-                (execution_id, goal)
-            )
-            conn.commit()
-            logger.info(f"Created execution {execution_id} for goal: {goal[:100]}...")
-            return execution_id
+        try:
+            with conn.cursor() as cur:
+                execution_id = str(uuid.uuid4())
+                cur.execute(
+                    "INSERT INTO agent_executions (id, goal, status) VALUES (%s, %s, 'running')",
+                    (execution_id, goal)
+                )
+                conn.commit()
+                logger.info(f"Created execution {execution_id} for goal: {goal[:100]}...")
+                return execution_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to create execution: {e}")
+            raise
 
     def emit_event(self, execution_id: str, turn_number: int,
                    event_type: str, event_data: Dict[str, Any], success: bool = None):
         """Emit event to stream."""
         conn = self._get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO agent_events
-                (execution_id, turn_number, event_type, event_data, success)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (execution_id, turn_number, event_type, Json(event_data), success)
-            )
-            conn.commit()
-            logger.debug(f"Emitted event {event_type} for execution {execution_id}, turn {turn_number}")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO agent_events
+                    (execution_id, turn_number, event_type, event_data, success)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (execution_id, turn_number, event_type, Json(event_data), success)
+                )
+                conn.commit()
+                logger.debug(f"Emitted event {event_type} for execution {execution_id}, turn {turn_number}")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to emit event: {e}")
+            raise
 
     def get_events_since(self, execution_id: str, last_event_id: int = 0) -> List[Dict]:
         """Get events for SSE streaming."""
@@ -78,18 +101,23 @@ class EventStore:
     def update_status(self, execution_id: str, status: str):
         """Update execution status."""
         conn = self._get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE agent_executions SET status = %s, updated_at = NOW() WHERE id = %s",
-                (status, execution_id)
-            )
-            if status in ['completed', 'failed', 'cancelled']:
+        try:
+            with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE agent_executions SET completed_at = NOW() WHERE id = %s",
-                    (execution_id,)
+                    "UPDATE agent_executions SET status = %s, updated_at = NOW() WHERE id = %s",
+                    (status, execution_id)
                 )
-            conn.commit()
-            logger.info(f"Updated execution {execution_id} status to {status}")
+                if status in ['completed', 'failed', 'cancelled']:
+                    cur.execute(
+                        "UPDATE agent_executions SET completed_at = NOW() WHERE id = %s",
+                        (execution_id,)
+                    )
+                conn.commit()
+                logger.info(f"Updated execution {execution_id} status to {status}")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to update status: {e}")
+            raise
 
     def get_execution_status(self, execution_id: str) -> Optional[Dict]:
         """Get execution status."""
@@ -112,44 +140,54 @@ class EventStore:
                        feedback_type: str, feedback_data: Dict[str, Any]):
         """Submit user feedback."""
         conn = self._get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO user_feedback
-                (execution_id, turn_number, feedback_type, feedback_data)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (execution_id, turn_number, feedback_type, Json(feedback_data))
-            )
-            conn.commit()
-            logger.info(f"Submitted {feedback_type} feedback for execution {execution_id}, turn {turn_number}")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO user_feedback
+                    (execution_id, turn_number, feedback_type, feedback_data)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (execution_id, turn_number, feedback_type, Json(feedback_data))
+                )
+                conn.commit()
+                logger.info(f"Submitted {feedback_type} feedback for execution {execution_id}, turn {turn_number}")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to submit feedback: {e}")
+            raise
 
     def check_feedback(self, execution_id: str, turn_number: int) -> Optional[Dict]:
         """Check for pending feedback at turn start."""
         conn = self._get_connection()
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT id, feedback_type, feedback_data
-                FROM user_feedback
-                WHERE execution_id = %s
-                  AND turn_number <= %s
-                  AND NOT processed
-                ORDER BY id
-                LIMIT 1
-                """,
-                (execution_id, turn_number)
-            )
-            row = cur.fetchone()
-            if row:
-                # Mark as processed
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    "UPDATE user_feedback SET processed = TRUE WHERE id = %s",
-                    (row['id'],)
+                    """
+                    SELECT id, feedback_type, feedback_data
+                    FROM user_feedback
+                    WHERE execution_id = %s
+                      AND turn_number <= %s
+                      AND NOT processed
+                    ORDER BY id
+                    LIMIT 1
+                    """,
+                    (execution_id, turn_number)
                 )
-                conn.commit()
-                return dict(row)
-            return None
+                row = cur.fetchone()
+                if row:
+                    # Mark as processed
+                    cur.execute(
+                        "UPDATE user_feedback SET processed = TRUE WHERE id = %s",
+                        (row['id'],)
+                    )
+                    conn.commit()
+                    return dict(row)
+                return None
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to check feedback: {e}")
+            raise
 
     # === Utility Methods ===
 

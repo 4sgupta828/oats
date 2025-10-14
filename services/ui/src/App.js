@@ -9,49 +9,71 @@ const formatSSEEvent = (event) => {
 
   switch (event.type) {
     case 'turn_started':
-      return { type: 'status', content: `Starting turn ${event.turn}...` };
+      return { type: 'status', content: `🔄 Starting turn ${event.turn}...` };
 
     case 'llm_called':
-      return { type: 'status', content: 'AI is reasoning...' };
+      return { type: 'status', content: '🤔 AI is reasoning...' };
 
     case 'llm_response_success':
       const strategize = eventData.strategize || {};
+      const reflect = eventData.reflect || {};
+      const action = eventData.action || {};
+
+      // Create rich thought content
+      let thoughtContent = strategize.reasoning || 'AI completed reasoning';
+
+      // Add reflection insight if available
+      if (reflect.insight) {
+        thoughtContent += `\n\n💡 Insight: ${reflect.insight}`;
+      }
+
+      // Add action preview
+      if (action.tool && action.tool !== 'finish') {
+        thoughtContent += `\n\n⚡ Next action: ${action.tool}`;
+      }
+
       return {
         type: 'thought',
-        content: strategize.reasoning || 'AI completed reasoning'
+        content: thoughtContent,
+        rawResponse: eventData.raw_response,
+        rawResponseTruncated: eventData.raw_response_truncated
       };
 
     case 'tool_started':
       return {
         type: 'action',
-        tool: eventData.tool_name,
-        params: eventData.parameters
+        tool: eventData.tool || eventData.tool_name,
+        params: eventData.params || eventData.parameters || eventData.tool_params
       };
 
     case 'tool_success':
       return {
         type: 'observation',
         content: eventData.observation || 'Tool executed successfully',
-        isLarge: eventData.observation_length > 1000
+        isLarge: eventData.observation_length > 1000,
+        isTruncated: eventData.observation_truncated,
+        fullLength: eventData.observation_length
       };
 
     case 'tool_failed':
       return {
         type: 'error',
-        content: `Tool failed: ${eventData.error_message}`
+        content: `❌ Tool '${eventData.tool}' failed:\n${eventData.observation || eventData.error_message || 'Unknown error'}`,
+        isTruncated: eventData.observation_truncated,
+        fullLength: eventData.observation_length
       };
 
     case 'execution_completed':
       return {
         type: 'finish',
-        summary: eventData.completion_reason || 'Goal completed',
-        turnsCompleted: eventData.turns_completed
+        summary: eventData.reason || eventData.completion_reason || 'Goal completed',
+        turnsCompleted: event.turn
       };
 
     case 'execution_failed':
       return {
         type: 'error',
-        content: `Execution failed: ${eventData.reason || eventData.error}`
+        content: `🔴 Execution failed: ${eventData.reason || eventData.error}`
       };
 
     default:
@@ -99,7 +121,7 @@ function App() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!goal.trim() || !sseHook.isConnected || sseHook.isExecuting) return;
+    if (!goal.trim() || sseHook.isExecuting) return;
 
     setMessages([{ sender: 'user', text: goal }]);
     setGoal('');
@@ -122,7 +144,7 @@ function App() {
           <p className="subtitle">Observe · Adapt · TakeAction · Synthesize</p>
         </div>
         <div className={`connection-status ${sseHook.isConnected ? 'connected' : ''}`}>
-          {sseHook.isConnected ? '● Connected' : '○ Connecting...'}
+          {sseHook.isConnected ? '● Connected' : '○ Ready'}
           <span className="transport-type"> (SSE)</span>
           {sseHook.executionId && (
             <span className="execution-id"> | Execution: {sseHook.executionId.slice(0, 8)}...</span>
@@ -155,12 +177,12 @@ function App() {
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
           placeholder={sseHook.isExecuting ? "Analysis in progress..." : "Describe your infrastructure issue..."}
-          disabled={!sseHook.isConnected || sseHook.isExecuting}
+          disabled={sseHook.isExecuting}
         />
         <button
           type="submit"
           className="submit-button"
-          disabled={!sseHook.isConnected || sseHook.isExecuting}
+          disabled={sseHook.isExecuting}
         >
           {sseHook.isExecuting ? 'Analyzing...' : 'Start Analysis'}
         </button>
