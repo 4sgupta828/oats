@@ -49,10 +49,15 @@ class StartExecutionRequest(BaseModel):
     max_turns: Optional[int] = 15
     user_id: Optional[str] = "default_user"
 
+class InterruptType(str):
+    FEEDBACK = "feedback"  # Inject guidance into transcript, continue
+    PAUSE = "pause"        # Save checkpoint, stop execution
+    STOP = "stop"          # Abort execution completely
+
 class SubmitFeedbackRequest(BaseModel):
     turn_number: int
-    feedback_type: str  # 'interrupt', 'input', 'approval'
-    data: dict
+    interrupt_type: str  # 'feedback', 'pause', 'stop' (or legacy: 'interrupt', 'input', 'approval')
+    message: Optional[str] = None  # User's guidance/feedback message
 
 
 # --- Startup/Shutdown Events ---
@@ -123,7 +128,9 @@ async def root():
             "stream_events": "GET /api/v1/executions/{id}/events",
             "execution_status": "GET /api/v1/executions/{id}/status",
             "list_executions": "GET /api/v1/executions",
-            "submit_feedback": "POST /api/v1/executions/{id}/feedback"
+            "submit_feedback": "POST /api/v1/executions/{id}/feedback",
+            "abort_execution": "POST /api/v1/executions/{id}/abort",
+            "resume_execution": "POST /api/v1/executions/{id}/resume"
         }
     }
 
@@ -240,33 +247,81 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
     return EventSourceResponse(event_generator())
 
 
-@app.post("/api/v1/executions/{execution_id}/feedback")
-def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
-    """Submit user feedback for an execution."""
+@app.post("/api/v1/executions/{execution_id}/abort")
+def abort_execution(execution_id: str):
+    """Abort a running execution."""
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
 
     try:
-        # Validate feedback type
-        valid_types = ['interrupt', 'input', 'approval']
-        if feedback.feedback_type not in valid_types:
-            raise HTTPException(400, f"Invalid feedback_type. Must be one of: {valid_types}")
+        # Check if execution exists
+        status = event_store.get_execution_status(execution_id)
+        if not status:
+            raise HTTPException(404, "Execution not found")
+
+        # Only allow aborting running or paused executions
+        if status['status'] not in ['running', 'paused']:
+            raise HTTPException(400, f"Cannot abort execution with status: {status['status']}")
+
+        # Set status to cancelled
+        event_store.update_status(execution_id, 'cancelled')
+
+        # Emit abort event
+        event_store.emit_event(
+            execution_id, 0, 'execution_aborted',
+            {"reason": "User requested abort"},
+            success=False
+        )
+
+        print(f"🛑 Aborted execution {execution_id}")
+
+        return {
+            "status": "aborted",
+            "execution_id": execution_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Failed to abort execution: {e}")
+        raise HTTPException(500, f"Failed to abort execution: {str(e)}")
+
+
+@app.post("/api/v1/executions/{execution_id}/feedback")
+def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
+    """Submit user interrupt/feedback for an execution."""
+    if not event_store:
+        raise HTTPException(500, "Event store not initialized")
+
+    try:
+        # Validate interrupt type
+        valid_types = ['feedback', 'pause', 'stop', 'interrupt', 'input', 'approval']  # Include legacy types
+        if feedback.interrupt_type not in valid_types:
+            raise HTTPException(400, f"Invalid interrupt_type. Must be one of: {valid_types}")
+
+        # Map legacy 'interrupt' to 'pause' for backward compatibility
+        interrupt_type = feedback.interrupt_type
+        if interrupt_type == 'interrupt':
+            interrupt_type = 'pause'
+
+        # Prepare feedback data
+        feedback_data = {"message": feedback.message} if feedback.message else {}
 
         # Submit feedback
         event_store.submit_feedback(
             execution_id,
             feedback.turn_number,
-            feedback.feedback_type,
-            feedback.data
+            interrupt_type,
+            feedback_data
         )
 
-        print(f"📝 Submitted {feedback.feedback_type} feedback for execution {execution_id}")
+        print(f"📝 Submitted {interrupt_type} interrupt for execution {execution_id}")
 
         return {
             "status": "submitted",
             "execution_id": execution_id,
             "turn_number": feedback.turn_number,
-            "feedback_type": feedback.feedback_type
+            "interrupt_type": interrupt_type
         }
 
     except HTTPException:

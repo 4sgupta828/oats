@@ -125,22 +125,47 @@ class AgentController:
                     # ═══════════════════════════════════════════════════════
                     self._emit(execution_id, turn_number, 'turn_started', {})
 
-                    # Check for user feedback
-                    if self.event_store:
-                        feedback = self.event_store.check_feedback(execution_id, turn_number)
-                        if feedback:
-                            # (d) USER INTERVENTION
-                            self._emit(execution_id, turn_number,
-                                     'user_feedback_received', feedback)
+                    # Check for abort flag (user requested to stop execution)
+                    if self.event_store and self.event_store.check_abort_flag(execution_id):
+                        logger.info(f"Execution {execution_id} aborted by user")
+                        self._emit(execution_id, turn_number,
+                                 'execution_aborted',
+                                 {'reason': 'User requested abort'},
+                                 success=False)
+                        state.completion_reason = "Aborted by user"
+                        break
 
-                            if feedback['feedback_type'] == 'interrupt':
+                    # Check for user interrupts
+                    if self.event_store:
+                        interrupt = self.event_store.check_feedback(execution_id, turn_number)
+                        if interrupt:
+                            interrupt_type = interrupt.get('feedback_type', 'feedback')
+
+                            self._emit(execution_id, turn_number,
+                                     'interrupt_received',
+                                     {'type': interrupt_type, 'data': interrupt.get('feedback_data', {})})
+
+                            if interrupt_type == 'feedback':
+                                # Inject feedback into transcript, CONTINUE execution
+                                self._inject_user_feedback(state, interrupt, turn_number)
                                 self._emit(execution_id, turn_number,
-                                         'user_interrupt', feedback)
-                                self.event_store.update_status(execution_id, 'paused')
+                                         'feedback_injected',
+                                         {'message': interrupt.get('feedback_data', {}).get('message', '')})
+                                # NO BREAK - agent continues with guidance in context
+
+                            elif interrupt_type in ['stop', 'pause', 'interrupt']:
+                                # STOP or legacy interrupt types - abort execution
+                                reason = interrupt.get('feedback_data', {}).get('message', 'User stopped execution')
+                                self._emit(execution_id, turn_number,
+                                         'execution_stopped',
+                                         {'reason': reason, 'type': interrupt_type})
+                                self.event_store.update_status(execution_id, 'stopped')
+                                state.completion_reason = f"Stopped by user: {reason}"
                                 break
 
-                            # Handle other feedback types
-                            self._handle_feedback(state, feedback)
+                            else:
+                                # Other legacy feedback types (input, approval)
+                                self._handle_feedback(state, interrupt)
 
                     # A. Reason: Build prompt and get LLM response
                     messages = self.prompt_builder.build_messages_for_openai(state, available_tools)
@@ -334,15 +359,21 @@ class AgentController:
 
             # Update final status in event store
             if self.event_store:
-                if not success:
-                    self._emit(execution_id, state.turn_count,
-                             'execution_failed',
-                             {'reason': 'Max turns reached' if state.turn_count >= state.max_turns else 'Interrupted'},
-                             success=False)
+                # Check current status to avoid overwriting 'paused' or 'cancelled'
+                current_status = self.event_store.get_execution_status(execution_id)
+                if current_status and current_status['status'] in ['paused', 'cancelled']:
+                    # Don't emit failed event or update status - already handled
+                    logger.info(f"Execution {execution_id} ended with status: {current_status['status']}")
+                else:
+                    if not success:
+                        self._emit(execution_id, state.turn_count,
+                                 'execution_failed',
+                                 {'reason': 'Max turns reached' if state.turn_count >= state.max_turns else 'Interrupted'},
+                                 success=False)
 
-                self.event_store.update_status(
-                    execution_id, 'completed' if success else 'failed'
-                )
+                    self.event_store.update_status(
+                        execution_id, 'completed' if success else 'failed'
+                    )
 
             return ReActResult(
                 success=success,
@@ -398,8 +429,38 @@ class AgentController:
         """Extract what input LLM is requesting."""
         return parsed_response.act.params.get('request', 'Input needed')
 
+    def _inject_user_feedback(self, state: ReActState, interrupt: dict, turn_number: int):
+        """Inject user feedback as a transcript entry so LLM sees it in next turn."""
+        from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis
+
+        feedback_msg = interrupt.get('feedback_data', {}).get('message', 'User provided feedback')
+
+        feedback_entry = TranscriptEntry(
+            turn=turn_number,
+            reflect=ReflectSection(
+                turn=turn_number,
+                outcome="SUCCESS",
+                hypothesisResult="N/A",
+                insight="Received user guidance"
+            ),
+            strategize=StrategizeSection(
+                reasoning="Incorporating user guidance into investigation",
+                hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
+                ifInvalidated="N/A"
+            ),
+            state=state.state,
+            act=ActSection(tool="user_feedback", params={"message": feedback_msg}),
+            observation=f"👤 USER GUIDANCE: {feedback_msg}",
+            duration_ms=0
+        )
+
+        state.transcript.append(feedback_entry)
+        state.turn_count += 1
+
+        logger.info(f"Injected user feedback into transcript at turn {turn_number}: {feedback_msg[:100]}")
+
     def _handle_feedback(self, state, feedback: dict):
-        """Incorporate user feedback into state."""
+        """Incorporate user feedback into state (legacy method for other feedback types)."""
         feedback_type = feedback['feedback_type']
         feedback_data = feedback['feedback_data']
 

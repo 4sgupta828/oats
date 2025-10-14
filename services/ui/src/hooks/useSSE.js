@@ -76,7 +76,11 @@ export function useSSE(backendUrl) {
       'tool_failed',
       'execution_completed',
       'execution_failed',
+      'execution_aborted',
+      'execution_stopped',
       'user_interrupt',
+      'interrupt_received',
+      'feedback_injected',
       'llm_requests_input',
       'llm_requests_approval'
     ];
@@ -97,7 +101,7 @@ export function useSSE(backendUrl) {
             setEvents(prev => [...prev, event]);
 
             // Check if execution is complete
-            if (eventType === 'execution_completed' || eventType === 'execution_failed') {
+            if (eventType === 'execution_completed' || eventType === 'execution_failed' || eventType === 'execution_aborted' || eventType === 'execution_stopped') {
               setIsExecuting(false);
               // Close connection after completion
               setTimeout(() => eventSource.close(), 1000);
@@ -115,17 +119,65 @@ export function useSSE(backendUrl) {
     };
   }, [executionId, backendUrl]);
 
-  const stopExecution = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+  const stopExecution = useCallback(async () => {
+    if (!executionId) return;
+
+    try {
+      // Call abort endpoint to stop the backend execution
+      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/abort`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        console.error('Failed to abort execution:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Failed to abort execution:', error);
+    } finally {
+      // Close SSE connection and reset UI state
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
       setIsConnected(false);
       setIsExecuting(false);
     }
-  }, []);
+  }, [executionId, backendUrl]);
+
+  const submitFeedback = useCallback(async (feedbackType, feedbackData) => {
+    if (!executionId) return;
+
+    try {
+      // Get current turn number from latest event
+      const turnNumber = events.length > 0 ? (events[events.length - 1].turn || 0) : 0;
+
+      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          turn_number: turnNumber,
+          interrupt_type: feedbackType,
+          message: feedbackData
+        })
+      });
+
+      if (!response.ok) {
+        console.error('Failed to submit feedback:', response.statusText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      console.log('Feedback submitted successfully');
+      return true;
+    } catch (error) {
+      console.error('Failed to submit feedback:', error);
+      throw error;
+    }
+  }, [executionId, backendUrl, events]);
 
   return {
     startExecution,
     stopExecution,
+    submitFeedback,
     events,
     isConnected,
     isExecuting,

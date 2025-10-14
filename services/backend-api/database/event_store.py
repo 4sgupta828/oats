@@ -189,6 +189,17 @@ class EventStore:
             logger.error(f"Failed to check feedback: {e}")
             raise
 
+    def check_abort_flag(self, execution_id: str) -> bool:
+        """Check if execution should be aborted."""
+        conn = self._get_connection()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT status FROM agent_executions WHERE id = %s",
+                (execution_id,)
+            )
+            row = cur.fetchone()
+            return row['status'] == 'cancelled' if row else False
+
     # === Utility Methods ===
 
     def list_executions(self, limit: int = 50) -> List[Dict]:

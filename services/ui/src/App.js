@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import AgentMessage from './components/AgentMessage';
+import FeedbackModal from './components/FeedbackModal';
 import { useSSE } from './hooks/useSSE';
 
 // Format SSE events to UI-friendly format
@@ -76,6 +77,44 @@ const formatSSEEvent = (event) => {
         content: `🔴 Execution failed: ${eventData.reason || eventData.error}`
       };
 
+    case 'execution_aborted':
+      return {
+        type: 'error',
+        content: `🛑 Execution aborted: ${eventData.reason || 'User stopped execution'}`
+      };
+
+    case 'execution_stopped':
+      return {
+        type: 'error',
+        content: `🛑 Execution stopped: ${eventData.reason || 'User stopped execution'}`
+      };
+
+    case 'interrupt_received':
+      const interruptType = eventData.type || 'unknown';
+      return {
+        type: 'status',
+        content: `⚠️ Interrupt received (${interruptType})`
+      };
+
+    case 'feedback_injected':
+      return {
+        type: 'status',
+        content: `💬 User guidance: ${eventData.message || 'Feedback provided - agent continuing with guidance...'}`
+      };
+
+    case 'user_interrupt':
+      return {
+        type: 'status',
+        content: `⏸️ Agent paused - feedback received`
+      };
+
+    case 'user_feedback_received':
+      const feedbackData = eventData.feedback_data || {};
+      return {
+        type: 'status',
+        content: `💬 Feedback: ${feedbackData.guidance || 'User provided guidance'}`
+      };
+
     default:
       return null;
   }
@@ -84,6 +123,7 @@ const formatSSEEvent = (event) => {
 function App() {
   const [goal, setGoal] = useState('');
   const [messages, setMessages] = useState([]);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const messagesEndRef = useRef(null);
 
   // Get backend URL from environment variable
@@ -136,6 +176,19 @@ function App() {
     }
   };
 
+  const handleFeedbackSubmit = async (feedbackText) => {
+    try {
+      await sseHook.submitFeedback('feedback', feedbackText);
+      // Add user feedback message to UI
+      setMessages(prev => [...prev, {
+        sender: 'user',
+        text: `💬 Feedback provided: ${feedbackText}`
+      }]);
+    } catch (error) {
+      throw error; // Let modal handle the error
+    }
+  };
+
   return (
     <div className="App">
       <header className="App-header">
@@ -179,23 +232,41 @@ function App() {
           placeholder={sseHook.isExecuting ? "Analysis in progress..." : "Describe your infrastructure issue..."}
           disabled={sseHook.isExecuting}
         />
-        <button
-          type="submit"
-          className="submit-button"
-          disabled={sseHook.isExecuting}
-        >
-          {sseHook.isExecuting ? 'Analyzing...' : 'Start Analysis'}
-        </button>
-        {sseHook.isExecuting && (
+        {!sseHook.isExecuting ? (
           <button
-            type="button"
-            className="interrupt-button"
-            onClick={sseHook.stopExecution}
+            type="submit"
+            className="submit-button"
+            disabled={sseHook.isExecuting}
           >
-            Stop
+            Start Analysis
           </button>
+        ) : (
+          <div className="execution-controls">
+            <button
+              type="button"
+              className="abort-button"
+              onClick={sseHook.stopExecution}
+              title="Stop the agent immediately"
+            >
+              🛑 Abort
+            </button>
+            <button
+              type="button"
+              className="feedback-button"
+              onClick={() => setIsFeedbackModalOpen(true)}
+              title="Provide guidance to the agent"
+            >
+              💬 Provide Feedback
+            </button>
+          </div>
         )}
       </form>
+
+      <FeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
+        onSubmit={handleFeedbackSubmit}
+      />
     </div>
   );
 }
