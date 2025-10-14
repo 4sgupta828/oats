@@ -6,8 +6,6 @@ import { useSSE } from './hooks/useSSE';
 
 // Format SSE events to UI-friendly format
 const formatSSEEvent = (event) => {
-  // Event structure from SSE: { id, type, turn, success, data: {...}, timestamp }
-  // The actual event data is nested under event.data
   const eventData = event.data || {};
 
   switch (event.type) {
@@ -130,7 +128,6 @@ function App() {
   const [goal, setGoal] = useState('');
   const [messages, setMessages] = useState([]);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
-  const [showReconnectBanner, setShowReconnectBanner] = useState(false);
   const messagesEndRef = useRef(null);
 
   // Get backend URL from environment variable
@@ -138,15 +135,6 @@ function App() {
 
   // Use SSE hook
   const sseHook = useSSE(backendUrl);
-
-  // Show reconnect banner if execution ID exists on mount
-  useEffect(() => {
-    if (sseHook.executionId && sseHook.events.length === 0) {
-      setShowReconnectBanner(true);
-      // Hide banner after 5 seconds
-      setTimeout(() => setShowReconnectBanner(false), 5000);
-    }
-  }, [sseHook.executionId]); // Only run when executionId changes
 
   // Process SSE events
   useEffect(() => {
@@ -220,12 +208,6 @@ function App() {
           )}
         </div>
       </header>
-
-      {showReconnectBanner && (
-        <div className="reconnect-banner">
-          🔄 Reconnected to execution {sseHook.executionId?.slice(0, 8)}... Catching up with events...
-        </div>
-      )}
 
       <div className="message-container">
         {messages.map((msg, index) => (
