@@ -213,8 +213,8 @@ class AgentController:
                         completion_reason = parsed_response.act.params.get("reason", "Goal completed")
                         turn_duration = int((time.time() - turn_start_time) * 1000)
 
-                        # Save final results to file before finishing
-                        final_results_file = self._save_final_results(state, completion_reason)
+                        # Note: final_result_*.txt file creation is disabled
+                        # All execution data is available in the database
 
                         # Trust the agent's completion decision
                         from reactor.models import TranscriptEntry
@@ -224,7 +224,7 @@ class AgentController:
                             strategize=parsed_response.strategize,
                             state=parsed_response.state,
                             act=parsed_response.act,
-                            observation=f"FINISH: {completion_reason}\nFINAL RESULTS SAVED: {final_results_file}",
+                            observation=f"FINISH: {completion_reason}",
                             duration_ms=turn_duration
                         )
                         state.transcript.append(final_transcript_entry)
