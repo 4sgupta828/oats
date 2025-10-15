@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oats-database-migration
+  labels:
+    app: oats-database-migration
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: oats-database-migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: oats-backend
+      containers:
+      - name: database-migration
+        image: 911167909198.dkr.ecr.us-west-2.amazonaws.com/oats-backend-api:latest
+        imagePullPolicy: Always
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Starting database migration..."
+          cd /app
+          python3 database/apply_migration.py
+          echo "Database migration complete!"
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: database-credentials
+              key: url
+        - name: PYTHONPATH
+          value: "/app"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
