@@ -10,7 +10,7 @@ ALTER TABLE user_feedback
 
 ALTER TABLE user_feedback
   ADD CONSTRAINT valid_feedback_type
-  CHECK (feedback_type IN ('feedback', 'pause', 'stop', 'interrupt', 'input', 'approval'));
+  CHECK (feedback_type IN ('feedback', 'pause', 'stop', 'interrupt', 'input', 'approval', 'user_prompt_response'));
 
 -- Note: Keeping old types (interrupt, input, approval) for backward compatibility
 -- Mapping: 'interrupt' → 'pause', but we'll handle in application layer
