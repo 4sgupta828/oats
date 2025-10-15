@@ -21,4 +21,4 @@ spec:
           image: oats-ui:latest
           imagePullPolicy: IfNotPresent  # Use local Docker image
           ports:
-            - containerPort: 80
+            - containerPort: 3000

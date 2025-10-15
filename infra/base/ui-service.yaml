@@ -12,5 +12,5 @@ spec:
   ports:
     - protocol: TCP
       port: 8080     # External port for accessing the UI
-      targetPort: 80 # The port the container is listening on
+      targetPort: 3000 # The port the container is listening on
   type: LoadBalancer # For Docker Desktop k8s, exposes on localhost:8080

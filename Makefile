@@ -19,7 +19,7 @@ build-backend:
 .PHONY: build-ui
 build-ui:
 	@echo "Building UI image: $(UI_IMG):$(TAG)..."
-	@docker build -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile .
+	@docker build -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile ./services/ui
 
 # Build all images
 .PHONY: build

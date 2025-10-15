@@ -1,5 +1,5 @@
-# --- Stage 1: Build the React Application ---
-FROM node:18-alpine AS builder
+# --- Single Stage: Build and Serve React Application ---
+FROM node:18-alpine
 
 # Set the working directory
 WORKDIR /app
@@ -16,18 +16,11 @@ COPY . ./
 # Build the production-ready static files
 RUN npm run build
 
+# Install serve to serve static files
+RUN npm install -g serve
 
-# --- Stage 2: Serve the Application with Nginx ---
-FROM nginx:1.25-alpine
+# Expose port 3000 for the web server
+EXPOSE 3000
 
-# Copy the built static files from the 'builder' stage
-COPY --from=builder /app/build /usr/share/nginx/html
-
-# Copy our custom Nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Expose port 80 for the web server
-EXPOSE 80
-
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Start the application using serve
+CMD ["serve", "-s", "build", "-l", "3000"]
