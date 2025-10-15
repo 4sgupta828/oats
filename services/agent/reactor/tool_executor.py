@@ -34,6 +34,9 @@ class ReActToolExecutor:
         os.makedirs(temp_base, exist_ok=True)
         self._temp_dir = tempfile.mkdtemp(prefix="observations_", dir=temp_base)
         logger.info(f"Initialized observation temp directory: {self._temp_dir}")
+        # Workspace root for file tracking
+        self.workspace_root = os.path.abspath(os.path.join(repo_root, "..", ".."))
+        logger.info(f"Workspace root for artifact tracking: {self.workspace_root}")
 
     def set_execution_context(self, execution_id: str, turn_number: int):
         """Set execution context for tools that need it."""
@@ -95,11 +98,22 @@ class ReActToolExecutor:
                 available_tools = [f"{desc.name}:{desc.version}" for desc in self.registry.list_ufs()]
                 return f"ERROR: Tool '{tool_name}' not found. Available tools: {', '.join(available_tools)}"
 
+            # Snapshot workspace before execution (for tools that might create files)
+            before_snapshot = None
+            if tool_name in ['execute_shell', 'create_file', 'write_file', 'edit_file']:
+                before_snapshot = self._snapshot_workspace_files()
+
             # Execute tool using existing infrastructure
             result = execute_tool(uf_descriptor, parameters)
 
-            # Format observation (pass parameters for read_file artifact handling)
-            observation = self._format_observation(tool_name, result, parameters)
+            # Detect new/modified files after execution
+            detected_artifacts = []
+            if before_snapshot is not None:
+                new_files = self._detect_new_or_modified_files(before_snapshot)
+                detected_artifacts = [f for f in new_files if self._should_track_file(f)]
+
+            # Format observation (pass parameters and detected artifacts)
+            observation = self._format_observation(tool_name, result, parameters, detected_artifacts)
 
             duration = time.time() - start_time
             logger.info(f"Tool execution completed in {duration:.2f}s with status: {result.status}")
@@ -213,7 +227,7 @@ class ReActToolExecutor:
             logger.error(f"Error resolving tool '{tool_name}': {e}")
             return None
 
-    def _format_observation(self, tool_name: str, result: ToolResult, parameters: Optional[Dict[str, Any]] = None) -> str:
+    def _format_observation(self, tool_name: str, result: ToolResult, parameters: Optional[Dict[str, Any]] = None, detected_artifacts: Optional[list] = None) -> str:
         """Format tool result into observation string using 3-layer funnel."""
 
         if result.status == "failure":
@@ -332,6 +346,12 @@ class ReActToolExecutor:
         if metadata_parts:
             observation_parts.append(f"({', '.join(metadata_parts)})")
 
+        # Append detected artifacts (files created/modified during execution)
+        if detected_artifacts:
+            observation_parts.append("\n📦 Detected Artifacts:")
+            for artifact_path in detected_artifacts:
+                observation_parts.append(f"  - Artifact available: {artifact_path}")
+
         return "\n".join(observation_parts)
 
     def get_last_full_stdout(self) -> Optional[str]:
@@ -343,4 +363,74 @@ class ReActToolExecutor:
         tools = self.registry.list_ufs()
         tool_names = [f"{tool.name}:{tool.version}" for tool in tools]
         return f"Available tools: {', '.join(tool_names)}"
+
+    def _snapshot_workspace_files(self) -> Dict[str, float]:
+        """Create a snapshot of workspace files with their modification times."""
+        snapshot = {}
+        try:
+            # Only scan common workspace directories to avoid performance issues
+            scan_dirs = ['services', 'scripts', 'tmp', 'output']
+
+            for dir_name in scan_dirs:
+                dir_path = os.path.join(self.workspace_root, dir_name)
+                if not os.path.exists(dir_path):
+                    continue
+
+                for root, dirs, files in os.walk(dir_path):
+                    # Skip hidden directories and common excludes
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in
+                              {'node_modules', '__pycache__', 'venv', 'build', 'dist'}]
+
+                    for filename in files:
+                        # Skip hidden files and temp files
+                        if filename.startswith('.') or filename.endswith(('.pyc', '.tmp', '.swp')):
+                            continue
+
+                        filepath = os.path.join(root, filename)
+                        try:
+                            # Store relative path and mtime
+                            rel_path = os.path.relpath(filepath, self.workspace_root)
+                            snapshot[rel_path] = os.path.getmtime(filepath)
+                        except (OSError, ValueError):
+                            pass
+
+        except Exception as e:
+            logger.warning(f"Error creating workspace snapshot: {e}")
+
+        return snapshot
+
+    def _detect_new_or_modified_files(self, before_snapshot: Dict[str, float]) -> list:
+        """Detect files that were created or modified since the snapshot."""
+        after_snapshot = self._snapshot_workspace_files()
+        new_or_modified = []
+
+        for filepath, mtime in after_snapshot.items():
+            if filepath not in before_snapshot:
+                # New file
+                new_or_modified.append(filepath)
+            elif mtime > before_snapshot[filepath]:
+                # Modified file (mtime changed)
+                new_or_modified.append(filepath)
+
+        return new_or_modified
+
+    def _should_track_file(self, filepath: str) -> bool:
+        """Determine if a file should be tracked as an artifact."""
+        # Skip temp observation files (already tracked separately)
+        if '.ufflow_temp' in filepath:
+            return False
+
+        # Skip log files (too noisy)
+        if filepath.endswith('.log'):
+            return False
+
+        # Track common data and output file types
+        trackable_extensions = {
+            '.csv', '.json', '.txt', '.md', '.yaml', '.yml',
+            '.py', '.js', '.ts', '.sh', '.sql',
+            '.html', '.xml', '.pdf', '.png', '.jpg'
+        }
+
+        _, ext = os.path.splitext(filepath.lower())
+        return ext in trackable_extensions
 

@@ -291,8 +291,8 @@ class AgentController:
                     # Determine success from observation
                     tool_success = not observation.startswith("ERROR")
 
-                    # Extract artifact path if present (from large output)
-                    artifact_path = self._extract_artifact_path(observation)
+                    # Extract artifact paths (now supports multiple)
+                    artifact_paths = self._extract_artifact_paths(observation)
 
                     # Store complete tool output with intelligent truncation
                     tool_event_data = {
@@ -303,10 +303,16 @@ class AgentController:
                         'tool_params': parsed_response.act.params
                     }
 
-                    # Add artifact information if available
-                    if artifact_path:
-                        tool_event_data['artifact_path'] = artifact_path
-                        tool_event_data['artifact_type'] = self._detect_artifact_type(artifact_path)
+                    # Add artifact information if available (send first one to UI for now)
+                    if artifact_paths:
+                        # Send first artifact to UI (for backward compatibility)
+                        tool_event_data['artifact_path'] = artifact_paths[0]
+                        tool_event_data['artifact_type'] = self._detect_artifact_type(artifact_paths[0])
+                        # Store all artifacts for future use
+                        tool_event_data['all_artifacts'] = [
+                            {'path': path, 'type': self._detect_artifact_type(path)}
+                            for path in artifact_paths
+                        ]
 
                     self._emit(execution_id, turn_number,
                              'tool_success' if tool_success else 'tool_failed',
@@ -1191,10 +1197,10 @@ class AgentController:
 
         return False
 
-    def _extract_artifact_path(self, observation: str) -> Optional[str]:
-        """Extract artifact file path from observation if present."""
-        # Look for the pattern "Full output saved to: /path/to/file"
+    def _extract_artifact_paths(self, observation: str) -> list:
+        """Extract all artifact file paths from observation."""
         import re
+        artifacts = []
 
         # Pattern 1: Large output saved to temp file
         match = re.search(r'Full output saved to:\s*([^\s\n]+)', observation)
@@ -1204,14 +1210,21 @@ class AgentController:
             if '.ufflow_temp' in full_path:
                 parts = full_path.split('.ufflow_temp/')
                 if len(parts) > 1:
-                    return parts[1]  # Return relative path
+                    artifacts.append(parts[1])  # Add relative path
 
-        # Pattern 2: File created/modified (from create_file, write_file, edit_file)
-        match = re.search(r'Artifact available:\s*([^\s\n]+)', observation)
-        if match:
-            return match.group(1).strip()
+        # Pattern 2: All "Artifact available:" markers (supports multiple)
+        matches = re.findall(r'Artifact available:\s*([^\s\n]+)', observation)
+        for match in matches:
+            artifact_path = match.strip()
+            if artifact_path not in artifacts:
+                artifacts.append(artifact_path)
 
-        return None
+        return artifacts
+
+    def _extract_artifact_path(self, observation: str) -> Optional[str]:
+        """Extract first artifact file path from observation (backward compatibility)."""
+        artifacts = self._extract_artifact_paths(observation)
+        return artifacts[0] if artifacts else None
 
     def _detect_artifact_type(self, artifact_path: str) -> str:
         """Detect artifact type from file path/extension."""
