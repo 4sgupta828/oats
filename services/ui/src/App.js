@@ -157,8 +157,8 @@ function App() {
   const [executionPaused, setExecutionPaused] = useState(false);
   const messagesEndRef = useRef(null);
 
-  // Get backend URL from environment variable
-  const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
+  // Get backend URL from runtime config (injected at container startup) or fallback to env var or localhost
+  const backendUrl = window.RUNTIME_CONFIG?.BACKEND_URL || process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
   // Use SSE hook
   const sseHook = useSSE(backendUrl);

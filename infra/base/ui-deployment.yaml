@@ -22,3 +22,6 @@ spec:
           imagePullPolicy: IfNotPresent  # Use local Docker image
           ports:
             - containerPort: 3000
+          env:
+            - name: REACT_APP_BACKEND_URL
+              value: "http://localhost:8000"  # Default for local development, will be overridden in cloud
