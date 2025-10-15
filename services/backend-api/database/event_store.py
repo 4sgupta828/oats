@@ -245,7 +245,7 @@ class EventStore:
                     MAX(turn_number) as max_turn,
                     COUNT(CASE WHEN event_type = 'tool_success' THEN 1 END) as successful_tools,
                     COUNT(CASE WHEN event_type = 'tool_failed' THEN 1 END) as failed_tools,
-                    COUNT(CASE WHEN event_type LIKE '%_completed' THEN 1 END) as completion_events
+                    COUNT(CASE WHEN event_type LIKE '%%_completed' THEN 1 END) as completion_events
                 FROM agent_events
                 WHERE execution_id = %s
                 """,

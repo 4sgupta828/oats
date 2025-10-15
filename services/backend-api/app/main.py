@@ -59,11 +59,13 @@ class SubmitFeedbackRequest(BaseModel):
     interrupt_type: str  # 'feedback', 'pause', 'stop' (or legacy: 'interrupt', 'input', 'approval')
     message: Optional[str] = None  # User's guidance/feedback message
 
-class ResumeExecutionRequest(BaseModel):
-    mode: str  # 'new' or 'continue'
+class ContinueExecutionRequest(BaseModel):
     goal: str
     max_turns: Optional[int] = 15
-    keep_last_n_turns: Optional[int] = 3  # For continue mode: how many recent turns to keep
+
+class ResetExecutionRequest(BaseModel):
+    goal: str
+    max_turns: Optional[int] = 15
 
 
 # --- Startup/Shutdown Events ---
@@ -136,7 +138,8 @@ async def root():
             "list_executions": "GET /api/v1/executions",
             "submit_feedback": "POST /api/v1/executions/{id}/feedback",
             "abort_execution": "POST /api/v1/executions/{id}/abort",
-            "resume_execution": "POST /api/v1/executions/{id}/resume",
+            "continue_execution": "POST /api/v1/executions/{id}/continue",
+            "reset_execution": "POST /api/v1/executions/{id}/reset",
             "get_artifact": "GET /api/v1/artifacts/{file_path}"
         }
     }
@@ -234,10 +237,11 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
                     }
                     current_last_id = event['id']
 
-                # Check if execution is complete
+                # Keep streaming - never auto-close
+                # User must explicitly continue or reset
                 status = event_store.get_execution_status(execution_id)
-                if status and status['status'] in ['completed', 'failed', 'cancelled']:
-                    break
+                if status and status['status'] == 'cancelled':
+                    break  # Only break on cancellation
 
                 # Short delay before next poll
                 await asyncio.sleep(0.1)
@@ -294,23 +298,79 @@ def abort_execution(execution_id: str):
         raise HTTPException(500, f"Failed to abort execution: {str(e)}")
 
 
-@app.post("/api/v1/executions/{execution_id}/resume")
-def resume_execution(execution_id: str, request: ResumeExecutionRequest):
+@app.post("/api/v1/executions/{execution_id}/continue")
+def continue_execution(execution_id: str, request: ContinueExecutionRequest):
     """
-    Resume or restart an execution with new/refined goal.
-
-    Two modes:
-    - 'new': Start completely fresh (resets turns, clears history)
-    - 'continue': Keep learnings but summarize old context (preserves facts, ruled-out, diagnosis)
+    Continue execution with refined/additional goal.
+    Keeps all state (facts, ruled_out, diagnosis) and transcript (with auto-summarization).
     """
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
 
     try:
-        # Validate mode
-        if request.mode not in ['new', 'continue']:
-            raise HTTPException(400, "mode must be 'new' or 'continue'")
+        # Validate goal
+        if not request.goal or not request.goal.strip():
+            raise HTTPException(400, "Goal cannot be empty")
 
+        # Check if execution exists and is paused
+        status = event_store.get_execution_status(execution_id)
+        if not status:
+            raise HTTPException(404, "Execution not found")
+
+        if status['status'] not in ['paused', 'cancelled']:
+            raise HTTPException(400, f"Can only continue paused executions. Current status: {status['status']}")
+
+        print(f"▶️  Continuing execution {execution_id}")
+
+        # Update execution goal in database
+        event_store.update_execution_goal(execution_id, request.goal.strip())
+
+        # Update status to running
+        event_store.update_status(execution_id, 'running')
+
+        # Emit continuation event
+        event_store.emit_event(
+            execution_id, 0, 'execution_continued',
+            {'goal': request.goal.strip()},
+            success=True
+        )
+
+        # Start agent in background (reconstructs state from DB)
+        thread = threading.Thread(
+            target=run_agent_continue,
+            args=(execution_id, request.goal.strip(), request.max_turns),
+            daemon=True
+        )
+        thread.start()
+
+        print(f"🚀 Continued execution {execution_id}")
+
+        return {
+            "execution_id": execution_id,
+            "status": "continued",
+            "goal": request.goal.strip(),
+            "max_turns": request.max_turns
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Failed to continue execution: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to continue execution: {str(e)}")
+
+
+@app.post("/api/v1/executions/{execution_id}/reset")
+def reset_execution(execution_id: str, request: ResetExecutionRequest):
+    """
+    Reset: Force complete current goal and start fresh with new goal.
+    Clears all state and transcript.
+    """
+    if not event_store:
+        raise HTTPException(500, "Event store not initialized")
+
+    try:
         # Validate goal
         if not request.goal or not request.goal.strip():
             raise HTTPException(400, "Goal cannot be empty")
@@ -320,100 +380,56 @@ def resume_execution(execution_id: str, request: ResumeExecutionRequest):
         if not status:
             raise HTTPException(404, "Execution not found")
 
-        # Get execution summary for context
-        summary = event_store.get_execution_summary(execution_id)
+        print(f"🔄 Resetting execution {execution_id} (force complete)")
 
-        if request.mode == 'new':
-            # NEW MODE: Start fresh with a new execution
-            print(f"🔄 Starting NEW goal for execution {execution_id}")
+        # Force complete the current goal
+        event_store.update_status(execution_id, 'completed')
+        event_store.emit_event(
+            execution_id, 0, 'execution_reset',
+            {'reason': 'User reset - force completed current goal'},
+            success=True
+        )
 
-            # Create new execution with new goal
-            new_execution_id = event_store.create_execution(request.goal.strip())
+        # Create new execution with new goal
+        new_execution_id = event_store.create_execution(request.goal.strip())
 
-            # Emit event indicating this is related to previous execution
-            event_store.emit_event(
-                new_execution_id, 0, 'execution_started',
-                {
-                    'goal': request.goal.strip(),
-                    'mode': 'new',
-                    'previous_execution_id': execution_id,
-                    'max_turns': request.max_turns
-                },
-                success=True
-            )
+        # Emit event linking to previous execution
+        event_store.emit_event(
+            new_execution_id, 0, 'execution_started',
+            {
+                'goal': request.goal.strip(),
+                'previous_execution_id': execution_id,
+                'reset': True
+            },
+            success=True
+        )
 
-            # Start agent in background thread (fresh state)
-            thread = threading.Thread(
-                target=run_agent_execution,
-                args=(new_execution_id, request.goal.strip(), request.max_turns),
-                daemon=True
-            )
-            thread.start()
+        # Start agent in background thread (fresh state)
+        thread = threading.Thread(
+            target=run_agent_execution,
+            args=(new_execution_id, request.goal.strip(), request.max_turns),
+            daemon=True
+        )
+        thread.start()
 
-            print(f"🚀 Started NEW execution {new_execution_id} (reset from {execution_id})")
+        print(f"🚀 Started fresh execution {new_execution_id} (reset from {execution_id})")
 
-            return {
-                "execution_id": new_execution_id,
-                "previous_execution_id": execution_id,
-                "mode": "new",
-                "status": "started",
-                "goal": request.goal.strip(),
-                "max_turns": request.max_turns,
-                "message": "Started fresh execution with new goal"
-            }
-
-        else:  # mode == 'continue'
-            # CONTINUE MODE: Resume with summarized context
-            print(f"🔄 CONTINUING execution {execution_id} with summarized context")
-
-            # Update execution goal in database
-            event_store.update_execution_goal(execution_id, request.goal.strip())
-
-            # Update status back to running
-            event_store.update_status(execution_id, 'running')
-
-            # Emit continuation event
-            event_store.emit_event(
-                execution_id, 0, 'execution_continued',
-                {
-                    'old_goal': summary['goal'],
-                    'new_goal': request.goal.strip(),
-                    'mode': 'continue',
-                    'keep_last_n_turns': request.keep_last_n_turns,
-                    'previous_turns': summary['event_stats'].get('max_turn', 0)
-                },
-                success=True
-            )
-
-            # Start agent in background thread (with state reconstruction & summarization)
-            thread = threading.Thread(
-                target=run_agent_resume,
-                args=(execution_id, request.goal.strip(), request.max_turns, request.keep_last_n_turns),
-                daemon=True
-            )
-            thread.start()
-
-            print(f"🚀 Resumed execution {execution_id} with summarized context")
-
-            return {
-                "execution_id": execution_id,
-                "mode": "continue",
-                "status": "resumed",
-                "old_goal": summary['goal'],
-                "new_goal": request.goal.strip(),
-                "max_turns": request.max_turns,
-                "keep_last_n_turns": request.keep_last_n_turns,
-                "previous_turns": summary['event_stats'].get('max_turn', 0),
-                "message": "Resumed execution with summarized context"
-            }
+        return {
+            "execution_id": new_execution_id,
+            "previous_execution_id": execution_id,
+            "status": "started",
+            "goal": request.goal.strip(),
+            "max_turns": request.max_turns,
+            "message": "Reset complete - started fresh execution"
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to resume execution: {e}")
+        print(f"Failed to reset execution: {e}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(500, f"Failed to resume execution: {str(e)}")
+        raise HTTPException(500, f"Failed to reset execution: {str(e)}")
 
 
 @app.post("/api/v1/executions/{execution_id}/feedback")
@@ -585,9 +601,10 @@ def run_agent_execution(execution_id: str, goal: str, max_turns: int):
         # Execute goal with event emission
         result = agent.execute_goal(goal, max_turns, execution_id)
 
+        # Agent controller already set status to 'paused' or 'cancelled'
+        # Don't override it - agent never truly "completes"
         if result.success:
-            event_store.update_status(execution_id, 'completed')
-            print(f"✅ Agent execution {execution_id} completed successfully")
+            print(f"⏸️  Agent execution {execution_id} paused")
         else:
             event_store.update_status(execution_id, 'failed')
             print(f"⚠️  Agent execution {execution_id} failed")
@@ -603,63 +620,47 @@ def run_agent_execution(execution_id: str, goal: str, max_turns: int):
         event_store.update_status(execution_id, 'failed')
 
 
-def run_agent_resume(execution_id: str, goal: str, max_turns: int, keep_last_n_turns: int):
+def run_agent_continue(execution_id: str, goal: str, max_turns: int):
     """
-    Run agent execution in continue mode - reconstruct state from DB and summarize.
+    Continue agent execution - reconstruct state from DB and keep going.
+    Auto-summarization happens transparently during execution.
     """
     if not event_store:
         print("Event store not initialized")
         return
 
-    print(f"🤖 Resuming agent execution {execution_id} with summarized context")
+    print(f"▶️  Continuing agent execution {execution_id}")
 
     try:
-        # Import here to avoid circular imports
-        from reactor.models import ReActState
-
-        # Step 1: Reconstruct state from events
+        # Reconstruct state from events
         print(f"📥 Reconstructing state from execution {execution_id}")
         state = reconstruct_state_from_events(execution_id)
 
         if not state:
             raise ValueError(f"Could not reconstruct state from execution {execution_id}")
 
-        print(f"✅ State reconstructed: {state.turn_count} turns, {len(state.transcript)} transcript entries")
+        print(f"✅ State reconstructed: {state.turn_count} turns, {len(state.transcript)} entries, "
+              f"{len(state.state.facts) if state.state else 0} facts")
 
-        # Step 2: Apply summarization with new goal
-        print(f"📝 Summarizing context (keeping last {keep_last_n_turns} turns)")
-        stats = state.continue_with_summarized_context(goal, keep_last_n_turns)
+        # Update goal (refined/additional context)
+        state.goal = goal
+        if state.state:
+            state.state.goal = goal
 
-        # Emit summarization event
-        event_store.emit_event(
-            execution_id,
-            state.turn_count + 1,
-            'context_summarized',
-            stats,
-            success=True
-        )
-
-        print(f"✅ Context summarized: {stats['turns_summarized']} turns condensed, "
-              f"{stats['facts_count']} facts preserved")
-
-        # Step 3: Resume execution with summarized state
+        # Continue execution with existing state
         agent = AgentController(global_registry, event_store)
-        result = agent.execute_goal(goal, max_turns, execution_id, existing_state=state)
+        agent.execute_goal(goal, max_turns, execution_id, existing_state=state)
 
-        if result.success:
-            event_store.update_status(execution_id, 'completed')
-            print(f"✅ Agent execution {execution_id} completed successfully (resumed)")
-        else:
-            event_store.update_status(execution_id, 'failed')
-            print(f"⚠️  Agent execution {execution_id} failed (resumed)")
+        # Always pauses - never truly "completes"
+        print(f"⏸️  Agent execution {execution_id} paused")
 
     except Exception as e:
-        print(f"❌ Agent execution {execution_id} crashed during resume: {e}")
+        print(f"❌ Agent execution {execution_id} crashed during continue: {e}")
         import traceback
         traceback.print_exc()
         event_store.emit_event(
             execution_id, 0, 'execution_failed',
-            {"error": str(e), "traceback": traceback.format_exc(), "phase": "resume"},
+            {"error": str(e), "traceback": traceback.format_exc()},
             success=False
         )
         event_store.update_status(execution_id, 'failed')
@@ -673,7 +674,6 @@ def reconstruct_state_from_events(execution_id: str):
     try:
         from reactor.models import ReActState, State, TranscriptEntry
         from reactor.models import ReflectSection, StrategizeSection, ActSection, Hypothesis
-        import json
 
         # Get execution info
         summary = event_store.get_execution_summary(execution_id)

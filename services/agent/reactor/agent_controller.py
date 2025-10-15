@@ -122,8 +122,8 @@ class AgentController:
 
             logger.info(f"Found {len(available_tools)} available tools")
 
-            # Main ReAct loop
-            while state.turn_count < state.max_turns and not state.is_complete:
+            # Main ReAct loop - runs until max_turns or explicit break (finish/abort/pause)
+            while state.turn_count < state.max_turns:
                 turn_start_time = time.time()
                 turn_number = state.turn_count + 1
 
@@ -241,17 +241,14 @@ class AgentController:
                             self.event_store.update_status(execution_id, 'paused')
                         break
 
-                    # C. Check for goal achievement
+                    # C. Check if agent used finish tool (pauses, doesn't complete)
                     if parsed_response.is_finish:
-                        logger.info("Agent indicated goal completion")
+                        logger.info("Agent paused - indicated current objective addressed")
 
-                        completion_reason = parsed_response.act.params.get("reason", "Goal completed")
+                        pause_reason = parsed_response.act.params.get("reason", "Agent believes current objective is addressed")
                         turn_duration = int((time.time() - turn_start_time) * 1000)
 
-                        # Note: final_result_*.txt file creation is disabled
-                        # All execution data is available in the database
-
-                        # Trust the agent's completion decision
+                        # Add finish turn to transcript
                         from reactor.models import TranscriptEntry
                         final_transcript_entry = TranscriptEntry(
                             turn=state.turn_count + 1,
@@ -259,19 +256,22 @@ class AgentController:
                             strategize=parsed_response.strategize,
                             state=parsed_response.state,
                             act=parsed_response.act,
-                            observation=f"FINISH: {completion_reason}",
+                            observation=f"PAUSE: {pause_reason}",
                             duration_ms=turn_duration
                         )
                         state.transcript.append(final_transcript_entry)
                         state.turn_count += 1
 
-                        state.is_complete = True
-                        state.completion_reason = completion_reason
+                        state.completion_reason = pause_reason
 
                         self._emit(execution_id, turn_number,
-                                 'execution_completed',
-                                 {'reason': completion_reason},
+                                 'execution_paused',
+                                 {'reason': pause_reason},
                                  success=True)
+
+                        # Update status so we don't emit another pause event
+                        if self.event_store:
+                            self.event_store.update_status(execution_id, 'paused')
                         break
 
                     # ═══════════════════════════════════════════════════════
@@ -331,6 +331,11 @@ class AgentController:
 
                     logger.info(f"Turn {state.turn_count} completed: {parsed_response.act.tool}")
 
+                    # Auto-summarization: Keep context under control
+                    # Summarize after every 5 turns (keeping last 5 verbatim)
+                    if state.turn_count > 0 and state.turn_count % 5 == 0:
+                        self._auto_summarize_if_needed(state)
+
                 except Exception as e:
                     logger.error(f"Error in turn {state.turn_count + 1}: {e}")
 
@@ -360,8 +365,7 @@ class AgentController:
             # Finalize state
             state.end_time = datetime.now()
 
-            # Determine success
-            success = state.is_complete
+            # Generate execution summary
             execution_summary = self._generate_execution_summary(state)
 
             duration = time.time() - start_time
@@ -369,34 +373,32 @@ class AgentController:
             UFFlowLogger.log_execution_end(
                 "reactor",
                 "execute_goal",
-                success,
+                True,  # Always "successful" - just paused
                 duration_ms=int(duration * 1000),
-                turns_taken=state.turn_count,
-                goal_achieved=state.is_complete
+                turns_taken=state.turn_count
             )
 
-            logger.info(f"ReAct execution completed: success={success}, turns={state.turn_count}")
+            logger.info(f"ReAct execution paused: turns={state.turn_count}")
 
             # Update final status in event store
             if self.event_store:
                 # Check current status to avoid overwriting 'paused' or 'cancelled'
                 current_status = self.event_store.get_execution_status(execution_id)
                 if current_status and current_status['status'] in ['paused', 'cancelled']:
-                    # Don't emit failed event or update status - already handled
+                    # Already handled (agent used finish or user cancelled)
                     logger.info(f"Execution {execution_id} ended with status: {current_status['status']}")
                 else:
-                    if not success:
-                        self._emit(execution_id, state.turn_count,
-                                 'execution_failed',
-                                 {'reason': 'Max turns reached' if state.turn_count >= state.max_turns else 'Interrupted'},
-                                 success=False)
+                    # Max turns reached - pause for user input
+                    pause_reason = 'Max turns reached - awaiting user input'
+                    self._emit(execution_id, state.turn_count,
+                             'execution_paused',
+                             {'reason': pause_reason},
+                             success=True)
 
-                    self.event_store.update_status(
-                        execution_id, 'completed' if success else 'failed'
-                    )
+                    self.event_store.update_status(execution_id, 'paused')
 
             return ReActResult(
-                success=success,
+                success=True,  # Always successful - just paused
                 state=state,
                 execution_summary=execution_summary
             )
@@ -520,7 +522,7 @@ class AgentController:
 
             # Add all turns with FULL observations (no truncation)
             import json
-            for i, entry in enumerate(state.transcript):
+            for entry in state.transcript:
                 results_content.extend([
                     f"--- TURN {entry.turn} ---",
                     f"Reflect: {json.dumps(entry.reflect.model_dump(), indent=2)}",
@@ -696,14 +698,9 @@ class AgentController:
 
     def _generate_execution_summary(self, state: ReActState) -> str:
         """Generate human-readable execution summary."""
-        if state.is_complete:
-            summary = f"✅ Goal achieved in {state.turn_count} turns"
-            if state.completion_reason:
-                summary += f": {state.completion_reason}"
-        elif state.turn_count >= state.max_turns:
-            summary = f"⏰ Reached maximum turns ({state.max_turns}) without completing goal"
-        else:
-            summary = f"❌ Execution stopped after {state.turn_count} turns"
+        summary = f"⏸️  Execution paused after {state.turn_count} turns"
+        if state.completion_reason:
+            summary += f": {state.completion_reason}"
 
         # Add turn breakdown
         if state.transcript:
@@ -1250,6 +1247,60 @@ class AgentController:
             return 'metrics'
 
         return type_map.get(ext, 'text')
+
+    def _auto_summarize_if_needed(self, state: ReActState) -> None:
+        """
+        Auto-summarize transcript to prevent context bloat.
+        Keeps last 5 turns verbatim, summarizes older turns.
+        """
+        KEEP_LAST_N = 5
+
+        if len(state.transcript) <= KEEP_LAST_N:
+            return  # Not enough turns to summarize
+
+        logger.info(f"Auto-summarizing: {len(state.transcript)} turns -> keeping last {KEEP_LAST_N}")
+
+        # Split transcript
+        older_turns = state.transcript[:-KEEP_LAST_N]
+        recent_turns = state.transcript[-KEEP_LAST_N:]
+
+        # Create summary entry
+        from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis
+
+        turn_range = f"{older_turns[0].turn}-{older_turns[-1].turn}"
+        tools_used = list(set(turn.act.tool for turn in older_turns))
+        successes = sum(1 for t in older_turns if t.reflect.outcome == "SUCCESS")
+        failures = sum(1 for t in older_turns if t.reflect.outcome == "FAILURE")
+
+        summary_observation = (
+            f"📋 AUTO-SUMMARIZED CONTEXT (Turns {turn_range})\n\n"
+            f"Turns: {len(older_turns)} | Success/Failure: {successes}/{failures}\n"
+            f"Tools: {', '.join(tools_used[:5])}\n\n"
+            f"💡 All facts, ruled-out hypotheses, and diagnostic state preserved in agent state."
+        )
+
+        summary_entry = TranscriptEntry(
+            turn=0,
+            reflect=ReflectSection(
+                turn=0,
+                outcome="SUCCESS",
+                hypothesisResult="N/A",
+                insight=f"Summarized {len(older_turns)} older turns"
+            ),
+            strategize=StrategizeSection(
+                reasoning="Auto-condensed older context to prevent bloat",
+                hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
+                ifInvalidated="N/A"
+            ),
+            state=state.state,
+            act=ActSection(tool="auto_summary", params={"turns_summarized": len(older_turns)}),
+            observation=summary_observation,
+            duration_ms=0
+        )
+
+        # Update transcript: [summary] + recent turns
+        state.transcript = [summary_entry] + recent_turns
+        logger.info(f"Auto-summarization complete: {len(state.transcript)} entries remain")
 
     def _create_error_result(self, state: ReActState, error_message: str) -> ReActResult:
         """Create error result for failed executions."""

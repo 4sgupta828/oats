@@ -199,11 +199,11 @@ const AgentMessage = ({ message, backendUrl, onUserPromptResponse }) => {
     );
   };
 
-  const renderFinish = () => (
+  const renderPause = () => (
     <div className="agent-section finish-section">
       <div className="section-header">
-        <span className="section-icon">✅</span>
-        <span className="section-title">Analysis Complete</span>
+        <span className="section-icon">⏸️</span>
+        <span className="section-title">Agent Paused</span>
       </div>
       <div className="section-content">
         <div className="finish-summary">
@@ -213,15 +213,18 @@ const AgentMessage = ({ message, backendUrl, onUserPromptResponse }) => {
         {message.turnsCompleted && (
           <div className="finish-stat">
             <span className="stat-icon">📈</span>
-            Cycles Completed: {message.turnsCompleted}
+            Turns Completed: {message.turnsCompleted}
           </div>
         )}
-        {message.resultsFile && (
-          <div className="finish-file">
-            <span className="stat-icon">📁</span>
-            Full results: <code>{message.resultsFile}</code>
+        <div className="pause-instructions">
+          <div style={{ marginTop: '12px', padding: '8px', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px' }}>
+            <strong>Next steps:</strong>
+            <ul style={{ marginTop: '8px', marginBottom: '0', paddingLeft: '20px' }}>
+              <li><strong>Continue:</strong> Refine goal or add context to continue investigation</li>
+              <li><strong>Reset:</strong> Start fresh with a completely new goal</li>
+            </ul>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -316,8 +319,8 @@ const AgentMessage = ({ message, backendUrl, onUserPromptResponse }) => {
       return renderAction();
     case 'observation':
       return renderObservation();
-    case 'finish':
-      return renderFinish();
+    case 'pause':
+      return renderPause();
     case 'status':
       return renderStatus();
     case 'error':

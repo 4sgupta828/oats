@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import AgentMessage from './components/AgentMessage';
 import FeedbackModal from './components/FeedbackModal';
-import ResumeModal from './components/ResumeModal';
+import ResetModal from './components/ResetModal';
 import { useSSE } from './hooks/useSSE';
 
 // Format SSE events to UI-friendly format
@@ -69,10 +69,10 @@ const formatSSEEvent = (event) => {
         artifactType: eventData.artifact_type
       };
 
-    case 'execution_completed':
+    case 'execution_paused':
       return {
-        type: 'finish',
-        summary: eventData.reason || eventData.completion_reason || 'Goal completed',
+        type: 'pause',
+        summary: eventData.reason || 'Agent paused - awaiting user input',
         turnsCompleted: event.turn
       };
 
@@ -152,9 +152,9 @@ function App() {
   const [goal, setGoal] = useState('');
   const [messages, setMessages] = useState([]);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
-  const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
-  const [executionComplete, setExecutionComplete] = useState(false);
-  const [executionSummary, setExecutionSummary] = useState(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetGoal, setResetGoal] = useState('');
+  const [executionPaused, setExecutionPaused] = useState(false);
   const messagesEndRef = useRef(null);
 
   // Get backend URL from environment variable
@@ -170,14 +170,9 @@ function App() {
     sseHook.events.forEach(event => {
       console.log('[DEBUG] Processing event:', event.type, event);
 
-      // Check if execution is complete
-      if (event.type === 'execution_completed' || event.type === 'execution_failed') {
-        setExecutionComplete(true);
-        // Store basic summary
-        setExecutionSummary({
-          turns: event.turn || 0,
-          status: event.type === 'execution_completed' ? 'completed' : 'failed'
-        });
+      // Check if execution is paused
+      if (event.type === 'execution_paused') {
+        setExecutionPaused(true);
       }
 
       const formatted = formatSSEEvent(event);
@@ -209,9 +204,16 @@ function App() {
     e.preventDefault();
     if (!goal.trim() || sseHook.isExecuting) return;
 
+    // If execution is paused, Enter key triggers Continue
+    if (executionPaused) {
+      handleContinue();
+      return;
+    }
+
+    // Otherwise, start new execution
     setMessages([{ sender: 'user', text: goal }]);
     setGoal('');
-    setExecutionComplete(false); // Reset completion state
+    setExecutionPaused(false);
 
     try {
       await sseHook.startExecution(goal.trim());
@@ -223,24 +225,44 @@ function App() {
     }
   };
 
-  const handleResumeSubmit = async (mode, resumeGoal, keepLastNTurns) => {
+  const handleContinue = async () => {
+    if (!goal.trim()) return;
+
+    setMessages(prev => [...prev, { sender: 'user', text: `▶️ Continue: ${goal}` }]);
+    setGoal('');
+    setExecutionPaused(false);
+
     try {
-      // Add user message showing resume intent
-      setMessages(prev => [...prev, {
-        sender: 'user',
-        text: `${mode === 'new' ? '🆕 Starting new investigation' : '🔄 Continuing investigation'}: ${resumeGoal}`
-      }]);
-
-      // Reset completion state
-      setExecutionComplete(false);
-
-      await sseHook.resumeExecution(mode, resumeGoal, keepLastNTurns);
+      await sseHook.continueExecution(goal.trim());
     } catch (error) {
       setMessages(prev => [...prev, {
         sender: 'agent',
-        data: { type: 'error', content: `Failed to resume execution: ${error.message}` }
+        data: { type: 'error', content: `Failed to continue execution: ${error.message}` }
       }]);
-      throw error;
+    }
+  };
+
+  const handleResetClick = () => {
+    // Open modal to get new goal
+    setIsResetModalOpen(true);
+    setResetGoal('');
+  };
+
+  const handleResetSubmit = async (newGoal) => {
+    if (!newGoal.trim()) return;
+
+    try {
+      // Clear messages to start fresh
+      setMessages([{ sender: 'user', text: `🔄 Reset with new goal: ${newGoal}` }]);
+      setGoal('');
+      setExecutionPaused(false);
+
+      await sseHook.resetExecution(newGoal.trim());
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: { type: 'error', content: `Failed to reset execution: ${error.message}` }
+      }]);
     }
   };
 
@@ -299,11 +321,23 @@ function App() {
           <h1>OATS Framework</h1>
           <p className="subtitle">Observe · Adapt · TakeAction · Synthesize</p>
         </div>
-        <div className={`connection-status ${sseHook.isConnected ? 'connected' : ''}`}>
-          {sseHook.isConnected ? '● Connected' : '○ Ready'}
-          <span className="transport-type"> (SSE)</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div className={`connection-status ${sseHook.isConnected ? 'connected' : ''}`}>
+            {sseHook.isConnected ? '● Connected' : '○ Ready'}
+            <span className="transport-type"> (SSE)</span>
+            {sseHook.executionId && (
+              <span className="execution-id"> | Execution: {sseHook.executionId.slice(0, 8)}...</span>
+            )}
+          </div>
           {sseHook.executionId && (
-            <span className="execution-id"> | Execution: {sseHook.executionId.slice(0, 8)}...</span>
+            <button
+              className="reset-button-header"
+              onClick={handleResetClick}
+              disabled={sseHook.isExecuting}
+              title="Start fresh with a new goal"
+            >
+              🔄 Reset
+            </button>
           )}
         </div>
       </header>
@@ -336,28 +370,25 @@ function App() {
           type="text"
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
-          placeholder={sseHook.isExecuting ? "Analysis in progress..." : "Describe your infrastructure issue..."}
+          placeholder={
+            sseHook.isExecuting
+              ? "Analysis in progress..."
+              : executionPaused
+              ? "Refine goal or add context..."
+              : "Describe your infrastructure issue..."
+          }
           disabled={sseHook.isExecuting}
         />
         {!sseHook.isExecuting ? (
           <div className="input-controls">
             <button
               type="submit"
-              className="submit-button"
-              disabled={sseHook.isExecuting}
+              className={executionPaused ? "continue-button" : "submit-button"}
+              disabled={sseHook.isExecuting || (executionPaused && !goal.trim())}
+              title={executionPaused ? "Continue with refined/additional context (press Enter)" : "Start analysis"}
             >
-              Start Analysis
+              {executionPaused ? '▶️ Continue' : 'Start Analysis'}
             </button>
-            {executionComplete && sseHook.executionId && (
-              <button
-                type="button"
-                className="resume-button"
-                onClick={() => setIsResumeModalOpen(true)}
-                title="Resume or continue investigation"
-              >
-                🔄 Resume
-              </button>
-            )}
           </div>
         ) : (
           <div className="execution-controls">
@@ -387,11 +418,10 @@ function App() {
         onSubmit={handleFeedbackSubmit}
       />
 
-      <ResumeModal
-        isOpen={isResumeModalOpen}
-        onClose={() => setIsResumeModalOpen(false)}
-        onSubmit={handleResumeSubmit}
-        executionSummary={executionSummary}
+      <ResetModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onSubmit={handleResetSubmit}
       />
     </div>
   );

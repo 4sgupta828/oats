@@ -144,8 +144,7 @@ class ReActState(BaseModel):
     transcript: List[TranscriptEntry] = Field(default_factory=list, description="History of all turns")
     turn_count: int = Field(default=0, description="Current turn number")
     max_turns: int = Field(default=10, description="Maximum allowed turns")
-    is_complete: bool = Field(default=False, description="Whether the goal has been achieved")
-    completion_reason: Optional[str] = None
+    completion_reason: Optional[str] = Field(None, description="Reason for pause (finish/max_turns/user_action)")
     total_cost: float = Field(default=0.0, description="Cumulative cost of all actions")
     start_time: datetime = Field(default_factory=datetime.now)
     end_time: Optional[datetime] = None
@@ -163,179 +162,10 @@ class ReActState(BaseModel):
         self.state = State(goal=new_goal)
         self.transcript.clear()
         self.turn_count = 0
-        self.is_complete = False
         self.completion_reason = None
         self.total_cost = 0.0
         self.start_time = datetime.now()
         self.end_time = None
-
-    def is_same_goal(self, other_goal: str) -> bool:
-        """Check if the provided goal is essentially the same as current goal."""
-        return self.goal.strip().lower() == other_goal.strip().lower()
-
-    def continue_with_summarized_context(self, new_goal: str, keep_last_n_turns: int = 3) -> Dict[str, Any]:
-        """
-        Continue investigation with refined goal, keeping learnings but summarizing old context.
-
-        This method:
-        - Updates the goal to the refined version
-        - Keeps all strategic state (facts, ruled_out, unknowns, diagnosis)
-        - Condenses older transcript entries into a summary
-        - Keeps last N turns for immediate context
-        - Does NOT reset turn count (maintains historical context)
-
-        Returns summary statistics for user confirmation.
-        """
-        # Capture stats before summarization
-        stats = {
-            "old_goal": self.goal,
-            "new_goal": new_goal,
-            "total_turns_before": self.turn_count,
-            "transcript_entries_before": len(self.transcript),
-            "facts_count": len(self.state.facts) if self.state else 0,
-            "ruled_out_count": len(self.state.ruled_out) if self.state else 0,
-            "unknowns_count": len(self.state.unknowns) if self.state else 0,
-            "has_diagnosis": self.state.diagnosis is not None if self.state else False,
-        }
-
-        # Update goal
-        self.goal = new_goal
-        if self.state:
-            self.state.goal = new_goal
-
-        # Summarize transcript if needed
-        if len(self.transcript) > keep_last_n_turns:
-            self._summarize_transcript(keep_last_n_turns)
-            stats["transcript_entries_after"] = len(self.transcript)
-            stats["turns_summarized"] = stats["transcript_entries_before"] - keep_last_n_turns
-        else:
-            stats["transcript_entries_after"] = len(self.transcript)
-            stats["turns_summarized"] = 0
-
-        return stats
-
-    def _summarize_transcript(self, keep_last_n_turns: int) -> None:
-        """
-        Condense older transcript entries into a single summary entry.
-        Keeps last N turns for immediate context.
-        """
-        if len(self.transcript) <= keep_last_n_turns:
-            return  # Nothing to summarize
-
-        # Split transcript
-        older_turns = self.transcript[:-keep_last_n_turns]
-        recent_turns = self.transcript[-keep_last_n_turns:]
-
-        # Create summary entry from older turns
-        summary_entry = self._create_summary_entry(older_turns)
-
-        # Update transcript: [summary] + recent turns
-        self.transcript = [summary_entry] + recent_turns
-
-    def _create_summary_entry(self, turns: List[TranscriptEntry]) -> TranscriptEntry:
-        """
-        Create a summary transcript entry from multiple older turns.
-        Captures key outcomes, learnings, and failed approaches.
-        """
-        if not turns:
-            # Return empty summary if no turns
-            return TranscriptEntry(
-                turn=0,
-                reflect=ReflectSection(
-                    turn=0,
-                    outcome="FIRST_TURN",
-                    hypothesisResult="N/A",
-                    insight="Context summary placeholder"
-                ),
-                strategize=StrategizeSection(
-                    reasoning="Summarized context from previous investigation",
-                    hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
-                    ifInvalidated="N/A"
-                ),
-                state=self.state if self.state else State(goal=self.goal),
-                act=ActSection(tool="context_summary", params={}),
-                observation="No previous context to summarize",
-                duration_ms=0
-            )
-
-        # Extract key information from turns
-        turn_range = f"{turns[0].turn}-{turns[-1].turn}"
-        tools_used = list(set(turn.act.tool for turn in turns))
-
-        # Count outcomes
-        successes = sum(1 for t in turns if t.reflect.outcome == "SUCCESS")
-        failures = sum(1 for t in turns if t.reflect.outcome == "FAILURE")
-
-        # Extract key insights (from successful turns and failures)
-        insights = []
-        failed_approaches = []
-
-        for turn in turns:
-            if turn.reflect.outcome == "SUCCESS" and turn.reflect.insight:
-                # Capture successful insights
-                if turn.reflect.insight not in ["N/A", ""]:
-                    insights.append(f"Turn {turn.turn}: {turn.reflect.insight[:150]}")
-            elif turn.reflect.outcome == "FAILURE":
-                # Capture failed approaches
-                approach = f"{turn.act.tool}: {turn.strategize.hypothesis.claim[:100]}"
-                failed_approaches.append(approach)
-
-        # Build summary observation
-        summary_lines = [
-            f"📋 CONTEXT SUMMARY (Turns {turn_range})",
-            f"",
-            f"Turns executed: {len(turns)}",
-            f"Success/Failure: {successes}/{failures}",
-            f"Tools used: {', '.join(tools_used[:5])}{'...' if len(tools_used) > 5 else ''}",
-            f"",
-        ]
-
-        if insights:
-            summary_lines.append("Key learnings:")
-            for insight in insights[:5]:  # Top 5 insights
-                summary_lines.append(f"  • {insight}")
-            summary_lines.append("")
-
-        if failed_approaches:
-            summary_lines.append("Failed approaches (ruled out):")
-            for approach in failed_approaches[:5]:  # Top 5 failed approaches
-                summary_lines.append(f"  • {approach}")
-            summary_lines.append("")
-
-        summary_lines.append("💡 All verified facts, ruled-out hypotheses, and diagnostic state preserved in agent state.")
-
-        observation = "\n".join(summary_lines)
-
-        # Create summary transcript entry
-        return TranscriptEntry(
-            turn=0,  # Special turn number for summary
-            reflect=ReflectSection(
-                turn=0,
-                outcome="SUCCESS",
-                hypothesisResult="N/A",
-                insight=f"Summarized {len(turns)} turns of prior investigation"
-            ),
-            strategize=StrategizeSection(
-                reasoning="Context from previous investigation phase, condensed to prevent context bloat",
-                hypothesis=Hypothesis(
-                    claim="Prior context summarized for continuation",
-                    test="N/A",
-                    signal="N/A"
-                ),
-                ifInvalidated="N/A"
-            ),
-            state=self.state if self.state else State(goal=self.goal),
-            act=ActSection(
-                tool="context_summary",
-                params={
-                    "turn_range": turn_range,
-                    "turns_summarized": len(turns),
-                    "tools_used": tools_used
-                }
-            ),
-            observation=observation,
-            duration_ms=0
-        )
 
 class ParsedLLMResponse(BaseModel):
     """Structured representation of LLM response in new JSON format."""

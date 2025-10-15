@@ -616,3 +616,52 @@
   background-color: rgba(0, 0, 0, 0.2);
   border-radius: 4px;
 }
+
+/* Reset Button in Header */
+.reset-button-header {
+  padding: 8px 16px;
+  border: 1px solid #dc2626;
+  border-radius: 6px;
+  background-color: transparent;
+  color: #fca5a5;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.reset-button-header:hover:not(:disabled) {
+  background-color: #dc2626;
+  color: white;
+}
+
+.reset-button-header:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: #666;
+  color: #666;
+}
+
+/* Continue Button */
+.continue-button {
+  background-color: #10b981 !important;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.continue-button:hover:not(:disabled) {
+  background-color: #059669 !important;
+}
+
+.continue-button:disabled {
+  background-color: var(--background-tertiary) !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+}

@@ -76,8 +76,10 @@ export function useSSE(backendUrl) {
       'tool_failed',
       'execution_completed',
       'execution_failed',
+      'execution_paused',
       'execution_aborted',
       'execution_stopped',
+      'execution_reset',
       'user_interrupt',
       'interrupt_received',
       'feedback_injected',
@@ -85,7 +87,6 @@ export function useSSE(backendUrl) {
       'llm_requests_approval',
       'user_prompt_requested',
       'user_feedback_received',
-      'context_summarized',
       'execution_continued'
     ];
 
@@ -104,10 +105,15 @@ export function useSSE(backendUrl) {
             processedEventIds.current.add(event.id);
             setEvents(prev => [...prev, event]);
 
-            // Check if execution is complete
-            if (eventType === 'execution_completed' || eventType === 'execution_failed' || eventType === 'execution_aborted' || eventType === 'execution_stopped') {
+            // Check if execution is paused (never auto-close on pause)
+            if (eventType === 'execution_paused') {
               setIsExecuting(false);
-              // Close connection after completion
+              // Keep connection open - user must continue or reset
+            }
+
+            // Only close on cancellation
+            if (eventType === 'execution_aborted' || eventType === 'execution_stopped') {
+              setIsExecuting(false);
               setTimeout(() => eventSource.close(), 1000);
             }
           }
@@ -178,23 +184,55 @@ export function useSSE(backendUrl) {
     }
   }, [executionId, backendUrl, events]);
 
-  // Resume execution with new or refined goal
-  const resumeExecution = useCallback(async (mode, goal, keepLastNTurns = 3, maxTurns = 15) => {
+  // Continue execution with refined/additional goal
+  const continueExecution = useCallback(async (goal, maxTurns = 15) => {
     if (!executionId) {
-      throw new Error('No execution to resume');
+      throw new Error('No execution to continue');
     }
 
     try {
       setIsExecuting(true);
 
-      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/resume`, {
+      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/continue`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode,
           goal,
-          max_turns: maxTurns,
-          keep_last_n_turns: keepLastNTurns
+          max_turns: maxTurns
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Execution continued successfully:', result);
+      return result;
+
+    } catch (error) {
+      console.error('Failed to continue execution:', error);
+      setIsExecuting(false);
+      throw error;
+    }
+  }, [executionId, backendUrl]);
+
+  // Reset: Force complete current goal and start fresh
+  const resetExecution = useCallback(async (goal, maxTurns = 15) => {
+    if (!executionId) {
+      throw new Error('No execution to reset');
+    }
+
+    try {
+      setIsExecuting(true);
+
+      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goal,
+          max_turns: maxTurns
         })
       });
 
@@ -205,32 +243,23 @@ export function useSSE(backendUrl) {
 
       const result = await response.json();
 
-      // For NEW mode, we get a new execution ID
-      if (mode === 'new' && result.execution_id !== executionId) {
-        // Close current SSE connection
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-
-        // Clear events and reset state
-        setEvents([]);
-        processedEventIds.current.clear();
-
-        // Set new execution ID (this will trigger new SSE connection)
-        setExecutionId(result.execution_id);
-      }
-      // For CONTINUE mode, execution ID stays the same, just clear events
-      else if (mode === 'continue') {
-        // Clear old events to show fresh resumption
-        setEvents([]);
-        processedEventIds.current.clear();
+      // Close current SSE connection
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
 
-      console.log('Execution resumed successfully:', result);
+      // Clear events and reset state
+      setEvents([]);
+      processedEventIds.current.clear();
+
+      // Set new execution ID (this will trigger new SSE connection)
+      setExecutionId(result.execution_id);
+
+      console.log('Execution reset successfully:', result);
       return result;
 
     } catch (error) {
-      console.error('Failed to resume execution:', error);
+      console.error('Failed to reset execution:', error);
       setIsExecuting(false);
       throw error;
     }
@@ -240,7 +269,8 @@ export function useSSE(backendUrl) {
     startExecution,
     stopExecution,
     submitFeedback,
-    resumeExecution,
+    continueExecution,
+    resetExecution,
     events,
     isConnected,
     isExecuting,
