@@ -12,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
-# Add the agent's directory to the Python path
-agent_path = Path(__file__).parent.parent.parent / "agent"
+# Add the agent's directory to the Python path (image layout: /app/agent)
+agent_path = Path(__file__).parent.parent / "agent"
 sys.path.insert(0, str(agent_path))
 
 # Import agent components

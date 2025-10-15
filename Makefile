@@ -6,6 +6,7 @@ REGISTRY ?= your-registry
 BACKEND_IMG := $(REGISTRY)/oats-backend-api
 UI_IMG := $(REGISTRY)/oats-ui
 TAG ?= latest
+DOCKER_PLATFORM ?= linux/amd64
 
 # --- Docker Build Commands ---
 
@@ -13,13 +14,13 @@ TAG ?= latest
 .PHONY: build-backend
 build-backend:
 	@echo "Building Backend API image: $(BACKEND_IMG):$(TAG)..."
-	@docker build -t $(BACKEND_IMG):$(TAG) -f ./services/backend-api/Dockerfile .
+	@docker build --platform $(DOCKER_PLATFORM) -t $(BACKEND_IMG):$(TAG) -f ./services/backend-api/Dockerfile .
 
 # Build the UI image
 .PHONY: build-ui
 build-ui:
 	@echo "Building UI image: $(UI_IMG):$(TAG)..."
-	@docker build -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile ./services/ui
+	@docker build --platform $(DOCKER_PLATFORM) -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile ./services/ui
 
 # Build all images
 .PHONY: build

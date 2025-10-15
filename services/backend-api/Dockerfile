@@ -3,6 +3,9 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+# Ensure Python can import agent modules
+ENV PYTHONPATH=/app:/app/agent
+
 # Install dependencies, including the Kubernetes client
 COPY ./services/backend-api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -13,8 +16,11 @@ COPY ./services/agent/ ./agent/
 # Copy the backend source code
 COPY ./services/backend-api/app/ ./app/
 
+# Copy database package used by backend
+COPY ./services/backend-api/database/ ./database/
+
 # Expose the port the API will run on
 EXPOSE 8000
 
 # Start the Uvicorn server
-CMD ["uvicorn", "app.main:socket_app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

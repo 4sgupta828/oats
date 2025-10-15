@@ -32,19 +32,36 @@ if ! aws sts get-caller-identity >/dev/null 2>&1; then
     aws configure
 fi
 
-# Check if Anthropic API key is set (we use Claude by default)
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-    print_warn "ANTHROPIC_API_KEY not set"
-    read -sp "Enter your Anthropic API key: " ANTHROPIC_API_KEY
-    echo ""
-    export ANTHROPIC_API_KEY
+DOCKER_PLATFORM=linux/amd64
+
+# Note: ANTHROPIC_API_KEY can be provided via environment. If absent, deploy will fail fast when creating secrets.
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+    print_info "Using ANTHROPIC_API_KEY from environment"
+else
+    print_warn "ANTHROPIC_API_KEY not set (required if creating k8s secret)"
 fi
 
 echo ""
+# Parse target selection: --backend | --frontend | --all (default all)
+TARGET="all"
+case "$1" in
+  --backend)
+    TARGET="backend" ;;
+  --frontend)
+    TARGET="frontend" ;;
+  --all|"" )
+    TARGET="all" ;;
+  *)
+    print_warn "Unknown option '$1'. Use --backend | --frontend | --all. Defaulting to all."
+    TARGET="all" ;;
+esac
+
 print_info "Deployment configuration:"
 echo "  Registry: $REGISTRY"
 echo "  Region: $AWS_REGION"
 echo "  Cluster: $CLUSTER_NAME"
+echo "  Docker Platform: $DOCKER_PLATFORM"
+echo "  Target: $TARGET"
 echo ""
 
 # Function to get service URLs
@@ -97,6 +114,130 @@ get_service_urls() {
             echo "  kubectl port-forward service/oats-ui-service 8080:8080"
             echo ""
         fi
+    fi
+}
+
+# Function: create ECR repositories if missing
+create_ecr_repos() {
+    print_step "Creating ECR repositories..."
+    # oats-backend-api
+    if aws ecr describe-repositories --repository-names oats-backend-api --region $AWS_REGION >/dev/null 2>&1; then
+        print_skip "Repository oats-backend-api already exists"
+    else
+        aws ecr create-repository --repository-name oats-backend-api --region $AWS_REGION
+        print_info "Created repository: oats-backend-api"
+    fi
+    # oats-ui
+    if aws ecr describe-repositories --repository-names oats-ui --region $AWS_REGION >/dev/null 2>&1; then
+        print_skip "Repository oats-ui already exists"
+    else
+        aws ecr create-repository --repository-name oats-ui --region $AWS_REGION
+        print_info "Created repository: oats-ui"
+    fi
+}
+
+# Function: create EKS cluster if missing
+create_eks_cluster() {
+    print_step "Creating EKS cluster: $CLUSTER_NAME"
+    print_warn "This will take approximately 15-20 minutes..."
+    cat > /tmp/oats-cluster.yaml <<EOF
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: $CLUSTER_NAME
+  region: $AWS_REGION
+
+nodeGroups:
+  - name: oats-nodes
+    instanceType: ${INSTANCE_TYPE:-t3.medium}
+    desiredCapacity: ${NODE_COUNT:-2}
+    minSize: 1
+    maxSize: 4
+    volumeSize: 30
+    ssh:
+      allow: false
+    iam:
+      withAddonPolicies:
+        imageBuilder: true
+        autoScaler: true
+        cloudWatch: true
+
+addons:
+  - name: vpc-cni
+  - name: coredns
+  - name: kube-proxy
+EOF
+    eksctl create cluster -f /tmp/oats-cluster.yaml
+    print_info "Cluster created"
+    aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
+}
+
+# Function: build and push images (always force rebuild)
+build_and_push_images() {
+    print_step "Building and pushing images (platform=$DOCKER_PLATFORM, target=$TARGET)"
+    print_info "Logging in to ECR..."
+    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY
+    if [ "$TARGET" = "backend" ]; then
+        print_info "Building backend image..."
+        DOCKER_PLATFORM=$DOCKER_PLATFORM REGISTRY=$REGISTRY make build-backend
+        print_info "Pushing backend image..."
+        REGISTRY=$REGISTRY make push-backend
+    elif [ "$TARGET" = "frontend" ]; then
+        print_info "Building UI image..."
+        DOCKER_PLATFORM=$DOCKER_PLATFORM REGISTRY=$REGISTRY make build-ui
+        print_info "Pushing UI image..."
+        REGISTRY=$REGISTRY make push-ui
+    else
+        print_info "Building all images..."
+        DOCKER_PLATFORM=$DOCKER_PLATFORM REGISTRY=$REGISTRY make build
+        print_info "Pushing all images..."
+        REGISTRY=$REGISTRY make push
+    fi
+}
+
+# Function: deploy manifests to Kubernetes (cloud)
+deploy_to_kubernetes() {
+    print_step "Deploying OATS to EKS (target=$TARGET)..."
+    # Ensure secrets (only required for backend)
+    if [ "$TARGET" != "frontend" ]; then
+        if ! kubectl get secret oats-api-keys >/dev/null 2>&1; then
+            print_warn "Secret 'oats-api-keys' not found. Creating from environment variables..."
+            if [ -z "$ANTHROPIC_API_KEY" ]; then
+                print_error "ANTHROPIC_API_KEY is required but not set. Export it and re-run."
+                exit 1
+            fi
+            OPENAI_KEY_VALUE=${OPENAI_API_KEY:-dummy}
+            kubectl create secret generic oats-api-keys \
+                --from-literal=anthropic-api-key="$ANTHROPIC_API_KEY" \
+                --from-literal=openai-api-key="$OPENAI_KEY_VALUE" || true
+            print_info "Secret created"
+        else
+            print_skip "Secret 'oats-api-keys' already exists"
+        fi
+    fi
+
+    # Always apply RBAC for backend target or all
+    if [ "$TARGET" != "frontend" ]; then
+        kubectl apply -f ./infra/base/rbac.yaml
+        kubectl apply -f ./infra/base/backend-api-service.yaml
+        # Apply backend deployment with registry substitution and Always pull policy
+        sed -e "s|image: .*oats-backend-api.*|image: ${REGISTRY}/oats-backend-api:latest|" \
+            -e 's|imagePullPolicy:.*|imagePullPolicy: Always|' \
+            ./infra/base/backend-api-deployment.yaml | kubectl apply -f -
+        print_info "Waiting for backend pod to be ready..."
+        kubectl wait --for=condition=ready pod -l app=oats-backend-api --timeout=300s || true
+    fi
+
+    # UI only or all
+    if [ "$TARGET" != "backend" ]; then
+        kubectl apply -f ./infra/base/ui-service.yaml
+        # Apply UI deployment with registry substitution and Always pull policy
+        sed -e "s|image: .*oats-ui.*|image: ${REGISTRY}/oats-ui:latest|" \
+            -e 's|imagePullPolicy:.*|imagePullPolicy: Always|' \
+            ./infra/base/ui-deployment.yaml | kubectl apply -f -
+        print_info "Waiting for UI pod to be ready..."
+        kubectl wait --for=condition=ready pod -l app=oats-ui --timeout=300s || true
     fi
 }
 
@@ -256,12 +397,9 @@ else
     print_skip "EKS cluster already exists with ready nodes"
 fi
 
-if ! check_local_images; then
-    NEED_BUILD=true
-    print_warn "Local Docker images missing"
-else
-    print_skip "Local Docker images already built"
-fi
+# Always force rebuild/push of images (linux/amd64)
+NEED_BUILD=true
+print_warn "Forcing Docker image rebuild/push (platform=$DOCKER_PLATFORM)"
 
 if ! check_deployment_status; then
     NEED_DEPLOY=true
@@ -317,14 +455,12 @@ print_step "Executing deployment steps..."
 
 # Step 1: ECR repositories
 if $NEED_ECR; then
-    print_step "Creating ECR repositories..."
-    ./scripts/deploy-aws.sh <<< "1"
+    create_ecr_repos
 fi
 
 # Step 2: EKS cluster
 if $NEED_EKS; then
-    print_step "Creating EKS cluster..."
-    ./scripts/deploy-aws.sh <<< "2"
+    create_eks_cluster
 fi
 
 # Step 2.5: Scale up nodes (if cluster exists but nodes are scaled down)
@@ -357,14 +493,12 @@ fi
 
 # Step 3: Build and push images
 if $NEED_BUILD; then
-    print_step "Building and pushing images..."
-    ./scripts/deploy-aws.sh <<< "3"
+    build_and_push_images
 fi
 
 # Step 4: Deploy to Kubernetes
 if $NEED_DEPLOY; then
-    print_step "Deploying to Kubernetes..."
-    ./scripts/deploy-aws.sh <<< "4"
+    deploy_to_kubernetes
 fi
 
 echo ""
