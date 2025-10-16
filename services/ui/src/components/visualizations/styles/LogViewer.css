@@ -1,0 +1,127 @@
+.log-viewer {
+  background-color: #1e1e1e;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #333;
+}
+
+.log-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.log-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.log-filter-input {
+  flex: 1;
+  padding: 8px 12px;
+  background-color: #2c2c2c;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+}
+
+.log-filter-input:focus {
+  outline: none;
+  border-color: #4488ff;
+}
+
+.log-level-select {
+  padding: 8px 12px;
+  background-color: #2c2c2c;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.log-level-select:focus {
+  outline: none;
+  border-color: #4488ff;
+}
+
+.log-count {
+  color: #888;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.log-content {
+  border: 1px solid #333;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+}
+
+.log-line {
+  padding: 4px 12px;
+  display: flex;
+  gap: 12px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.log-line:hover {
+  background-color: #2c2c2c;
+}
+
+.log-timestamp {
+  color: #888;
+  white-space: nowrap;
+}
+
+.log-level {
+  font-weight: bold;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.log-message {
+  flex: 1;
+  color: #ccc;
+}
+
+.log-error {
+  background-color: rgba(255, 0, 0, 0.1);
+}
+
+.log-error .log-level {
+  color: #ff6b6b;
+}
+
+.log-warning {
+  background-color: rgba(255, 165, 0, 0.1);
+}
+
+.log-warning .log-level {
+  color: #ffa500;
+}
+
+.log-info .log-level {
+  color: #4488ff;
+}
+
+.log-debug .log-level {
+  color: #888;
+}
+
+.log-default .log-level {
+  color: #ccc;
+}

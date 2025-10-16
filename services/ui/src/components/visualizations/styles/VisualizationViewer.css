@@ -1,0 +1,43 @@
+.visualization-container {
+  margin: 16px 0;
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #333;
+}
+
+.viz-error {
+  padding: 20px;
+  color: #ff6b6b;
+  background-color: #2c1a1a;
+  border-radius: 4px;
+  margin: 10px;
+  text-align: center;
+}
+
+.viz-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.viz-control-btn {
+  background: transparent;
+  border: 1px solid #666;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.viz-control-btn:hover {
+  background-color: #333;
+  border-color: #888;
+}
+
+.viz-control-btn.pinned {
+  background-color: #4488ff;
+  border-color: #4488ff;
+}

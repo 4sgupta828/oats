@@ -1,0 +1,108 @@
+.trace-viewer {
+  background-color: #1e1e1e;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.trace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #333;
+}
+
+.trace-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.trace-metadata {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: #2c2c2c;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.trace-content {
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 12px;
+  background-color: #1a1a1a;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.trace-span {
+  margin-bottom: 8px;
+}
+
+.span-info {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #2c2c2c;
+  border-radius: 4px;
+  border-left: 3px solid #4488ff;
+}
+
+.span-info.span-error {
+  border-left-color: #ff6b6b;
+  background-color: rgba(255, 0, 0, 0.1);
+}
+
+.span-service {
+  font-weight: bold;
+  color: #4488ff;
+  min-width: 120px;
+}
+
+.span-operation {
+  flex: 1;
+  color: #fff;
+}
+
+.span-duration {
+  color: #ffa500;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+}
+
+.span-error-badge {
+  background-color: #ff6b6b;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.span-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.span-tag {
+  color: #888;
+  padding: 4px 8px;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+}
+
+.span-children {
+  margin-top: 8px;
+}

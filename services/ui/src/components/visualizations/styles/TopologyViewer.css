@@ -1,0 +1,31 @@
+.topology-viewer {
+  background-color: #1e1e1e;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.topology-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #333;
+}
+
+.topology-header h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.react-flow__node {
+  font-size: 12px;
+}
+
+.react-flow__attribution {
+  background-color: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: 4px;
+}

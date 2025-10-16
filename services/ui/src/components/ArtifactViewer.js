@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import VisualizationViewer from './visualizations/VisualizationViewer';
 import './ArtifactViewer.css';
 
 const ArtifactViewer = ({ artifacts, backendUrl, executionId }) => {
@@ -230,8 +231,21 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
       case 'table':
         return renderTable();
 
+      case 'visualization':
+        return renderVisualization();
+
       default:
         return renderPlainText();
+    }
+  };
+
+  const renderVisualization = () => {
+    try {
+      const vizSpec = JSON.parse(content);
+      return <VisualizationViewer spec={vizSpec} artifactPath={artifactPath} />;
+    } catch (e) {
+      console.error('Failed to parse visualization spec:', e);
+      return renderPlainText();
     }
   };
 
@@ -392,6 +406,7 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
       case 'archive': return '📦';
       case 'script': return '📜';
       case 'sql': return '🗄️';
+      case 'visualization': return '📊';
       default: return '📎';
     }
   };

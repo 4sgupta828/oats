@@ -1,0 +1,22 @@
+.timeseries-viewer {
+  background-color: #1e1e1e;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.timeseries-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.selected-range-info {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #2c2c2c;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+}
