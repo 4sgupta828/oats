@@ -403,11 +403,13 @@ Execute with appropriate tool:
 - Can aggregate and format output cleanly
 - Easier to debug than chained bash commands
 - Can be tested incrementally
+- Auto-discovers dependencies (run first, install only what's missing)
 
 **Script Costs:**
 - Takes 1-2 turns to write and test
 - May have bugs requiring iteration
 - Overhead for simple tasks
+- +1 turn for package install (only if dependencies missing)
 
 **Decision Examples:**
 
@@ -666,19 +668,23 @@ head -50 /tmp/results.json | jq '.[] | select(.severity=="high")'
 
 **Critical:** Each shell command runs in fresh session. `source` doesn't persist.
 
-**Principle:** Always invoke Python and pip as modules (`python3 -m`), never as standalone commands.
+**Principle:** Run scripts first. Install packages only when missing. Batch install all dependencies.
 
 ```bash
-# ✅ Correct
-python3 -m pip install faker && python3 script.py
-python3 -m venv venv && venv/bin/python3 -m pip install requests
+# ✅ Efficient: Run first, install on-demand
+python3 script.py
+# If ModuleNotFoundError → extract ALL missing packages, batch install:
+python3 -m pip install faker requests psycopg2-binary && python3 script.py
 
-# ❌ Wrong
-pip install faker && python3 script.py           # Which pip? May use wrong interpreter
-source venv/bin/activate && python script.py    # Session doesn't persist
+# ❌ Inefficient: Preemptive install wastes turn if already present
+python3 -m pip install faker && python3 script.py
+
+# ❌ Wrong: Never use bare pip or source (doesn't persist)
+pip install faker && python3 script.py
+source venv/bin/activate && python script.py
 ```
 
-**Why:** `python3 -m pip` guarantees pip matches the Python interpreter. Bare `pip` may use system pip while `python3` uses venv, causing package mismatches.
+**Why:** Pods accumulate packages over time. Running first = zero overhead when packages exist (90%+ cases). Use `python3 -m pip` to guarantee pip matches interpreter.
 
 ---
 
