@@ -10,7 +10,7 @@
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid #444;
 }
 
 .topology-header h3 {
@@ -20,12 +20,85 @@
   font-weight: 600;
 }
 
+/* ReactFlow dark theme overrides */
 .react-flow__node {
   font-size: 12px;
+  background-color: #2c2c2c;
+  color: #fff;
+  border: 1px solid #444;
+  transition: all 0.2s;
+}
+
+.react-flow__node:hover {
+  box-shadow: 0 0 10px rgba(68, 136, 255, 0.5);
+  border-color: #4488ff;
+}
+
+.react-flow__node.selected {
+  box-shadow: 0 0 15px rgba(68, 136, 255, 0.7);
+}
+
+.react-flow__edge-path {
+  stroke: #888;
+  stroke-width: 2;
+  transition: stroke 0.2s;
+}
+
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #4488ff;
+  stroke-width: 3;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #4488ff;
+}
+
+.react-flow__controls {
+  background-color: #2c2c2c;
+  border: 1px solid #444;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.react-flow__controls-button {
+  background-color: #2c2c2c;
+  border-bottom: 1px solid #444;
+  color: #fff;
+  transition: background-color 0.2s;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #3c3c3c;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.react-flow__minimap {
+  background-color: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 .react-flow__attribution {
   background-color: rgba(0, 0, 0, 0.5);
   padding: 4px 8px;
   border-radius: 4px;
+  color: #888;
+  font-size: 10px;
+}
+
+/* Node type specific styling */
+.react-flow__node-default.healthy {
+  border-color: #4caf50;
+}
+
+.react-flow__node-default.degraded {
+  border-color: #ff9800;
+}
+
+.react-flow__node-default.unhealthy {
+  border-color: #f44336;
 }

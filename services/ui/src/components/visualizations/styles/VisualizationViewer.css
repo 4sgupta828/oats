@@ -3,41 +3,69 @@
   background-color: #1e1e1e;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid #333;
+  border: 1px solid #444;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.3s;
+}
+
+.visualization-container:hover {
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
 }
 
 .viz-error {
   padding: 20px;
-  color: #ff6b6b;
+  color: #ff4444;
   background-color: #2c1a1a;
   border-radius: 4px;
   margin: 10px;
   text-align: center;
+  font-family: monospace;
+  border: 1px solid #ff4444;
 }
 
 .viz-controls {
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .viz-control-btn {
-  background: transparent;
-  border: 1px solid #666;
+  background-color: #2c2c2c;
+  border: 1px solid #444;
   color: #fff;
-  padding: 6px 12px;
+  padding: 8px 16px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .viz-control-btn:hover {
-  background-color: #333;
-  border-color: #888;
+  background-color: #3c3c3c;
+  border-color: #666;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.viz-control-btn:active {
+  transform: translateY(0);
+}
+
+.viz-control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .viz-control-btn.pinned {
   background-color: #4488ff;
   border-color: #4488ff;
+}
+
+.viz-control-btn.pinned:hover {
+  background-color: #5599ff;
+  border-color: #5599ff;
 }

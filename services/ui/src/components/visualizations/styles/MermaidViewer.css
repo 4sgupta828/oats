@@ -2,6 +2,7 @@
   background-color: #1e1e1e;
   padding: 16px;
   border-radius: 8px;
+  color: #fff;
 }
 
 .mermaid-header {
@@ -10,7 +11,7 @@
   align-items: center;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid #444;
 }
 
 .mermaid-header h3 {
@@ -22,11 +23,63 @@
 
 .mermaid-content {
   overflow: auto;
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
 }
 
 .mermaid-content svg {
   max-width: 100%;
   height: auto;
+}
+
+/* Mermaid diagram dark theme overrides */
+.mermaid-content .node rect,
+.mermaid-content .node circle,
+.mermaid-content .node polygon {
+  fill: #2c2c2c;
+  stroke: #4488ff;
+  stroke-width: 2px;
+  transition: all 0.2s;
+}
+
+.mermaid-content .node rect:hover,
+.mermaid-content .node circle:hover,
+.mermaid-content .node polygon:hover {
+  fill: #3c3c3c;
+  stroke: #5599ff;
+}
+
+.mermaid-content .node text {
+  fill: #fff;
+  font-size: 14px;
+}
+
+.mermaid-content .edgePath path {
+  stroke: #888;
+  stroke-width: 2px;
+  transition: stroke 0.2s;
+}
+
+.mermaid-content .edgePath:hover path {
+  stroke: #4488ff;
+  stroke-width: 3px;
+}
+
+.mermaid-content .edgeLabel {
+  background-color: #1e1e1e;
+  color: #fff;
+  font-size: 12px;
+}
+
+.mermaid-content .cluster rect {
+  fill: #1e1e1e;
+  stroke: #666;
+  stroke-width: 1px;
 }
 
 .mermaid-error {
