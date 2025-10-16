@@ -23,8 +23,9 @@ deploy-backend: ecr-login
 	@docker build --platform linux/amd64 -t $(BACKEND_IMG):$(TAG) -f ./services/backend-api/Dockerfile .
 	@echo "📤 Pushing to ECR..."
 	@docker push $(BACKEND_IMG):$(TAG)
-	@echo "🔄 Restarting deployment..."
-	@kubectl rollout restart deployment/oats-backend-api
+	@echo "🔄 Updating deployment image..."
+	@kubectl set image deployment/oats-backend-api backend-api=$(BACKEND_IMG):$(TAG)
+	@kubectl patch deployment oats-backend-api -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend-api","imagePullPolicy":"Always"}]}}}}'
 	@kubectl rollout status deployment/oats-backend-api --timeout=120s
 	@echo "✅ Backend deployed successfully!"
 
@@ -35,8 +36,9 @@ deploy-ui: ecr-login
 	@docker build --platform linux/amd64 -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile ./services/ui
 	@echo "📤 Pushing to ECR..."
 	@docker push $(UI_IMG):$(TAG)
-	@echo "🔄 Restarting deployment..."
-	@kubectl rollout restart deployment/oats-ui
+	@echo "🔄 Updating deployment image..."
+	@kubectl set image deployment/oats-ui ui=$(UI_IMG):$(TAG)
+	@kubectl patch deployment oats-ui -p '{"spec":{"template":{"spec":{"containers":[{"name":"ui","imagePullPolicy":"Always"}]}}}}'
 	@kubectl rollout status deployment/oats-ui --timeout=120s
 	@echo "✅ UI deployed successfully!"
 
