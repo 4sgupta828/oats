@@ -3,7 +3,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ArtifactViewer from './ArtifactViewer';
 
-const AgentMessage = ({ message, backendUrl, onUserPromptResponse }) => {
+const AgentMessage = ({ message, backendUrl, executionId, onUserPromptResponse }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [promptResponse, setPromptResponse] = useState('');
   const [isSubmittingPrompt, setIsSubmittingPrompt] = useState(false);
@@ -186,12 +186,18 @@ const AgentMessage = ({ message, backendUrl, onUserPromptResponse }) => {
             </button>
           )}
 
-          {/* Show artifact viewer if artifact is available */}
-          {message.artifactPath && (
+          {/* Show artifact viewer if artifacts are available */}
+          {(message.artifacts && message.artifacts.length > 0) ? (
             <ArtifactViewer
-              artifactPath={message.artifactPath}
-              artifactType={message.artifactType || 'text'}
+              artifacts={message.artifacts}
               backendUrl={backendUrl}
+              executionId={executionId}
+            />
+          ) : message.artifactPath && (
+            <ArtifactViewer
+              artifacts={[{ path: message.artifactPath, type: message.artifactType || 'text' }]}
+              backendUrl={backendUrl}
+              executionId={executionId}
             />
           )}
         </div>

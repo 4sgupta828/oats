@@ -114,6 +114,7 @@ def _fix_grep_patterns(command: str) -> str:
 
     return fixed_command
 
+
 def _parse_command_safely(command: str) -> List[str]:
     """Parse command safely, handling pipes, redirections, and complex cases."""
     try:

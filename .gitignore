@@ -94,6 +94,9 @@ tmp/
 #session json files
 session_transcript_*.json
 
+# Generated artifacts
+.oats_artifacts/
+
 # Local secrets (DO NOT COMMIT)
 infra/base/secrets.local.yaml
 *.local.yaml

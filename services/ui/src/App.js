@@ -55,6 +55,8 @@ const formatSSEEvent = (event) => {
         isLarge: eventData.observation_length > 1000,
         isTruncated: eventData.observation_truncated,
         fullLength: eventData.observation_length,
+        artifacts: eventData.artifacts || (eventData.artifact_path ? [{ path: eventData.artifact_path, type: eventData.artifact_type || 'text' }] : []),
+        // Keep for backward compatibility
         artifactPath: eventData.artifact_path,
         artifactType: eventData.artifact_type
       };
@@ -65,6 +67,8 @@ const formatSSEEvent = (event) => {
         content: `❌ Tool '${eventData.tool}' failed:\n${eventData.observation || eventData.error_message || 'Unknown error'}`,
         isTruncated: eventData.observation_truncated,
         fullLength: eventData.observation_length,
+        artifacts: eventData.artifacts || (eventData.artifact_path ? [{ path: eventData.artifact_path, type: eventData.artifact_type || 'text' }] : []),
+        // Keep for backward compatibility
         artifactPath: eventData.artifact_path,
         artifactType: eventData.artifact_type
       };
@@ -381,6 +385,7 @@ function App() {
               <AgentMessage
                 message={msg.data}
                 backendUrl={backendUrl}
+                executionId={sseHook.executionId}
                 onUserPromptResponse={handleUserPromptResponse}
               />
             )}

@@ -308,16 +308,18 @@ class AgentController:
                         'tool_params': parsed_response.act.params
                     }
 
-                    # Add artifact information if available (send first one to UI for now)
+                    # Add artifact information if available (send ALL artifacts to UI)
                     if artifact_paths:
-                        # Send first artifact to UI (for backward compatibility)
-                        tool_event_data['artifact_path'] = artifact_paths[0]
-                        tool_event_data['artifact_type'] = self._detect_artifact_type(artifact_paths[0])
-                        # Store all artifacts for future use
-                        tool_event_data['all_artifacts'] = [
+                        # Send all artifacts to UI
+                        all_artifacts = [
                             {'path': path, 'type': self._detect_artifact_type(path)}
                             for path in artifact_paths
                         ]
+                        tool_event_data['artifacts'] = all_artifacts
+
+                        # For backward compatibility, also include first artifact
+                        tool_event_data['artifact_path'] = artifact_paths[0]
+                        tool_event_data['artifact_type'] = self._detect_artifact_type(artifact_paths[0])
 
                     self._emit(execution_id, turn_number,
                              'tool_success' if tool_success else 'tool_failed',
@@ -1232,9 +1234,9 @@ class AgentController:
         return artifacts[0] if artifacts else None
 
     def _detect_artifact_type(self, artifact_path: str) -> str:
-        """Detect artifact type from file path/extension."""
+        """Detect artifact type from file path/extension. Accepts ANY extension."""
         if not artifact_path:
-            return 'text'
+            return 'file'
 
         # Extract extension
         _, ext = os.path.splitext(artifact_path.lower())
@@ -1249,11 +1251,25 @@ class AgentController:
             '.yaml': 'yaml',
             '.yml': 'yaml',
             '.xml': 'xml',
-            '.html': 'html'
+            '.html': 'html',
+            '.pdf': 'pdf',
+            '.png': 'image',
+            '.jpg': 'image',
+            '.jpeg': 'image',
+            '.gif': 'image',
+            '.svg': 'image',
+            '.zip': 'archive',
+            '.tar': 'archive',
+            '.gz': 'archive',
+            '.sql': 'sql',
+            '.sh': 'script',
+            '.bat': 'script',
+            '.ps1': 'script'
         }
 
         # Check for code file extensions
-        code_exts = {'.py', '.js', '.ts', '.java', '.go', '.rs', '.cpp', '.c', '.rb', '.php'}
+        code_exts = {'.py', '.js', '.ts', '.tsx', '.jsx', '.java', '.go', '.rs', '.cpp',
+                     '.c', '.h', '.rb', '.php', '.scala', '.kt', '.swift', '.m', '.cs'}
         if ext in code_exts:
             return 'code'
 
@@ -1264,7 +1280,8 @@ class AgentController:
         if 'metric' in filename_lower or 'stats' in filename_lower:
             return 'metrics'
 
-        return type_map.get(ext, 'text')
+        # Default to 'file' for any unknown extension (was 'text')
+        return type_map.get(ext, 'file')
 
     def _auto_summarize_if_needed(self, state: ReActState) -> None:
         """

@@ -1,5 +1,59 @@
-.artifact-viewer {
+/* Container for all artifacts */
+.artifacts-container {
   margin: 12px 0;
+  padding: 12px;
+  background: #1e1e2e;
+  border: 1px solid #444;
+  border-radius: 8px;
+}
+
+.artifacts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #444;
+}
+
+.artifacts-count {
+  font-size: 0.9rem;
+  color: #888;
+  font-weight: 600;
+}
+
+.download-all-button {
+  padding: 6px 12px;
+  background: #4a9eff;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.download-all-button:hover {
+  background: #3d8ae6;
+  transform: translateY(-1px);
+}
+
+.artifacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Individual artifact */
+.artifact-viewer {
+  margin: 0;
+}
+
+.artifact-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .artifact-toggle {
@@ -21,6 +75,27 @@
 .artifact-toggle:hover {
   background: #343450;
   border-color: #555;
+}
+
+.artifact-download-button {
+  padding: 8px 12px;
+  background: #2a2a3e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #4a9eff;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  min-width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.artifact-download-button:hover {
+  background: #343450;
+  border-color: #4a9eff;
+  transform: scale(1.05);
 }
 
 .artifact-toggle-icon {

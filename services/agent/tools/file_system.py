@@ -49,24 +49,94 @@ class EditFileInput(UfInput):
     new_content: str = Field(..., description="The new block of text to be inserted in place of the old lines. This can be a multi-line string. To simply delete lines, provide an empty string.")
     preview: bool = Field(False, description="If True, show what would change without modifying the file (dry-run mode for verification).")
 
+def _is_executable_script(filename: str) -> bool:
+    """Check if file is an executable script that should stay in working directory."""
+    script_extensions = {'.py', '.sh', '.bash', '.js', '.ts', '.rb', '.pl', '.php', '.lua'}
+    _, ext = os.path.splitext(filename.lower())
+    return ext in script_extensions
+
+def _is_data_output(filename: str) -> bool:
+    """Check if file is a data/output file that should go to artifacts."""
+    output_extensions = {'.csv', '.json', '.xml', '.html', '.txt', '.log', '.yaml', '.yml', '.md'}
+    _, ext = os.path.splitext(filename.lower())
+    return ext in output_extensions
+
 @uf(name="create_file", version="1.0.0", description="Creates a new file with specified content.")
 def create_file(inputs: CreateFileInput) -> dict:
     """Creates a file and returns its path and size."""
-    # Use workspace security with temporary file detection
     from core.workspace_security import validate_workspace_path, secure_write_text
+    from core.sdk import get_execution_context
 
-    # Validate path with temporary file information
-    validated_path = validate_workspace_path(inputs.filename, "file creation", inputs.is_temporary)
+    # Get execution context for artifact tracking
+    context = get_execution_context()
+    execution_id = context.get('execution_id') if context else None
+
+    # Smart file placement logic:
+    # - Temporary files: go to tmp/
+    # - Executable scripts (.py, .sh, etc.): stay in current directory (for easy execution)
+    # - Data/output files (.csv, .json, etc.): go to artifacts directory
+    # - Default: current directory
+
+    should_be_artifact = False
+    if not inputs.is_temporary and execution_id:
+        # Check if this is a data output file (should be artifact)
+        if _is_data_output(inputs.filename):
+            should_be_artifact = True
+        # Scripts stay in working directory for easy execution
+        elif _is_executable_script(inputs.filename):
+            should_be_artifact = False
+        # For unknown types, keep in working directory
+        else:
+            should_be_artifact = False
+
+    # Build file path
+    if should_be_artifact:
+        # Store in .oats_artifacts/{execution_id}/
+        artifact_dir = f".oats_artifacts/{execution_id}"
+        os.makedirs(artifact_dir, exist_ok=True)
+        artifact_path = os.path.join(artifact_dir, inputs.filename)
+        validated_path = validate_workspace_path(artifact_path, "file creation", inputs.is_temporary)
+    else:
+        # Use workspace security with temporary file detection
+        validated_path = validate_workspace_path(inputs.filename, "file creation", inputs.is_temporary)
 
     # Write the file securely
     secure_write_text(validated_path, inputs.content)
 
     size = os.path.getsize(validated_path)
-    file_type = "temporary" if inputs.is_temporary else "permanent"
 
-    print(f"{file_type.capitalize()} file '{inputs.filename}' created successfully, size: {size} bytes.")
+    # Determine file type for display
+    if inputs.is_temporary:
+        file_type = "temporary"
+    elif should_be_artifact:
+        file_type = "artifact"
+    elif _is_executable_script(inputs.filename):
+        file_type = "script"
+    else:
+        file_type = "file"
+
+    # Emit artifact marker for observation parsing (for artifacts only)
+    if should_be_artifact:
+        # Emit path relative to workspace root (includes .oats_artifacts/ prefix)
+        if '.oats_artifacts' in validated_path:
+            parts = validated_path.split('.oats_artifacts/')
+            if len(parts) > 1:
+                # Include .oats_artifacts/ in the path for correct API resolution
+                relative_artifact_path = f".oats_artifacts/{parts[1]}"
+                print(f"Artifact available: {relative_artifact_path}")
+
+    print(f"{file_type.capitalize()} '{inputs.filename}' created successfully, size: {size} bytes.")
     print(f"  → Location: {validated_path}")
-    return {"filepath": validated_path, "size": size, "is_temporary": inputs.is_temporary}
+
+    # For scripts, provide execution hint
+    if _is_executable_script(inputs.filename):
+        ext = os.path.splitext(inputs.filename)[1]
+        if ext == '.py':
+            print(f"  → To run: python3 {inputs.filename}")
+        elif ext in ['.sh', '.bash']:
+            print(f"  → To run: bash {inputs.filename}")
+
+    return {"filepath": validated_path, "size": size, "is_temporary": inputs.is_temporary, "is_artifact": should_be_artifact}
 
 @uf(name="read_file", version="1.0.0", description="Reads the content of a specified file. Supports targeted reading with line ranges for efficient analysis of specific functions or code sections.")
 def read_file(inputs: ReadFileInput) -> str:
@@ -135,21 +205,62 @@ def read_file(inputs: ReadFileInput) -> str:
 @uf(name="write_file", version="1.0.0", description="Writes content to an existing file, overwriting its contents.")
 def write_file(inputs: WriteFileInput) -> dict:
     """Writes content to an existing file and returns file info."""
-    # Use workspace security with temporary file detection
     from core.workspace_security import validate_workspace_path, secure_write_text
+    from core.sdk import get_execution_context
 
-    # Validate path with temporary file information
-    validated_path = validate_workspace_path(inputs.filename, "file writing", inputs.is_temporary)
+    # Get execution context for artifact tracking
+    context = get_execution_context()
+    execution_id = context.get('execution_id') if context else None
+
+    # Smart file placement logic (same as create_file)
+    should_be_artifact = False
+    if not inputs.is_temporary and execution_id:
+        if _is_data_output(inputs.filename):
+            should_be_artifact = True
+        elif _is_executable_script(inputs.filename):
+            should_be_artifact = False
+        else:
+            should_be_artifact = False
+
+    # Build file path
+    if should_be_artifact:
+        # Store in .oats_artifacts/{execution_id}/
+        artifact_dir = f".oats_artifacts/{execution_id}"
+        os.makedirs(artifact_dir, exist_ok=True)
+        artifact_path = os.path.join(artifact_dir, inputs.filename)
+        validated_path = validate_workspace_path(artifact_path, "file writing", inputs.is_temporary)
+    else:
+        # Use workspace security with temporary file detection
+        validated_path = validate_workspace_path(inputs.filename, "file writing", inputs.is_temporary)
 
     # Write the file securely
     secure_write_text(validated_path, inputs.content)
 
     size = os.path.getsize(validated_path)
-    file_type = "temporary" if inputs.is_temporary else "permanent"
 
-    print(f"{file_type.capitalize()} file '{inputs.filename}' updated successfully, size: {size} bytes.")
+    # Determine file type for display
+    if inputs.is_temporary:
+        file_type = "temporary"
+    elif should_be_artifact:
+        file_type = "artifact"
+    elif _is_executable_script(inputs.filename):
+        file_type = "script"
+    else:
+        file_type = "file"
+
+    # Emit artifact marker for observation parsing (for artifacts only)
+    if should_be_artifact:
+        # Emit path relative to workspace root (includes .oats_artifacts/ prefix)
+        if '.oats_artifacts' in validated_path:
+            parts = validated_path.split('.oats_artifacts/')
+            if len(parts) > 1:
+                # Include .oats_artifacts/ in the path for correct API resolution
+                relative_artifact_path = f".oats_artifacts/{parts[1]}"
+                print(f"Artifact available: {relative_artifact_path}")
+
+    print(f"{file_type.capitalize()} '{inputs.filename}' updated successfully, size: {size} bytes.")
     print(f"  → Location: {validated_path}")
-    return {"filepath": validated_path, "size": size, "is_temporary": inputs.is_temporary}
+    return {"filepath": validated_path, "size": size, "is_temporary": inputs.is_temporary, "is_artifact": should_be_artifact}
 
 def _should_exclude_path(name):
     """Check if a path should be excluded based on gitignore-style patterns."""

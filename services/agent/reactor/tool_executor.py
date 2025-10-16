@@ -34,7 +34,7 @@ class ReActToolExecutor:
         os.makedirs(temp_base, exist_ok=True)
         self._temp_dir = tempfile.mkdtemp(prefix="observations_", dir=temp_base)
         logger.info(f"Initialized observation temp directory: {self._temp_dir}")
-        # Workspace root for file tracking
+        # Workspace root for file tracking (only used for execute_shell)
         self.workspace_root = os.path.abspath(os.path.join(repo_root, "..", ".."))
         logger.info(f"Workspace root for artifact tracking: {self.workspace_root}")
 
@@ -98,22 +98,23 @@ class ReActToolExecutor:
                 available_tools = [f"{desc.name}:{desc.version}" for desc in self.registry.list_ufs()]
                 return f"ERROR: Tool '{tool_name}' not found. Available tools: {', '.join(available_tools)}"
 
-            # Snapshot workspace before execution (for tools that might create files)
+            # Snapshot workspace before execution (ONLY for execute_shell)
+            # This detects files created by shell commands (e.g., python scripts creating CSVs)
             before_snapshot = None
-            if tool_name in ['execute_shell', 'create_file', 'write_file', 'edit_file']:
+            if tool_name == 'execute_shell':
                 before_snapshot = self._snapshot_workspace_files()
 
             # Execute tool using existing infrastructure
             result = execute_tool(uf_descriptor, parameters)
 
-            # Detect new/modified files after execution
+            # Detect new/modified files after execution (ONLY for execute_shell)
             detected_artifacts = []
             if before_snapshot is not None:
                 new_files = self._detect_new_or_modified_files(before_snapshot)
                 detected_artifacts = [f for f in new_files if self._should_track_file(f)]
 
-            # Format observation (pass parameters and detected artifacts)
-            observation = self._format_observation(tool_name, result, parameters, detected_artifacts)
+            # Format observation (pass detected artifacts only for execute_shell)
+            observation = self._format_observation(tool_name, result, parameters, detected_artifacts if detected_artifacts else None)
 
             duration = time.time() - start_time
             logger.info(f"Tool execution completed in {duration:.2f}s with status: {result.status}")
@@ -254,13 +255,6 @@ class ReActToolExecutor:
                 # For structured output (usually from execute_shell or file operations)
                 key_info = []
 
-                # Special handling for file operations - add artifact reference
-                if tool_name in ['create_file', 'write_file', 'edit_file'] and 'filepath' in result.output:
-                    filepath = result.output.get('filepath', '')
-                    # Add artifact marker for created/modified files
-                    key_info.append(f"📄 File created/modified: {filepath}")
-                    key_info.append(f"  - Artifact available: {filepath}")
-
                 for key, value in result.output.items():
                     if key == "stdout" and isinstance(value, str):
                         # Store full stdout for final result extraction
@@ -291,13 +285,6 @@ class ReActToolExecutor:
 
             elif isinstance(result.output, str):
                 # For string output (search results, file contents, etc.)
-
-                # Special handling for read_file - add artifact reference from parameters
-                if tool_name == 'read_file' and parameters and 'filename' in parameters:
-                    filename = parameters['filename']
-                    observation_parts.append(f"📄 File read: {filename}")
-                    observation_parts.append(f"  - Artifact available: {filename}")
-                    observation_parts.append("")  # Empty line for separation
 
                 if self._is_large_output(result.output):
                     # LAYER 1: Save to file
@@ -346,7 +333,7 @@ class ReActToolExecutor:
         if metadata_parts:
             observation_parts.append(f"({', '.join(metadata_parts)})")
 
-        # Append detected artifacts (files created/modified during execution)
+        # Append detected artifacts (ONLY from execute_shell workspace snapshot)
         if detected_artifacts:
             observation_parts.append("\n📦 Detected Artifacts:")
             for artifact_path in detected_artifacts:
@@ -379,7 +366,7 @@ class ReActToolExecutor:
                 for root, dirs, files in os.walk(dir_path):
                     # Skip hidden directories and common excludes
                     dirs[:] = [d for d in dirs if not d.startswith('.') and d not in
-                              {'node_modules', '__pycache__', 'venv', 'build', 'dist'}]
+                              {'node_modules', '__pycache__', 'venv', 'build', 'dist', '.oats_artifacts'}]
 
                     for filename in files:
                         # Skip hidden files and temp files
@@ -415,7 +402,10 @@ class ReActToolExecutor:
         return new_or_modified
 
     def _should_track_file(self, filepath: str) -> bool:
-        """Determine if a file should be tracked as an artifact."""
+        """
+        Determine if a file should be tracked as an artifact.
+        ONLY tracks DATA files, NOT scripts (to avoid duplicates with create_file).
+        """
         # Skip temp observation files (already tracked separately)
         if '.ufflow_temp' in filepath:
             return False
@@ -424,13 +414,13 @@ class ReActToolExecutor:
         if filepath.endswith('.log'):
             return False
 
-        # Track common data and output file types
-        trackable_extensions = {
+        # ONLY track data/output file types (NOT scripts like .py, .js, .sh)
+        # Scripts are handled by create_file/write_file's own artifact emission
+        data_extensions = {
             '.csv', '.json', '.txt', '.md', '.yaml', '.yml',
-            '.py', '.js', '.ts', '.sh', '.sql',
             '.html', '.xml', '.pdf', '.png', '.jpg'
         }
 
         _, ext = os.path.splitext(filepath.lower())
-        return ext in trackable_extensions
+        return ext in data_extensions
 

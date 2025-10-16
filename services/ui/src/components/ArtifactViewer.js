@@ -3,11 +3,95 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import './ArtifactViewer.css';
 
-const ArtifactViewer = ({ artifactPath, artifactType, backendUrl }) => {
+const ArtifactViewer = ({ artifacts, backendUrl, executionId }) => {
+  // Support both old single artifact and new multiple artifacts format
+  const artifactList = artifacts || [];
+
+  if (artifactList.length === 0) {
+    return null;
+  }
+
+  // Defensive deduplication: Remove duplicate artifacts by path
+  const uniqueArtifacts = [];
+  const seenPaths = new Set();
+
+  for (const artifact of artifactList) {
+    if (!seenPaths.has(artifact.path)) {
+      seenPaths.add(artifact.path);
+      uniqueArtifacts.push(artifact);
+    }
+  }
+
+  const dedupedArtifactList = uniqueArtifacts;
+
+  const handleDownloadAll = () => {
+    if (dedupedArtifactList.length === 1) {
+      // If only one artifact, just download it directly
+      handleDownload(dedupedArtifactList[0].path);
+    } else {
+      // Download as ZIP
+      const zipUrl = `${backendUrl}/api/v1/executions/${executionId}/artifacts/download`;
+      window.open(zipUrl, '_blank');
+    }
+  };
+
+  const handleDownload = (artifactPath) => {
+    const apiUrl = `${backendUrl}/api/v1/artifacts/${artifactPath}`;
+    const filename = artifactPath.split('/').pop();
+
+    fetch(apiUrl)
+      .then(response => response.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      })
+      .catch(err => console.error('Download failed:', err));
+  };
+
+  return (
+    <div className="artifacts-container">
+      <div className="artifacts-header">
+        <span className="artifacts-count">
+          {dedupedArtifactList.length} Artifact{dedupedArtifactList.length > 1 ? 's' : ''}
+        </span>
+        {dedupedArtifactList.length > 0 && (
+          <button
+            className="download-all-button"
+            onClick={handleDownloadAll}
+            title={dedupedArtifactList.length === 1 ? 'Download artifact' : 'Download all artifacts as ZIP'}
+          >
+            ⬇ Download {dedupedArtifactList.length > 1 ? 'All' : ''}
+          </button>
+        )}
+      </div>
+      <div className="artifacts-list">
+        {dedupedArtifactList.map((artifact, index) => (
+          <SingleArtifactViewer
+            key={`${artifact.path}-${index}`}
+            artifact={artifact}
+            backendUrl={backendUrl}
+            onDownload={() => handleDownload(artifact.path)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [content, setContent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const artifactPath = artifact.path;
+  const artifactType = artifact.type;
 
   const fetchArtifact = async () => {
     if (!artifactPath) return;
@@ -253,13 +337,22 @@ const ArtifactViewer = ({ artifactPath, artifactType, backendUrl }) => {
       'py': 'python',
       'js': 'javascript',
       'ts': 'typescript',
+      'tsx': 'typescript',
+      'jsx': 'javascript',
       'java': 'java',
       'go': 'go',
       'rs': 'rust',
       'cpp': 'cpp',
       'c': 'c',
+      'h': 'c',
       'rb': 'ruby',
-      'php': 'php'
+      'php': 'php',
+      'scala': 'scala',
+      'kt': 'kotlin',
+      'swift': 'swift',
+      'cs': 'csharp',
+      'sh': 'bash',
+      'sql': 'sql'
     };
     return languageMap[ext] || 'text';
   };
@@ -283,6 +376,11 @@ const ArtifactViewer = ({ artifactPath, artifactType, backendUrl }) => {
       case 'markdown': return '📝';
       case 'table': return '📊';
       case 'yaml': return '⚙️';
+      case 'image': return '🖼️';
+      case 'pdf': return '📕';
+      case 'archive': return '📦';
+      case 'script': return '📜';
+      case 'sql': return '🗄️';
       default: return '📎';
     }
   };
@@ -294,15 +392,27 @@ const ArtifactViewer = ({ artifactPath, artifactType, backendUrl }) => {
 
   return (
     <div className="artifact-viewer">
-      <button
-        className="artifact-toggle"
-        onClick={handleClick}
-        title={`Click to ${isOpen ? 'hide' : 'view'} artifact`}
-      >
-        <span className="artifact-toggle-icon">{isOpen ? '▼' : '▶'}</span>
-        <span className="artifact-label">{getArtifactLabel()}</span>
-        <span className="artifact-type-badge">{artifactType}</span>
-      </button>
+      <div className="artifact-toggle-row">
+        <button
+          className="artifact-toggle"
+          onClick={handleClick}
+          title={`Click to ${isOpen ? 'hide' : 'view'} artifact`}
+        >
+          <span className="artifact-toggle-icon">{isOpen ? '▼' : '▶'}</span>
+          <span className="artifact-label">{getArtifactLabel()}</span>
+          <span className="artifact-type-badge">{artifactType}</span>
+        </button>
+        <button
+          className="artifact-download-button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload();
+          }}
+          title="Download artifact"
+        >
+          ⬇
+        </button>
+      </div>
 
       {isOpen && (
         <div className="artifact-panel">

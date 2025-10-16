@@ -658,6 +658,57 @@ def get_artifact(file_path: str):
         raise HTTPException(500, f"Failed to serve artifact: {str(e)}")
 
 
+@app.get("/api/v1/executions/{execution_id}/artifacts/download")
+def download_artifacts_as_zip(execution_id: str):
+    """
+    Download all artifacts for an execution as a ZIP file.
+    """
+    import tempfile
+    import zipfile
+    from fastapi.responses import FileResponse
+
+    try:
+        # Build path to artifacts directory
+        workspace_root = agent_path.parent.parent
+        artifacts_dir = workspace_root / ".oats_artifacts" / execution_id
+
+        # Check if artifacts directory exists
+        if not artifacts_dir.exists():
+            raise HTTPException(404, f"No artifacts found for execution {execution_id}")
+
+        # Check if directory has any files
+        artifact_files = list(artifacts_dir.rglob('*'))
+        artifact_files = [f for f in artifact_files if f.is_file()]
+
+        if not artifact_files:
+            raise HTTPException(404, f"No artifact files found for execution {execution_id}")
+
+        # Create a temporary ZIP file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
+            zip_path = temp_zip.name
+
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file_path in artifact_files:
+                    # Add file to ZIP with relative path from artifacts dir
+                    arcname = file_path.relative_to(artifacts_dir)
+                    zipf.write(file_path, arcname=str(arcname))
+
+        # Return ZIP file
+        zip_filename = f"artifacts_{execution_id[:8]}.zip"
+        return FileResponse(
+            path=zip_path,
+            media_type="application/zip",
+            filename=zip_filename,
+            background=None  # File will be deleted by OS eventually
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Failed to create ZIP for execution '{execution_id}': {e}")
+        raise HTTPException(500, f"Failed to create artifact ZIP: {str(e)}")
+
+
 # --- Background Agent Execution ---
 
 def run_agent_execution(execution_id: str, goal: str, max_turns: int):
