@@ -19,6 +19,7 @@ This document outlines the plan to add interactive, investigative visualizations
 │ Agent generates visualization specs:                        │
 │   - topology (pod relationships)                            │
 │   - timeseries (memory usage with OOM spike highlighted)    │
+│   - mermaid (diagrams: flowcharts, state, sequence, etc.)   │
 │   - logs (filtered for ERROR level around crash time)       │
 │   - trace (request path through services)                   │
 │   ↓                                                          │
@@ -59,6 +60,10 @@ This document outlines the plan to add interactive, investigative visualizations
     "echarts": "^5.4.3",             // Rich, interactive charts
     "echarts-for-react": "^3.0.2",   // React wrapper for ECharts
 
+    // === Diagrams (Mermaid) ===
+    "mermaid": "^10.6.1",            // Mermaid diagram rendering
+    "react-mermaid2": "^2.0.0",      // React wrapper for Mermaid
+
     // === Advanced Log Viewing ===
     "react-virtuoso": "^4.6.2",      // Virtual scrolling for large logs
     "react-resizable-panels": "^1.0.0", // Resizable log panels
@@ -77,7 +82,7 @@ This document outlines the plan to add interactive, investigative visualizations
 }
 ```
 
-**Bundle size impact:** ~450KB gzipped
+**Bundle size impact:** ~500KB gzipped
 
 ### Library Rationale
 
@@ -85,6 +90,7 @@ This document outlines the plan to add interactive, investigative visualizations
 |---------|---------|-----------------|
 | reactflow | Infrastructure topology graphs | Best-in-class for interactive node graphs, excellent performance |
 | echarts | Time-series metrics | Handles 100k+ datapoints, rich interactions, monitoring-grade quality |
+| mermaid | Architecture diagrams & flowcharts | Text-based, agent can generate easily, supports many diagram types |
 | react-virtuoso | Log virtualization | Better API than react-window, handles variable heights |
 | html2canvas | Screenshots | Most mature DOM-to-image solution |
 | zustand | State management | Lightweight, no boilerplate, perfect for pinning feature |
@@ -105,7 +111,7 @@ This document outlines the plan to add interactive, investigative visualizations
 
 ```bash
 cd services/ui
-npm install reactflow elkjs echarts echarts-for-react react-virtuoso react-resizable-panels html2canvas file-saver zustand date-fns lodash
+npm install reactflow elkjs echarts echarts-for-react mermaid react-mermaid2 react-virtuoso react-resizable-panels html2canvas file-saver zustand date-fns lodash
 ```
 
 #### 1.2 Create Directory Structure
@@ -117,6 +123,7 @@ services/ui/src/
 │   │   ├── VisualizationViewer.js       // Main viz router
 │   │   ├── TopologyViewer.js            // Infrastructure graphs
 │   │   ├── TimeSeriesViewer.js          // Metrics with anomalies
+│   │   ├── MermaidViewer.js             // Mermaid diagrams (flowcharts, etc.)
 │   │   ├── LogViewer.js                 // Advanced log filtering
 │   │   ├── TraceViewer.js               // Distributed traces
 │   │   ├── VisualizationControls.js     // Export/pin controls
@@ -125,6 +132,7 @@ services/ui/src/
 │   │       ├── VisualizationViewer.css
 │   │       ├── TopologyViewer.css
 │   │       ├── TimeSeriesViewer.css
+│   │       ├── MermaidViewer.css
 │   │       ├── LogViewer.css
 │   │       └── TraceViewer.css
 │   │
@@ -144,7 +152,7 @@ All visualizations follow a consistent JSON schema:
 
 ```json
 {
-  "type": "topology|timeseries|logs|trace",
+  "type": "topology|timeseries|mermaid|logs|trace",
   "title": "Human-readable title",
   "timestamp": "ISO-8601 timestamp",
   "metadata": {
@@ -186,6 +194,7 @@ const renderVisualization = () => {
 import React, { useState, useEffect } from 'react';
 import TopologyViewer from './TopologyViewer';
 import TimeSeriesViewer from './TimeSeriesViewer';
+import MermaidViewer from './MermaidViewer';
 import LogViewer from './LogViewer';
 import TraceViewer from './TraceViewer';
 import './styles/VisualizationViewer.css';
@@ -199,6 +208,8 @@ const VisualizationViewer = ({ spec, artifactPath }) => {
         return <TopologyViewer spec={spec} vizId={vizId} />;
       case 'timeseries':
         return <TimeSeriesViewer spec={spec} vizId={vizId} />;
+      case 'mermaid':
+        return <MermaidViewer spec={spec} vizId={vizId} />;
       case 'logs':
         return <LogViewer spec={spec} vizId={vizId} />;
       case 'trace':
@@ -599,7 +610,488 @@ export default TimeSeriesViewer;
 
 ---
 
-### Phase 2.3: Advanced Log Viewer
+### Phase 2.3: Mermaid Diagram Viewer
+
+#### Why Mermaid?
+
+Mermaid is perfect for infra-copilot because:
+- **Text-based**: Agent can generate diagrams as simple text strings
+- **Versatile**: Supports flowcharts, sequence diagrams, state diagrams, Gantt charts, ER diagrams, etc.
+- **Lightweight**: ~50KB, minimal bundle impact
+- **Easy integration**: Works with existing react-markdown setup
+- **No JSON complexity**: Agent just outputs diagram syntax, not complex data structures
+
+#### Specification Format
+
+```json
+{
+  "type": "mermaid",
+  "title": "Pod Lifecycle State Diagram",
+  "timestamp": "2025-10-16T10:30:00Z",
+  "metadata": {
+    "diagram_type": "stateDiagram|flowchart|sequence|gantt|er|classDiagram",
+    "generated_by": "investigation_tool"
+  },
+  "data": {
+    "diagram": "stateDiagram-v2\n    [*] --> Pending\n    Pending --> Running\n    Running --> Succeeded\n    Running --> Failed\n    Running --> CrashLoopBackOff\n    CrashLoopBackOff --> Running\n    Failed --> [*]\n    Succeeded --> [*]",
+    "theme": "dark"
+  }
+}
+```
+
+#### Component Implementation
+
+**File:** `services/ui/src/components/visualizations/MermaidViewer.js`
+
+```javascript
+import React, { useEffect, useRef } from 'react';
+import mermaid from 'mermaid';
+import { VisualizationControls } from './VisualizationControls';
+import './styles/MermaidViewer.css';
+
+const MermaidViewer = ({ spec, vizId }) => {
+  const mermaidRef = useRef(null);
+  const [error, setError] = React.useState(null);
+
+  useEffect(() => {
+    // Initialize mermaid with dark theme
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: spec.data.theme || 'dark',
+      themeVariables: {
+        primaryColor: '#4488ff',
+        primaryTextColor: '#fff',
+        primaryBorderColor: '#666',
+        lineColor: '#888',
+        secondaryColor: '#2c2c2c',
+        tertiaryColor: '#1e1e1e',
+        background: '#1e1e1e',
+        mainBkg: '#2c2c2c',
+        secondBkg: '#1e1e1e',
+        textColor: '#fff',
+        fontSize: '16px',
+      },
+      darkMode: true,
+      securityLevel: 'strict',
+      fontFamily: 'Arial, sans-serif'
+    });
+
+    // Render the diagram
+    if (mermaidRef.current && spec.data.diagram) {
+      try {
+        // Clear previous content
+        mermaidRef.current.innerHTML = '';
+
+        // Generate unique ID for this diagram
+        const diagramId = `mermaid-${vizId}`;
+
+        // Render diagram
+        mermaid.render(diagramId, spec.data.diagram).then(({ svg }) => {
+          if (mermaidRef.current) {
+            mermaidRef.current.innerHTML = svg;
+          }
+        }).catch(err => {
+          console.error('Mermaid rendering error:', err);
+          setError(err.message);
+        });
+      } catch (err) {
+        console.error('Mermaid error:', err);
+        setError(err.message);
+      }
+    }
+  }, [spec.data.diagram, spec.data.theme, vizId]);
+
+  return (
+    <div className="mermaid-viewer">
+      <div className="mermaid-header">
+        <h3>{spec.title}</h3>
+        <VisualizationControls vizId={vizId} spec={spec} type="mermaid" />
+      </div>
+
+      {error ? (
+        <div className="mermaid-error">
+          <strong>Error rendering diagram:</strong>
+          <pre>{error}</pre>
+          <details>
+            <summary>Diagram source:</summary>
+            <pre>{spec.data.diagram}</pre>
+          </details>
+        </div>
+      ) : (
+        <div
+          ref={mermaidRef}
+          className="mermaid-content"
+          style={{
+            backgroundColor: '#1e1e1e',
+            padding: '20px',
+            borderRadius: '8px',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '300px'
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+export default MermaidViewer;
+```
+
+#### Use Cases
+
+**1. Pod Lifecycle States**
+```mermaid
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Running
+    Running --> Succeeded
+    Running --> Failed
+    Running --> CrashLoopBackOff
+    CrashLoopBackOff --> Running
+    Failed --> [*]
+    Succeeded --> [*]
+```
+
+**2. Service Dependency Flowchart**
+```mermaid
+graph LR
+    A[API Gateway] --> B[Auth Service]
+    A --> C[User Service]
+    C --> D[(PostgreSQL)]
+    B --> E[(Redis)]
+    C --> F[Email Service]
+```
+
+**3. Request Sequence Diagram**
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Gateway
+    participant Auth
+    participant UserSvc
+    participant DB
+
+    Client->>Gateway: GET /api/users
+    Gateway->>Auth: Validate Token
+    Auth-->>Gateway: Token Valid
+    Gateway->>UserSvc: Get User Data
+    UserSvc->>DB: SELECT * FROM users
+    DB-->>UserSvc: User Data
+    UserSvc-->>Gateway: Response
+    Gateway-->>Client: 200 OK
+```
+
+**4. Troubleshooting Decision Tree**
+```mermaid
+graph TD
+    A[Pod Crashing?] -->|Yes| B{Check Logs}
+    A -->|No| C[Monitor Metrics]
+    B --> D{OOMKilled?}
+    D -->|Yes| E[Increase Memory Limit]
+    D -->|No| F{Application Error?}
+    F -->|Yes| G[Check Code/Config]
+    F -->|No| H[Check Dependencies]
+```
+
+**5. Deployment Timeline (Gantt)**
+```mermaid
+gantt
+    title Deployment Timeline
+    dateFormat  HH:mm
+    section Preparation
+    Build Image           :10:00, 5m
+    Push to Registry      :10:05, 3m
+    section Deployment
+    Update Deployment     :10:08, 2m
+    Rolling Update        :10:10, 15m
+    section Verification
+    Health Checks         :10:25, 5m
+    Smoke Tests          :10:30, 10m
+```
+
+**6. Database Schema (ER Diagram)**
+```mermaid
+erDiagram
+    USERS ||--o{ ORDERS : places
+    USERS {
+        int id PK
+        string email
+        string name
+    }
+    ORDERS {
+        int id PK
+        int user_id FK
+        date created_at
+        string status
+    }
+    ORDERS ||--o{ ORDER_ITEMS : contains
+    ORDER_ITEMS {
+        int id PK
+        int order_id FK
+        int product_id FK
+        int quantity
+    }
+```
+
+**7. Class Diagram (Architecture)**
+```mermaid
+classDiagram
+    class LoadBalancer {
+        +distribute()
+        +healthCheck()
+    }
+    class WebServer {
+        +handleRequest()
+        +serveStatic()
+    }
+    class AppServer {
+        +processLogic()
+        +authenticate()
+    }
+    class Database {
+        +query()
+        +transaction()
+    }
+
+    LoadBalancer --> WebServer
+    WebServer --> AppServer
+    AppServer --> Database
+```
+
+#### CSS Styling
+
+**File:** `services/ui/src/components/visualizations/styles/MermaidViewer.css`
+
+```css
+.mermaid-viewer {
+  background-color: #1e1e1e;
+  border-radius: 8px;
+  color: #fff;
+}
+
+.mermaid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.mermaid-header h3 {
+  margin: 0;
+  color: #fff;
+}
+
+.mermaid-content {
+  background-color: #1e1e1e;
+  overflow: auto;
+  max-width: 100%;
+}
+
+/* Override Mermaid defaults for dark theme */
+.mermaid-content svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-content .node rect,
+.mermaid-content .node circle,
+.mermaid-content .node polygon {
+  fill: #2c2c2c;
+  stroke: #4488ff;
+  stroke-width: 2px;
+}
+
+.mermaid-content .node text {
+  fill: #fff;
+}
+
+.mermaid-content .edgePath path {
+  stroke: #888;
+  stroke-width: 2px;
+}
+
+.mermaid-content .edgeLabel {
+  background-color: #1e1e1e;
+  color: #fff;
+}
+
+.mermaid-content .cluster rect {
+  fill: #1e1e1e;
+  stroke: #666;
+  stroke-width: 1px;
+}
+
+.mermaid-error {
+  background-color: #ff444422;
+  border: 1px solid #ff4444;
+  border-radius: 4px;
+  padding: 16px;
+  color: #ff4444;
+}
+
+.mermaid-error strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.mermaid-error pre {
+  background-color: #1e1e1e;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+  color: #fff;
+}
+
+.mermaid-error details {
+  margin-top: 12px;
+}
+
+.mermaid-error summary {
+  cursor: pointer;
+  color: #4488ff;
+}
+
+.mermaid-error summary:hover {
+  text-decoration: underline;
+}
+```
+
+#### Agent Integration Example
+
+**File:** `services/agent/tools/generate_mermaid_diagram.py`
+
+```python
+"""
+Generate Mermaid diagrams for infrastructure visualization.
+"""
+
+import json
+import time
+from pathlib import Path
+from typing import Dict, Any
+
+def generate_pod_lifecycle_diagram() -> Dict[str, Any]:
+    """Generate Mermaid state diagram for pod lifecycle."""
+
+    diagram = """stateDiagram-v2
+    [*] --> Pending
+    Pending --> Running : Image pulled, containers starting
+    Running --> Succeeded : All containers exited with 0
+    Running --> Failed : Container exited with error
+    Running --> CrashLoopBackOff : Container repeatedly crashing
+    CrashLoopBackOff --> Running : Retry after backoff
+    Failed --> [*]
+    Succeeded --> [*]
+
+    note right of CrashLoopBackOff
+        Exponential backoff
+        10s, 20s, 40s, ...
+    end note
+    """
+
+    viz_spec = {
+        "type": "mermaid",
+        "title": "Kubernetes Pod Lifecycle",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "metadata": {
+            "diagram_type": "stateDiagram",
+            "generated_by": "pod_investigation_tool"
+        },
+        "data": {
+            "diagram": diagram.strip(),
+            "theme": "dark"
+        }
+    }
+
+    # Save to artifact file
+    artifact_dir = Path(".agent_artifacts/viz_data")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = int(time.time())
+    artifact_path = artifact_dir / f"diagram_pod_lifecycle_{timestamp}.json"
+
+    with open(artifact_path, 'w') as f:
+        json.dump(viz_spec, f, indent=2)
+
+    return {
+        "status": "success",
+        "artifact_type": "visualization",
+        "artifact_path": str(artifact_path),
+        "viz_type": "mermaid",
+        "metadata": {
+            "title": viz_spec["title"],
+            "diagram_type": "stateDiagram"
+        }
+    }
+
+
+def generate_service_dependency_diagram(namespace: str, services: list) -> Dict[str, Any]:
+    """Generate Mermaid flowchart for service dependencies."""
+
+    # Build diagram dynamically based on discovered services
+    diagram_lines = ["graph LR"]
+
+    for service in services:
+        service_id = service['name'].replace('-', '_')
+
+        # Add service node
+        diagram_lines.append(f"    {service_id}[{service['name']}]")
+
+        # Add dependencies
+        for dep in service.get('dependencies', []):
+            dep_id = dep.replace('-', '_')
+            diagram_lines.append(f"    {service_id} --> {dep_id}")
+
+        # Style unhealthy services
+        if service.get('status') != 'healthy':
+            diagram_lines.append(f"    style {service_id} fill:#ff4444,stroke:#ff0000")
+
+    diagram = "\n".join(diagram_lines)
+
+    viz_spec = {
+        "type": "mermaid",
+        "title": f"Service Dependencies - {namespace}",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "metadata": {
+            "namespace": namespace,
+            "diagram_type": "flowchart",
+            "service_count": len(services)
+        },
+        "data": {
+            "diagram": diagram,
+            "theme": "dark"
+        }
+    }
+
+    # Save to artifact file
+    artifact_dir = Path(".agent_artifacts/viz_data")
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = int(time.time())
+    artifact_path = artifact_dir / f"diagram_services_{namespace}_{timestamp}.json"
+
+    with open(artifact_path, 'w') as f:
+        json.dump(viz_spec, f, indent=2)
+
+    return {
+        "status": "success",
+        "artifact_type": "visualization",
+        "artifact_path": str(artifact_path),
+        "viz_type": "mermaid",
+        "metadata": {
+            "title": viz_spec["title"],
+            "namespace": namespace,
+            "service_count": len(services)
+        }
+    }
+```
+
+---
+
+### Phase 2.4: Advanced Log Viewer
 
 #### Specification Format
 
@@ -793,7 +1285,7 @@ export default LogViewer;
 
 ---
 
-### Phase 2.4: Trace Waterfall Viewer
+### Phase 2.5: Trace Waterfall Viewer
 
 #### Specification Format
 
@@ -2527,7 +3019,8 @@ Create CSS files for each visualization component with dark theme support.
 
 ### Phase 6.1: Testing Checklist
 
-- [ ] Test each visualization type renders correctly
+- [ ] Test each visualization type renders correctly (topology, timeseries, mermaid, logs, trace)
+- [ ] Test Mermaid diagram rendering (flowchart, sequence, state, gantt, ER)
 - [ ] Test pinning/unpinning visualizations
 - [ ] Test screenshot export (PNG)
 - [ ] Test data export (JSON, CSV)
@@ -2539,7 +3032,7 @@ Create CSS files for each visualization component with dark theme support.
 - [ ] Test with large datasets (10k+ logs, 100+ nodes)
 - [ ] Test cross-visualization correlation (click metric → filter logs)
 - [ ] Test responsive design (different screen sizes)
-- [ ] Test dark theme consistency
+- [ ] Test dark theme consistency (including Mermaid diagrams)
 - [ ] Test artifact loading from backend
 
 ### Phase 6.2: Example Investigation Scenarios
@@ -2625,6 +3118,8 @@ Create example scenarios to test the full workflow:
 ### Documentation
 - [ReactFlow Docs](https://reactflow.dev/)
 - [ECharts Documentation](https://echarts.apache.org/en/index.html)
+- [Mermaid Documentation](https://mermaid.js.org/)
+- [Mermaid Live Editor](https://mermaid.live/) - Test diagrams
 - [react-virtuoso Docs](https://virtuoso.dev/)
 - [Zustand Guide](https://docs.pmnd.rs/zustand/getting-started/introduction)
 
@@ -2640,7 +3135,7 @@ Create example scenarios to test the full workflow:
 | Phase | Duration | Key Deliverables |
 |-------|----------|------------------|
 | Phase 1: Infrastructure | 1 week | Base components, library setup |
-| Phase 2: Core Visualizations | 2 weeks | All 4 visualization types working |
+| Phase 2: Core Visualizations | 2 weeks | All 5 visualization types working (Topology, Metrics, Mermaid, Logs, Traces) |
 | Phase 3: Pinning & Export | 1 week | Pin/unpin, screenshot, data export |
 | Phase 4: Agent Integration | 1 week | Agent tools generate visualizations |
 | Phase 5: Styling & Polish | 1 week | CSS, dark theme, responsive design |
@@ -2654,7 +3149,7 @@ To begin implementation, start with **Phase 1**:
 
 ```bash
 cd services/ui
-npm install reactflow elkjs echarts echarts-for-react react-virtuoso react-resizable-panels html2canvas file-saver zustand date-fns lodash
+npm install reactflow elkjs echarts echarts-for-react mermaid react-mermaid2 react-virtuoso react-resizable-panels html2canvas file-saver zustand date-fns lodash
 ```
 
 Then create the directory structure and implement `VisualizationViewer.js` as the entry point.
