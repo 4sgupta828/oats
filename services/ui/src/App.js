@@ -3,6 +3,7 @@ import './App.css';
 import AgentMessage from './components/AgentMessage';
 import FeedbackModal from './components/FeedbackModal';
 import ResetModal from './components/ResetModal';
+import ArtifactBrowser from './components/ArtifactBrowser';
 import { useSSE } from './hooks/useSSE';
 
 // Format SSE events to UI-friendly format
@@ -158,6 +159,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isArtifactBrowserOpen, setIsArtifactBrowserOpen] = useState(false);
   const [resetGoal, setResetGoal] = useState('');
   const [executionPaused, setExecutionPaused] = useState(false);
   const [isMaxTurns, setIsMaxTurns] = useState(false);
@@ -362,6 +364,13 @@ function App() {
               <span className="execution-id"> | Execution: {sseHook.executionId.slice(0, 8)}...</span>
             )}
           </div>
+          <button
+            className="browse-button-header"
+            onClick={() => setIsArtifactBrowserOpen(true)}
+            title="Browse and examine artifacts"
+          >
+            📁 Browse Artifacts
+          </button>
           {sseHook.executionId && (
             <button
               className="reset-button-header"
@@ -487,6 +496,12 @@ function App() {
         isOpen={isResetModalOpen}
         onClose={() => setIsResetModalOpen(false)}
         onSubmit={handleResetSubmit}
+      />
+
+      <ArtifactBrowser
+        isOpen={isArtifactBrowserOpen}
+        onClose={() => setIsArtifactBrowserOpen(false)}
+        backendUrl={backendUrl}
       />
     </div>
   );

@@ -617,6 +617,25 @@
   border-radius: 4px;
 }
 
+/* Browse Artifacts Button in Header */
+.browse-button-header {
+  padding: 8px 16px;
+  border: 1px solid var(--primary-color);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--primary-color);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.browse-button-header:hover {
+  background-color: var(--primary-color);
+  color: white;
+}
+
 /* Reset Button in Header */
 .reset-button-header {
   padding: 8px 16px;

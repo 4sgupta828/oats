@@ -168,7 +168,8 @@ async def root():
             "abort_execution": "POST /api/v1/executions/{id}/abort",
             "continue_execution": "POST /api/v1/executions/{id}/continue",
             "reset_execution": "POST /api/v1/executions/{id}/reset",
-            "get_artifact": "GET /api/v1/artifacts/{file_path}"
+            "get_artifact": "GET /api/v1/artifacts/{file_path}",
+            "browse_directory": "GET /api/v1/browse/{dir_path}"
         }
     }
 
@@ -707,6 +708,139 @@ def download_artifacts_as_zip(execution_id: str):
     except Exception as e:
         print(f"Failed to create ZIP for execution '{execution_id}': {e}")
         raise HTTPException(500, f"Failed to create artifact ZIP: {str(e)}")
+
+
+@app.get("/api/v1/browse/{dir_path:path}")
+def browse_directory(dir_path: str = ""):
+    """
+    Browse files and directories relative to repo root.
+    Returns list of files and subdirectories with metadata.
+    """
+    from datetime import datetime
+
+    try:
+        # Get workspace root (repo root)
+        workspace_root = agent_path.parent.parent
+
+        # Handle empty path (root)
+        if not dir_path or dir_path == ".":
+            target_dir = workspace_root
+            display_path = ""
+        else:
+            target_dir = workspace_root / dir_path
+            display_path = dir_path
+
+        # Resolve and validate path
+        resolved_dir = target_dir.resolve()
+
+        # Security check: Ensure path is within workspace
+        if not str(resolved_dir).startswith(str(workspace_root.resolve())):
+            raise HTTPException(403, "Access denied: Path outside workspace")
+
+        # Check if directory exists
+        if not resolved_dir.exists():
+            raise HTTPException(404, f"Directory not found: {dir_path}")
+
+        if not resolved_dir.is_dir():
+            raise HTTPException(400, "Path is not a directory")
+
+        # List directory contents
+        entries = []
+        try:
+            items = sorted(resolved_dir.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+
+            for item in items:
+                # Skip hidden files/dirs (except .oats_artifacts)
+                if item.name.startswith('.') and item.name != '.oats_artifacts':
+                    continue
+
+                # Skip common directories to exclude
+                skip_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', '.pytest_cache'}
+                if item.is_dir() and item.name in skip_dirs:
+                    continue
+
+                # Get file stats
+                stat_info = item.stat()
+
+                # Detect file type
+                file_type = "directory" if item.is_dir() else detect_file_type(item.name)
+
+                # Build relative path from workspace root
+                rel_path = item.relative_to(workspace_root)
+
+                entry = {
+                    "name": item.name,
+                    "path": str(rel_path),
+                    "type": file_type,
+                    "is_directory": item.is_dir(),
+                    "size": stat_info.st_size if item.is_file() else None,
+                    "modified": datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+                }
+                entries.append(entry)
+
+        except PermissionError:
+            raise HTTPException(403, "Permission denied")
+
+        # Build breadcrumb path
+        parts = display_path.split('/') if display_path else []
+        breadcrumbs = [{"name": "root", "path": ""}]
+        current_path = ""
+        for part in parts:
+            if part:
+                current_path = f"{current_path}/{part}" if current_path else part
+                breadcrumbs.append({"name": part, "path": current_path})
+
+        return {
+            "path": display_path,
+            "breadcrumbs": breadcrumbs,
+            "entries": entries,
+            "count": len(entries)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Failed to browse directory '{dir_path}': {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(500, f"Failed to browse directory: {str(e)}")
+
+
+def detect_file_type(filename: str) -> str:
+    """Detect file type from extension for artifact viewer."""
+    ext = filename.split('.')[-1].lower() if '.' in filename else ''
+
+    # Mapping for artifact viewer types
+    type_map = {
+        'json': 'json',
+        'yaml': 'yaml',
+        'yml': 'yaml',
+        'log': 'logs',
+        'txt': 'text',
+        'md': 'markdown',
+        'py': 'code',
+        'js': 'code',
+        'ts': 'code',
+        'jsx': 'code',
+        'tsx': 'code',
+        'java': 'code',
+        'go': 'code',
+        'rs': 'code',
+        'c': 'code',
+        'cpp': 'code',
+        'h': 'code',
+        'sh': 'code',
+        'sql': 'code',
+        'png': 'image',
+        'jpg': 'image',
+        'jpeg': 'image',
+        'gif': 'image',
+        'svg': 'image',
+        'csv': 'table',
+        'tsv': 'table',
+    }
+
+    return type_map.get(ext, 'text')
 
 
 # --- Background Agent Execution ---
