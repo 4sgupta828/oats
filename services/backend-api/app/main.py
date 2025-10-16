@@ -12,8 +12,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
-# Add the agent's directory to the Python path (image layout: /app/agent)
+# Add the agent's directory to the Python path
+# Priority 1: Docker image layout (/app/agent)
 agent_path = Path(__file__).parent.parent / "agent"
+# Priority 2: Monorepo layout (repo_root/services/agent)
+if not agent_path.exists():
+    # Go up from services/backend-api/app/main.py to repo root
+    repo_root = Path(__file__).resolve().parents[3]  # app -> backend-api -> services -> repo_root
+    agent_path = repo_root / "services" / "agent"
 sys.path.insert(0, str(agent_path))
 
 # Import agent components

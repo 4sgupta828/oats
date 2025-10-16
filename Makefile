@@ -5,12 +5,20 @@ REGISTRY ?= 911167909198.dkr.ecr.us-west-2.amazonaws.com
 BACKEND_IMG := $(REGISTRY)/oats-backend-api
 UI_IMG := $(REGISTRY)/oats-ui
 TAG ?= latest
+AWS_REGION ?= us-west-2
 
 # --- Main Commands ---
 
+# Authenticate with ECR
+.PHONY: ecr-login
+ecr-login:
+	@echo "🔐 Authenticating with ECR..."
+	@aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(REGISTRY)
+	@echo "✅ ECR authentication successful!"
+
 # Deploy backend to cloud (build + push + restart)
 .PHONY: deploy-backend
-deploy-backend:
+deploy-backend: ecr-login
 	@echo "🔨 Building backend for cloud (linux/amd64)..."
 	@docker build --platform linux/amd64 -t $(BACKEND_IMG):$(TAG) -f ./services/backend-api/Dockerfile .
 	@echo "📤 Pushing to ECR..."
@@ -22,7 +30,7 @@ deploy-backend:
 
 # Deploy UI to cloud (build + push + restart)
 .PHONY: deploy-ui
-deploy-ui:
+deploy-ui: ecr-login
 	@echo "🔨 Building UI for cloud (linux/amd64)..."
 	@docker build --platform linux/amd64 -t $(UI_IMG):$(TAG) -f ./services/ui/Dockerfile ./services/ui
 	@echo "📤 Pushing to ECR..."
@@ -39,7 +47,7 @@ deploy-all: deploy-backend deploy-ui
 
 # Initial cloud setup (creates all resources)
 .PHONY: setup
-setup:
+setup: ecr-login
 	@echo "🚀 Setting up OATS infrastructure in cloud..."
 	@kubectl apply -f ./infra/base/rbac.yaml
 	@kubectl apply -f ./infra/base/backend-api-service.yaml

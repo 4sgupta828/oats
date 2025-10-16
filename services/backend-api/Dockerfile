@@ -31,7 +31,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dnsutils \
     iproute2 \
     iputils-ping \
-    telnet \
     traceroute \
     tcpdump \
     nmap \
@@ -44,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     # Database clients
     postgresql-client \
-    mysql-client \
+    default-mysql-client \
     redis-tools \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -100,7 +99,8 @@ RUN wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/d
 # ==========================================
 # Install stern (multi-pod log tailing)
 # ==========================================
-RUN curl -Lo stern.tar.gz https://github.com/stern/stern/releases/latest/download/stern_linux_amd64.tar.gz \
+RUN STERN_VERSION=$(curl -s https://api.github.com/repos/stern/stern/releases/latest | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/') \
+    && curl -Lo stern.tar.gz "https://github.com/stern/stern/releases/download/v${STERN_VERSION}/stern_${STERN_VERSION}_linux_amd64.tar.gz" \
     && tar -xzf stern.tar.gz stern \
     && mv stern /usr/local/bin/ \
     && chmod +x /usr/local/bin/stern \
@@ -134,8 +134,8 @@ RUN echo "Verifying tool installations..." && \
     aws --version && \
     eksctl version && \
     k9s version && \
-    kubectx && \
-    kubens && \
+    which kubectx && \
+    which kubens && \
     jq --version && \
     yq --version && \
     stern --version && \
