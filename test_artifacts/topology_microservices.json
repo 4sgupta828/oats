@@ -1,0 +1,256 @@
+{
+  "type": "topology",
+  "title": "Microservices Architecture - Payment Service Dependencies",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "namespace": "production",
+    "cluster": "us-west-2-prod",
+    "incident": "Payment failures spike at 16:15 UTC",
+    "description": "Service dependency graph showing payment service ecosystem with current health status"
+  },
+  "data": {
+    "nodes": [
+      {
+        "id": "api-gateway",
+        "label": "API Gateway",
+        "type": "service",
+        "status": "healthy",
+        "metadata": {
+          "version": "v2.3.1",
+          "replicas": 3,
+          "cpu": "45%",
+          "memory": "62%"
+        }
+      },
+      {
+        "id": "payment-service",
+        "label": "Payment Service",
+        "type": "service",
+        "status": "unhealthy",
+        "metadata": {
+          "version": "v1.8.2",
+          "replicas": 5,
+          "cpu": "89%",
+          "memory": "91%",
+          "error_rate": "12.3%"
+        }
+      },
+      {
+        "id": "order-service",
+        "label": "Order Service",
+        "type": "service",
+        "status": "degraded",
+        "metadata": {
+          "version": "v3.1.0",
+          "replicas": 4,
+          "cpu": "72%",
+          "memory": "68%",
+          "latency_p99": "1850ms"
+        }
+      },
+      {
+        "id": "user-service",
+        "label": "User Service",
+        "type": "service",
+        "status": "healthy",
+        "metadata": {
+          "version": "v2.0.1",
+          "replicas": 3,
+          "cpu": "38%",
+          "memory": "55%"
+        }
+      },
+      {
+        "id": "payment-db",
+        "label": "Payment DB",
+        "type": "database",
+        "status": "degraded",
+        "metadata": {
+          "type": "PostgreSQL",
+          "version": "14.5",
+          "connections": "185/200",
+          "query_time_p95": "450ms"
+        }
+      },
+      {
+        "id": "redis-cache",
+        "label": "Redis Cache",
+        "type": "cache",
+        "status": "healthy",
+        "metadata": {
+          "version": "7.0.5",
+          "memory_used": "3.2GB",
+          "hit_rate": "94.2%"
+        }
+      },
+      {
+        "id": "stripe-api",
+        "label": "Stripe API",
+        "type": "external",
+        "status": "healthy",
+        "metadata": {
+          "provider": "Stripe",
+          "latency_avg": "180ms",
+          "success_rate": "99.8%"
+        }
+      },
+      {
+        "id": "notification-service",
+        "label": "Notification Service",
+        "type": "service",
+        "status": "healthy",
+        "metadata": {
+          "version": "v1.5.3",
+          "replicas": 2,
+          "cpu": "22%",
+          "memory": "41%"
+        }
+      },
+      {
+        "id": "kafka-broker",
+        "label": "Kafka",
+        "type": "message-queue",
+        "status": "healthy",
+        "metadata": {
+          "version": "3.4.0",
+          "topics": 12,
+          "lag": "minimal"
+        }
+      },
+      {
+        "id": "fraud-detection",
+        "label": "Fraud Detection",
+        "type": "service",
+        "status": "healthy",
+        "metadata": {
+          "version": "v2.1.0",
+          "replicas": 2,
+          "cpu": "51%",
+          "memory": "58%"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "api-gateway",
+        "target": "payment-service",
+        "label": "HTTPS",
+        "metadata": {
+          "protocol": "REST",
+          "rps": 1240,
+          "error_rate": "8.5%"
+        }
+      },
+      {
+        "source": "api-gateway",
+        "target": "order-service",
+        "label": "HTTPS",
+        "metadata": {
+          "protocol": "REST",
+          "rps": 850,
+          "error_rate": "2.1%"
+        }
+      },
+      {
+        "source": "api-gateway",
+        "target": "user-service",
+        "label": "HTTPS",
+        "metadata": {
+          "protocol": "REST",
+          "rps": 2100,
+          "error_rate": "0.3%"
+        }
+      },
+      {
+        "source": "payment-service",
+        "target": "payment-db",
+        "label": "SQL",
+        "metadata": {
+          "protocol": "PostgreSQL",
+          "qps": 3400,
+          "avg_query_time": "350ms"
+        }
+      },
+      {
+        "source": "payment-service",
+        "target": "redis-cache",
+        "label": "Cache",
+        "metadata": {
+          "protocol": "Redis",
+          "ops": 5800,
+          "hit_rate": "94%"
+        }
+      },
+      {
+        "source": "payment-service",
+        "target": "stripe-api",
+        "label": "HTTPS",
+        "metadata": {
+          "protocol": "REST",
+          "rps": 890,
+          "timeout": "30s"
+        }
+      },
+      {
+        "source": "payment-service",
+        "target": "fraud-detection",
+        "label": "gRPC",
+        "metadata": {
+          "protocol": "gRPC",
+          "rps": 1100,
+          "latency_p95": "85ms"
+        }
+      },
+      {
+        "source": "payment-service",
+        "target": "kafka-broker",
+        "label": "Events",
+        "metadata": {
+          "protocol": "Kafka",
+          "topic": "payment.events",
+          "mps": 1200
+        }
+      },
+      {
+        "source": "order-service",
+        "target": "payment-service",
+        "label": "gRPC",
+        "metadata": {
+          "protocol": "gRPC",
+          "rps": 760,
+          "latency_p95": "2100ms"
+        }
+      },
+      {
+        "source": "order-service",
+        "target": "kafka-broker",
+        "label": "Events",
+        "metadata": {
+          "protocol": "Kafka",
+          "topic": "order.events",
+          "mps": 450
+        }
+      },
+      {
+        "source": "kafka-broker",
+        "target": "notification-service",
+        "label": "Consumer",
+        "metadata": {
+          "protocol": "Kafka",
+          "topics": "payment.events,order.events",
+          "lag": "12ms"
+        }
+      },
+      {
+        "source": "user-service",
+        "target": "redis-cache",
+        "label": "Cache",
+        "metadata": {
+          "protocol": "Redis",
+          "ops": 4200,
+          "hit_rate": "97%"
+        }
+      }
+    ]
+  }
+}

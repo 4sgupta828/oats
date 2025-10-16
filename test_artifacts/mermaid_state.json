@@ -1,0 +1,13 @@
+{
+  "type": "mermaid",
+  "title": "Payment Service Circuit Breaker - State Transitions",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "diagram_type": "state",
+    "analysis": "circuit_breaker_behavior",
+    "description": "State diagram showing circuit breaker transitions during the incident"
+  },
+  "data": {
+    "diagram": "stateDiagram-v2\n    [*] --> Closed: Initial State\n    \n    Closed --> Open: Failure Rate > 50%<br/>(at 16:10:25)\n    \n    note right of Closed\n        Normal Operation\n        - Requests flow normally\n        - Monitoring failure rate\n        - Pool: 185/200 connections\n    end note\n    \n    Open --> HalfOpen: Timeout Expired<br/>(30s elapsed)<br/>(at 16:10:45)\n    \n    note right of Open\n        Circuit Tripped\n        - Reject all requests\n        - Prevent cascading failures\n        - Wait for recovery timeout\n        - 142 requests rejected\n    end note\n    \n    HalfOpen --> Closed: Success Threshold Met<br/>(5 consecutive successes)<br/>(at 16:10:50)\n    HalfOpen --> Open: Request Failed\n    \n    note right of HalfOpen\n        Testing Recovery\n        - Allow limited requests\n        - Monitor success rate\n        - Quick trip on failure\n    end note\n    \n    Closed --> [*]: Service Healthy\n    \n    note left of Closed\n        Recovery Complete\n        - DB connections restored\n        - Pool stabilized: 45/200\n        - Normal operation resumed\n        - Total downtime: 44.6s\n    end note"
+  }
+}

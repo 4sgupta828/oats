@@ -1,0 +1,398 @@
+{
+  "type": "logs",
+  "title": "Payment Service Logs - Error Investigation",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "service": "payment-service",
+    "namespace": "production",
+    "pod": "payment-service-7d8c9f4b5-x8k2p",
+    "time_range": "16:10 - 16:30 UTC",
+    "total_logs": 247,
+    "description": "Logs showing database connection issues and payment processing failures"
+  },
+  "data": {
+    "logs": [
+      {
+        "timestamp": "2025-10-16T16:10:15.234Z",
+        "level": "INFO",
+        "message": "Processing payment request",
+        "trace_id": "trace-abc123",
+        "span_id": "span-001",
+        "metadata": {
+          "payment_id": "pmt_7x9k2m",
+          "user_id": "usr_12345",
+          "amount": 149.99,
+          "currency": "USD"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:15.456Z",
+        "level": "DEBUG",
+        "message": "Validating payment details",
+        "trace_id": "trace-abc123",
+        "span_id": "span-002",
+        "metadata": {
+          "payment_id": "pmt_7x9k2m",
+          "validation_rules": ["amount", "currency", "card_number"]
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:15.678Z",
+        "level": "INFO",
+        "message": "Payment details validated successfully",
+        "trace_id": "trace-abc123",
+        "span_id": "span-002",
+        "metadata": {
+          "payment_id": "pmt_7x9k2m"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:15.892Z",
+        "level": "WARN",
+        "message": "Database connection pool running low",
+        "trace_id": "trace-abc123",
+        "span_id": "span-003",
+        "metadata": {
+          "pool_size": 200,
+          "active_connections": 185,
+          "available_connections": 15
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:16.123Z",
+        "level": "ERROR",
+        "message": "Database query timeout",
+        "trace_id": "trace-abc123",
+        "span_id": "span-003",
+        "metadata": {
+          "query": "SELECT * FROM payments WHERE id = ?",
+          "timeout": "5000ms",
+          "elapsed": "5012ms",
+          "payment_id": "pmt_7x9k2m"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:16.345Z",
+        "level": "ERROR",
+        "message": "Payment processing failed",
+        "trace_id": "trace-abc123",
+        "span_id": "span-001",
+        "metadata": {
+          "payment_id": "pmt_7x9k2m",
+          "error": "DatabaseTimeoutException",
+          "retry_count": 0
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:18.567Z",
+        "level": "INFO",
+        "message": "Retrying payment processing",
+        "trace_id": "trace-abc123",
+        "span_id": "span-004",
+        "metadata": {
+          "payment_id": "pmt_7x9k2m",
+          "retry_count": 1,
+          "backoff_ms": 2000
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:19.789Z",
+        "level": "ERROR",
+        "message": "Database connection acquisition timeout",
+        "trace_id": "trace-abc123",
+        "span_id": "span-005",
+        "metadata": {
+          "timeout": "3000ms",
+          "pool_exhausted": true,
+          "waiting_requests": 45
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:19.991Z",
+        "level": "ERROR",
+        "message": "Payment retry failed",
+        "trace_id": "trace-abc123",
+        "span_id": "span-004",
+        "metadata": {
+          "payment_id": "pmt_7x9k2m",
+          "error": "ConnectionPoolExhaustedException",
+          "retry_count": 1,
+          "final_status": "failed"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:22.123Z",
+        "level": "INFO",
+        "message": "Processing payment request",
+        "trace_id": "trace-def456",
+        "span_id": "span-010",
+        "metadata": {
+          "payment_id": "pmt_8a3n5p",
+          "user_id": "usr_67890",
+          "amount": 79.99,
+          "currency": "USD"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:22.456Z",
+        "level": "WARN",
+        "message": "High memory usage detected",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "memory_used_mb": 7344,
+          "memory_limit_mb": 8192,
+          "memory_percent": 89.6,
+          "gc_count": 15
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:23.678Z",
+        "level": "ERROR",
+        "message": "Database connection refused",
+        "trace_id": "trace-def456",
+        "span_id": "span-011",
+        "metadata": {
+          "db_host": "payment-db-primary.prod.svc",
+          "db_port": 5432,
+          "error": "Connection refused",
+          "connection_attempt": 1
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:24.890Z",
+        "level": "ERROR",
+        "message": "Payment processing failed",
+        "trace_id": "trace-def456",
+        "span_id": "span-010",
+        "metadata": {
+          "payment_id": "pmt_8a3n5p",
+          "error": "DatabaseConnectionException",
+          "retry_count": 0
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:25.234Z",
+        "level": "WARN",
+        "message": "Circuit breaker state changed",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "circuit": "payment_db",
+          "previous_state": "CLOSED",
+          "new_state": "OPEN",
+          "failure_threshold": 50,
+          "failure_rate": 52.3
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:26.567Z",
+        "level": "INFO",
+        "message": "Processing payment request",
+        "trace_id": "trace-ghi789",
+        "span_id": "span-020",
+        "metadata": {
+          "payment_id": "pmt_9c5q7r",
+          "user_id": "usr_11223",
+          "amount": 249.99,
+          "currency": "USD"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:26.789Z",
+        "level": "ERROR",
+        "message": "Circuit breaker open - request rejected",
+        "trace_id": "trace-ghi789",
+        "span_id": "span-021",
+        "metadata": {
+          "circuit": "payment_db",
+          "state": "OPEN",
+          "retry_after_ms": 30000
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:26.991Z",
+        "level": "ERROR",
+        "message": "Payment processing failed",
+        "trace_id": "trace-ghi789",
+        "span_id": "span-020",
+        "metadata": {
+          "payment_id": "pmt_9c5q7r",
+          "error": "CircuitBreakerOpenException",
+          "retry_count": 0
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:28.123Z",
+        "level": "ERROR",
+        "message": "Health check failed",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "check": "database_connectivity",
+          "status": "DOWN",
+          "details": "Cannot establish connection to payment-db"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:30.456Z",
+        "level": "WARN",
+        "message": "Multiple payment failures detected",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "time_window": "60s",
+          "failure_count": 127,
+          "success_count": 15,
+          "failure_rate": 89.4
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:32.789Z",
+        "level": "INFO",
+        "message": "Attempting database connection recovery",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "recovery_strategy": "connection_pool_reset",
+          "attempt": 1
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:35.123Z",
+        "level": "ERROR",
+        "message": "Connection pool reset failed",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "error": "Cannot drain connection pool - all connections in use",
+          "active_connections": 200
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:38.456Z",
+        "level": "ERROR",
+        "message": "Out of memory error - emergency GC triggered",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "heap_used_mb": 7892,
+          "heap_max_mb": 8192,
+          "gc_type": "Full GC",
+          "gc_duration_ms": 1245
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:40.789Z",
+        "level": "WARN",
+        "message": "Performance degradation detected",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "metric": "p95_latency",
+          "current_value_ms": 1245,
+          "threshold_ms": 500,
+          "deviation_percent": 149
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:45.123Z",
+        "level": "INFO",
+        "message": "Database connection restored",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "recovery_time_ms": 12334,
+          "available_connections": 45
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:45.567Z",
+        "level": "INFO",
+        "message": "Circuit breaker state changed",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "circuit": "payment_db",
+          "previous_state": "OPEN",
+          "new_state": "HALF_OPEN"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:48.890Z",
+        "level": "INFO",
+        "message": "Processing payment request",
+        "trace_id": "trace-jkl012",
+        "span_id": "span-030",
+        "metadata": {
+          "payment_id": "pmt_1d7s9t",
+          "user_id": "usr_44556",
+          "amount": 99.99,
+          "currency": "USD"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:49.234Z",
+        "level": "INFO",
+        "message": "Payment processed successfully",
+        "trace_id": "trace-jkl012",
+        "span_id": "span-030",
+        "metadata": {
+          "payment_id": "pmt_1d7s9t",
+          "processing_time_ms": 344,
+          "status": "completed"
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:10:50.567Z",
+        "level": "INFO",
+        "message": "Circuit breaker state changed",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "circuit": "payment_db",
+          "previous_state": "HALF_OPEN",
+          "new_state": "CLOSED",
+          "consecutive_successes": 5
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:11:00.890Z",
+        "level": "INFO",
+        "message": "System recovery complete",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "total_downtime_ms": 44656,
+          "affected_requests": 142,
+          "recovery_actions": ["connection_pool_stabilized", "circuit_breaker_closed", "memory_pressure_relieved"]
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:11:05.123Z",
+        "level": "DEBUG",
+        "message": "Connection pool metrics",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "total_connections": 200,
+          "active_connections": 45,
+          "idle_connections": 155,
+          "pending_requests": 0
+        }
+      },
+      {
+        "timestamp": "2025-10-16T16:11:10.456Z",
+        "level": "INFO",
+        "message": "Health check passed",
+        "trace_id": null,
+        "span_id": null,
+        "metadata": {
+          "check": "database_connectivity",
+          "status": "UP",
+          "response_time_ms": 12
+        }
+      }
+    ]
+  }
+}

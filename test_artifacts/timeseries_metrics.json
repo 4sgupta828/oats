@@ -1,0 +1,208 @@
+{
+  "type": "timeseries",
+  "title": "Payment Service - Performance Metrics & Anomalies",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "service": "payment-service",
+    "namespace": "production",
+    "time_range": "Last 2 hours",
+    "resolution": "30s",
+    "description": "CPU, memory, latency, and error rate metrics showing spike at 16:15 UTC"
+  },
+  "data": {
+    "series": [
+      {
+        "name": "CPU Usage (%)",
+        "unit": "percent",
+        "color": "#3b82f6",
+        "data": [
+          {"timestamp": "2025-10-16T14:30:00Z", "value": 42.5},
+          {"timestamp": "2025-10-16T14:35:00Z", "value": 41.8},
+          {"timestamp": "2025-10-16T14:40:00Z", "value": 43.2},
+          {"timestamp": "2025-10-16T14:45:00Z", "value": 44.1},
+          {"timestamp": "2025-10-16T14:50:00Z", "value": 43.8},
+          {"timestamp": "2025-10-16T14:55:00Z", "value": 45.2},
+          {"timestamp": "2025-10-16T15:00:00Z", "value": 46.3},
+          {"timestamp": "2025-10-16T15:05:00Z", "value": 47.8},
+          {"timestamp": "2025-10-16T15:10:00Z", "value": 49.2},
+          {"timestamp": "2025-10-16T15:15:00Z", "value": 51.5},
+          {"timestamp": "2025-10-16T15:20:00Z", "value": 53.8},
+          {"timestamp": "2025-10-16T15:25:00Z", "value": 56.2},
+          {"timestamp": "2025-10-16T15:30:00Z", "value": 59.1},
+          {"timestamp": "2025-10-16T15:35:00Z", "value": 62.4},
+          {"timestamp": "2025-10-16T15:40:00Z", "value": 65.8},
+          {"timestamp": "2025-10-16T15:45:00Z", "value": 69.2},
+          {"timestamp": "2025-10-16T15:50:00Z", "value": 72.5},
+          {"timestamp": "2025-10-16T15:55:00Z", "value": 75.8},
+          {"timestamp": "2025-10-16T16:00:00Z", "value": 78.3},
+          {"timestamp": "2025-10-16T16:05:00Z", "value": 81.2},
+          {"timestamp": "2025-10-16T16:10:00Z", "value": 83.5},
+          {"timestamp": "2025-10-16T16:15:00Z", "value": 89.4},
+          {"timestamp": "2025-10-16T16:20:00Z", "value": 87.8},
+          {"timestamp": "2025-10-16T16:25:00Z", "value": 86.2},
+          {"timestamp": "2025-10-16T16:30:00Z", "value": 85.1}
+        ]
+      },
+      {
+        "name": "Memory Usage (%)",
+        "unit": "percent",
+        "color": "#10b981",
+        "data": [
+          {"timestamp": "2025-10-16T14:30:00Z", "value": 62.3},
+          {"timestamp": "2025-10-16T14:35:00Z", "value": 63.1},
+          {"timestamp": "2025-10-16T14:40:00Z", "value": 63.8},
+          {"timestamp": "2025-10-16T14:45:00Z", "value": 64.2},
+          {"timestamp": "2025-10-16T14:50:00Z", "value": 64.9},
+          {"timestamp": "2025-10-16T14:55:00Z", "value": 65.5},
+          {"timestamp": "2025-10-16T15:00:00Z", "value": 66.2},
+          {"timestamp": "2025-10-16T15:05:00Z", "value": 67.1},
+          {"timestamp": "2025-10-16T15:10:00Z", "value": 68.3},
+          {"timestamp": "2025-10-16T15:15:00Z", "value": 69.5},
+          {"timestamp": "2025-10-16T15:20:00Z", "value": 70.8},
+          {"timestamp": "2025-10-16T15:25:00Z", "value": 72.1},
+          {"timestamp": "2025-10-16T15:30:00Z", "value": 73.5},
+          {"timestamp": "2025-10-16T15:35:00Z", "value": 75.2},
+          {"timestamp": "2025-10-16T15:40:00Z", "value": 76.8},
+          {"timestamp": "2025-10-16T15:45:00Z", "value": 78.5},
+          {"timestamp": "2025-10-16T15:50:00Z", "value": 80.2},
+          {"timestamp": "2025-10-16T15:55:00Z", "value": 82.1},
+          {"timestamp": "2025-10-16T16:00:00Z", "value": 84.3},
+          {"timestamp": "2025-10-16T16:05:00Z", "value": 86.5},
+          {"timestamp": "2025-10-16T16:10:00Z", "value": 88.2},
+          {"timestamp": "2025-10-16T16:15:00Z", "value": 91.3},
+          {"timestamp": "2025-10-16T16:20:00Z", "value": 90.1},
+          {"timestamp": "2025-10-16T16:25:00Z", "value": 89.5},
+          {"timestamp": "2025-10-16T16:30:00Z", "value": 88.9}
+        ]
+      },
+      {
+        "name": "Response Latency P95 (ms)",
+        "unit": "milliseconds",
+        "color": "#f59e0b",
+        "data": [
+          {"timestamp": "2025-10-16T14:30:00Z", "value": 125},
+          {"timestamp": "2025-10-16T14:35:00Z", "value": 130},
+          {"timestamp": "2025-10-16T14:40:00Z", "value": 128},
+          {"timestamp": "2025-10-16T14:45:00Z", "value": 132},
+          {"timestamp": "2025-10-16T14:50:00Z", "value": 135},
+          {"timestamp": "2025-10-16T14:55:00Z", "value": 138},
+          {"timestamp": "2025-10-16T15:00:00Z", "value": 145},
+          {"timestamp": "2025-10-16T15:05:00Z", "value": 152},
+          {"timestamp": "2025-10-16T15:10:00Z", "value": 165},
+          {"timestamp": "2025-10-16T15:15:00Z", "value": 180},
+          {"timestamp": "2025-10-16T15:20:00Z", "value": 198},
+          {"timestamp": "2025-10-16T15:25:00Z", "value": 220},
+          {"timestamp": "2025-10-16T15:30:00Z", "value": 245},
+          {"timestamp": "2025-10-16T15:35:00Z", "value": 275},
+          {"timestamp": "2025-10-16T15:40:00Z", "value": 310},
+          {"timestamp": "2025-10-16T15:45:00Z", "value": 355},
+          {"timestamp": "2025-10-16T15:50:00Z", "value": 410},
+          {"timestamp": "2025-10-16T15:55:00Z", "value": 478},
+          {"timestamp": "2025-10-16T16:00:00Z", "value": 562},
+          {"timestamp": "2025-10-16T16:05:00Z", "value": 658},
+          {"timestamp": "2025-10-16T16:10:00Z", "value": 782},
+          {"timestamp": "2025-10-16T16:15:00Z", "value": 1245},
+          {"timestamp": "2025-10-16T16:20:00Z", "value": 1018},
+          {"timestamp": "2025-10-16T16:25:00Z", "value": 892},
+          {"timestamp": "2025-10-16T16:30:00Z", "value": 758}
+        ]
+      },
+      {
+        "name": "Error Rate (%)",
+        "unit": "percent",
+        "color": "#ef4444",
+        "data": [
+          {"timestamp": "2025-10-16T14:30:00Z", "value": 0.2},
+          {"timestamp": "2025-10-16T14:35:00Z", "value": 0.3},
+          {"timestamp": "2025-10-16T14:40:00Z", "value": 0.2},
+          {"timestamp": "2025-10-16T14:45:00Z", "value": 0.3},
+          {"timestamp": "2025-10-16T14:50:00Z", "value": 0.4},
+          {"timestamp": "2025-10-16T14:55:00Z", "value": 0.5},
+          {"timestamp": "2025-10-16T15:00:00Z", "value": 0.6},
+          {"timestamp": "2025-10-16T15:05:00Z", "value": 0.8},
+          {"timestamp": "2025-10-16T15:10:00Z", "value": 1.1},
+          {"timestamp": "2025-10-16T15:15:00Z", "value": 1.4},
+          {"timestamp": "2025-10-16T15:20:00Z", "value": 1.8},
+          {"timestamp": "2025-10-16T15:25:00Z", "value": 2.3},
+          {"timestamp": "2025-10-16T15:30:00Z", "value": 2.9},
+          {"timestamp": "2025-10-16T15:35:00Z", "value": 3.6},
+          {"timestamp": "2025-10-16T15:40:00Z", "value": 4.5},
+          {"timestamp": "2025-10-16T15:45:00Z", "value": 5.8},
+          {"timestamp": "2025-10-16T15:50:00Z", "value": 7.2},
+          {"timestamp": "2025-10-16T15:55:00Z", "value": 8.9},
+          {"timestamp": "2025-10-16T16:00:00Z", "value": 10.5},
+          {"timestamp": "2025-10-16T16:05:00Z", "value": 11.8},
+          {"timestamp": "2025-10-16T16:10:00Z", "value": 12.5},
+          {"timestamp": "2025-10-16T16:15:00Z", "value": 14.3},
+          {"timestamp": "2025-10-16T16:20:00Z", "value": 13.1},
+          {"timestamp": "2025-10-16T16:25:00Z", "value": 12.2},
+          {"timestamp": "2025-10-16T16:30:00Z", "value": 11.5}
+        ]
+      },
+      {
+        "name": "Request Rate (req/sec)",
+        "unit": "requests/second",
+        "color": "#8b5cf6",
+        "data": [
+          {"timestamp": "2025-10-16T14:30:00Z", "value": 1150},
+          {"timestamp": "2025-10-16T14:35:00Z", "value": 1180},
+          {"timestamp": "2025-10-16T14:40:00Z", "value": 1165},
+          {"timestamp": "2025-10-16T14:45:00Z", "value": 1190},
+          {"timestamp": "2025-10-16T14:50:00Z", "value": 1210},
+          {"timestamp": "2025-10-16T14:55:00Z", "value": 1195},
+          {"timestamp": "2025-10-16T15:00:00Z", "value": 1220},
+          {"timestamp": "2025-10-16T15:05:00Z", "value": 1235},
+          {"timestamp": "2025-10-16T15:10:00Z", "value": 1248},
+          {"timestamp": "2025-10-16T15:15:00Z", "value": 1262},
+          {"timestamp": "2025-10-16T15:20:00Z", "value": 1255},
+          {"timestamp": "2025-10-16T15:25:00Z", "value": 1248},
+          {"timestamp": "2025-10-16T15:30:00Z", "value": 1240},
+          {"timestamp": "2025-10-16T15:35:00Z", "value": 1235},
+          {"timestamp": "2025-10-16T15:40:00Z", "value": 1228},
+          {"timestamp": "2025-10-16T15:45:00Z", "value": 1220},
+          {"timestamp": "2025-10-16T15:50:00Z", "value": 1215},
+          {"timestamp": "2025-10-16T15:55:00Z", "value": 1205},
+          {"timestamp": "2025-10-16T16:00:00Z", "value": 1198},
+          {"timestamp": "2025-10-16T16:05:00Z", "value": 1185},
+          {"timestamp": "2025-10-16T16:10:00Z", "value": 1172},
+          {"timestamp": "2025-10-16T16:15:00Z", "value": 1158},
+          {"timestamp": "2025-10-16T16:20:00Z", "value": 1168},
+          {"timestamp": "2025-10-16T16:25:00Z", "value": 1178},
+          {"timestamp": "2025-10-16T16:30:00Z", "value": 1185}
+        ]
+      }
+    ],
+    "anomalies": [
+      {
+        "timestamp": "2025-10-16T15:45:00Z",
+        "severity": "warning",
+        "description": "CPU usage exceeded 70% threshold",
+        "affected_metrics": ["CPU Usage (%)"]
+      },
+      {
+        "timestamp": "2025-10-16T16:00:00Z",
+        "severity": "warning",
+        "description": "Memory usage exceeded 80% threshold",
+        "affected_metrics": ["Memory Usage (%)"]
+      },
+      {
+        "timestamp": "2025-10-16T16:05:00Z",
+        "severity": "critical",
+        "description": "Error rate exceeded 10% - payment processing failures",
+        "affected_metrics": ["Error Rate (%)"]
+      },
+      {
+        "timestamp": "2025-10-16T16:10:00Z",
+        "severity": "critical",
+        "description": "Latency P95 exceeded 500ms SLA",
+        "affected_metrics": ["Response Latency P95 (ms)"]
+      },
+      {
+        "timestamp": "2025-10-16T16:15:00Z",
+        "severity": "critical",
+        "description": "Multiple metrics in critical state - possible cascading failure",
+        "affected_metrics": ["CPU Usage (%)", "Memory Usage (%)", "Response Latency P95 (ms)", "Error Rate (%)"]
+      }
+    ]
+  }
+}

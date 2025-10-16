@@ -1,0 +1,13 @@
+{
+  "type": "mermaid",
+  "title": "Payment Processing Sequence - Failure Scenario",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "diagram_type": "sequence",
+    "analysis": "request_flow",
+    "description": "Sequence diagram showing the interaction between services during payment failure"
+  },
+  "data": {
+    "diagram": "sequenceDiagram\n    participant Client\n    participant API as API Gateway\n    participant PS as Payment Service\n    participant FD as Fraud Detection\n    participant DB as Payment DB\n    participant Cache as Redis Cache\n    participant Kafka as Kafka Broker\n    \n    Client->>+API: POST /api/v1/payments\n    API->>+PS: Process Payment Request\n    \n    Note over PS: Payment ID: pmt_7x9k2m<br/>Amount: $149.99\n    \n    PS->>+Cache: GET user:usr_12345\n    Cache-->>-PS: User Profile (cached)\n    \n    PS->>PS: Validate Payment Details\n    Note right of PS: Validation Passed\n    \n    PS->>+FD: Check Fraud Risk\n    FD->>FD: Analyze Transaction\n    FD->>FD: Check User History\n    FD->>FD: ML Model Inference\n    FD-->>-PS: Risk Score: 0.23 (LOW)\n    \n    PS->>+DB: SELECT * FROM payments WHERE id=?\n    Note right of DB: Connection Pool: 185/200<br/>Query Timeout: 5000ms\n    \n    rect rgb(239, 68, 68, 0.1)\n        DB-->>PS: ⚠️ TIMEOUT (5012ms)\n        Note over PS,DB: Database Connection Exhausted\n    end\n    \n    PS->>PS: Wait 2s (backoff)\n    \n    PS->>+DB: RETRY: SELECT * FROM payments\n    rect rgb(239, 68, 68, 0.1)\n        DB-->>-PS: ❌ Connection Pool Exhausted\n        Note over DB: All 200 connections in use<br/>45 requests waiting\n    end\n    \n    PS->>PS: Circuit Breaker → OPEN\n    \n    PS->>+Kafka: Publish payment.failed event\n    Kafka-->>-PS: Event Published\n    \n    PS-->>-API: ❌ 500 Internal Server Error\n    API-->>-Client: ❌ Payment Failed\n    \n    Note over Client,Kafka: Total Duration: 5178ms<br/>Error: DatabaseTimeoutException"
+  }
+}

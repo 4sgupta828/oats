@@ -1,0 +1,350 @@
+{
+  "type": "trace",
+  "title": "Payment Request Trace - Failed Transaction",
+  "timestamp": "2025-10-16T16:10:15.234Z",
+  "metadata": {
+    "trace_id": "trace-abc123",
+    "service": "payment-service",
+    "operation": "process_payment",
+    "status": "error",
+    "total_duration_ms": 5178,
+    "span_count": 15,
+    "description": "Distributed trace showing payment processing failure due to database timeout"
+  },
+  "data": {
+    "trace_id": "trace-abc123",
+    "root_span_id": "span-001",
+    "spans": [
+      {
+        "span_id": "span-001",
+        "parent_span_id": null,
+        "service": "payment-service",
+        "operation": "POST /api/v1/payments",
+        "start_time": "2025-10-16T16:10:15.234Z",
+        "duration_ms": 5178,
+        "status": "error",
+        "tags": {
+          "http.method": "POST",
+          "http.url": "/api/v1/payments",
+          "http.status_code": 500,
+          "payment.id": "pmt_7x9k2m",
+          "payment.amount": 149.99,
+          "payment.currency": "USD",
+          "user.id": "usr_12345",
+          "error": true,
+          "error.type": "DatabaseTimeoutException"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:15.234Z",
+            "message": "Payment request received"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:16.345Z",
+            "message": "Payment processing failed - database timeout"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:19.991Z",
+            "message": "Retry failed - connection pool exhausted"
+          }
+        ]
+      },
+      {
+        "span_id": "span-002",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "validate_payment_details",
+        "start_time": "2025-10-16T16:10:15.456Z",
+        "duration_ms": 222,
+        "status": "ok",
+        "tags": {
+          "payment.id": "pmt_7x9k2m",
+          "validation.rules": "amount,currency,card_number",
+          "validation.result": "passed"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:15.456Z",
+            "message": "Starting payment validation"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:15.678Z",
+            "message": "Validation successful"
+          }
+        ]
+      },
+      {
+        "span_id": "span-003",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "db.query: SELECT payment",
+        "start_time": "2025-10-16T16:10:15.892Z",
+        "duration_ms": 5120,
+        "status": "error",
+        "tags": {
+          "db.type": "postgresql",
+          "db.instance": "payment-db-primary",
+          "db.statement": "SELECT * FROM payments WHERE id = ?",
+          "db.timeout_ms": 5000,
+          "error": true,
+          "error.type": "QueryTimeoutException"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:15.892Z",
+            "message": "Executing database query"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:16.123Z",
+            "message": "Query timeout - exceeded 5000ms"
+          }
+        ]
+      },
+      {
+        "span_id": "span-004",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "retry_payment",
+        "start_time": "2025-10-16T16:10:18.567Z",
+        "duration_ms": 1424,
+        "status": "error",
+        "tags": {
+          "payment.id": "pmt_7x9k2m",
+          "retry.count": 1,
+          "retry.backoff_ms": 2000,
+          "error": true,
+          "error.type": "ConnectionPoolExhaustedException"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:18.567Z",
+            "message": "Starting payment retry"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:19.991Z",
+            "message": "Retry failed - cannot acquire database connection"
+          }
+        ]
+      },
+      {
+        "span_id": "span-005",
+        "parent_span_id": "span-004",
+        "service": "payment-service",
+        "operation": "db.acquire_connection",
+        "start_time": "2025-10-16T16:10:18.789Z",
+        "duration_ms": 3000,
+        "status": "error",
+        "tags": {
+          "db.type": "postgresql",
+          "db.pool.size": 200,
+          "db.pool.active": 200,
+          "db.pool.timeout_ms": 3000,
+          "error": true,
+          "error.type": "ConnectionAcquisitionTimeoutException"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:18.789Z",
+            "message": "Waiting for database connection"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:19.789Z",
+            "message": "Connection acquisition timeout - pool exhausted"
+          }
+        ]
+      },
+      {
+        "span_id": "span-006",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "check_fraud",
+        "start_time": "2025-10-16T16:10:15.700Z",
+        "duration_ms": 145,
+        "status": "ok",
+        "tags": {
+          "payment.id": "pmt_7x9k2m",
+          "fraud.risk_score": 0.23,
+          "fraud.decision": "approved"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:15.700Z",
+            "message": "Checking for fraud"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:15.845Z",
+            "message": "Fraud check passed"
+          }
+        ]
+      },
+      {
+        "span_id": "span-007",
+        "parent_span_id": "span-006",
+        "service": "fraud-detection-service",
+        "operation": "analyze_transaction",
+        "start_time": "2025-10-16T16:10:15.710Z",
+        "duration_ms": 125,
+        "status": "ok",
+        "tags": {
+          "grpc.method": "AnalyzeTransaction",
+          "payment.amount": 149.99,
+          "user.id": "usr_12345",
+          "risk.score": 0.23,
+          "risk.level": "low"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:15.710Z",
+            "message": "Analyzing transaction for fraud"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:15.835Z",
+            "message": "Analysis complete - low risk"
+          }
+        ]
+      },
+      {
+        "span_id": "span-008",
+        "parent_span_id": "span-007",
+        "service": "fraud-detection-service",
+        "operation": "check_user_history",
+        "start_time": "2025-10-16T16:10:15.720Z",
+        "duration_ms": 45,
+        "status": "ok",
+        "tags": {
+          "user.id": "usr_12345",
+          "history.transaction_count": 47,
+          "history.total_spent": 3842.53,
+          "history.chargeback_count": 0
+        },
+        "logs": []
+      },
+      {
+        "span_id": "span-009",
+        "parent_span_id": "span-007",
+        "service": "fraud-detection-service",
+        "operation": "check_velocity",
+        "start_time": "2025-10-16T16:10:15.775Z",
+        "duration_ms": 35,
+        "status": "ok",
+        "tags": {
+          "user.id": "usr_12345",
+          "velocity.1h": 1,
+          "velocity.24h": 3,
+          "velocity.threshold": 10
+        },
+        "logs": []
+      },
+      {
+        "span_id": "span-010",
+        "parent_span_id": "span-007",
+        "service": "fraud-detection-service",
+        "operation": "ml_model_inference",
+        "start_time": "2025-10-16T16:10:15.790Z",
+        "duration_ms": 28,
+        "status": "ok",
+        "tags": {
+          "model.name": "fraud_detector_v3",
+          "model.version": "3.2.1",
+          "inference.result": 0.23,
+          "inference.confidence": 0.94
+        },
+        "logs": []
+      },
+      {
+        "span_id": "span-011",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "get_user_profile",
+        "start_time": "2025-10-16T16:10:15.380Z",
+        "duration_ms": 52,
+        "status": "ok",
+        "tags": {
+          "user.id": "usr_12345",
+          "cache.hit": true,
+          "cache.type": "redis"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:15.380Z",
+            "message": "Fetching user profile"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:15.432Z",
+            "message": "User profile retrieved from cache"
+          }
+        ]
+      },
+      {
+        "span_id": "span-012",
+        "parent_span_id": "span-011",
+        "service": "redis-cache",
+        "operation": "GET user:usr_12345",
+        "start_time": "2025-10-16T16:10:15.385Z",
+        "duration_ms": 8,
+        "status": "ok",
+        "tags": {
+          "cache.key": "user:usr_12345",
+          "cache.hit": true,
+          "cache.ttl": 3600
+        },
+        "logs": []
+      },
+      {
+        "span_id": "span-013",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "publish_event",
+        "start_time": "2025-10-16T16:10:20.100Z",
+        "duration_ms": 312,
+        "status": "ok",
+        "tags": {
+          "messaging.system": "kafka",
+          "messaging.destination": "payment.failed",
+          "messaging.message_id": "msg-xyz789",
+          "event.type": "payment.processing.failed"
+        },
+        "logs": [
+          {
+            "timestamp": "2025-10-16T16:10:20.100Z",
+            "message": "Publishing payment failed event"
+          },
+          {
+            "timestamp": "2025-10-16T16:10:20.412Z",
+            "message": "Event published successfully"
+          }
+        ]
+      },
+      {
+        "span_id": "span-014",
+        "parent_span_id": "span-013",
+        "service": "kafka-broker",
+        "operation": "produce",
+        "start_time": "2025-10-16T16:10:20.115Z",
+        "duration_ms": 285,
+        "status": "ok",
+        "tags": {
+          "messaging.kafka.topic": "payment.failed",
+          "messaging.kafka.partition": 2,
+          "messaging.kafka.offset": 158234
+        },
+        "logs": []
+      },
+      {
+        "span_id": "span-015",
+        "parent_span_id": "span-001",
+        "service": "payment-service",
+        "operation": "record_metrics",
+        "start_time": "2025-10-16T16:10:20.450Z",
+        "duration_ms": 12,
+        "status": "ok",
+        "tags": {
+          "metric.payment_failed": 1,
+          "metric.error_type": "database_timeout",
+          "metric.latency_ms": 5178
+        },
+        "logs": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "type": "mermaid",
+  "title": "Payment Service Architecture - Root Cause Analysis",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "diagram_type": "flowchart",
+    "analysis": "incident_investigation",
+    "description": "Architecture diagram showing the payment service failure propagation path"
+  },
+  "data": {
+    "diagram": "flowchart TB\n    subgraph \"Client Layer\"\n        A[API Gateway]\n    end\n    \n    subgraph \"Application Layer\"\n        B[Payment Service]\n        C[Order Service]\n        D[User Service]\n        E[Notification Service]\n    end\n    \n    subgraph \"Business Logic\"\n        F[Fraud Detection]\n        G[Payment Processor]\n        H[Event Publisher]\n    end\n    \n    subgraph \"Data Layer\"\n        I[(Payment DB<br/>PostgreSQL)]\n        J[(Redis Cache)]\n        K[Kafka Broker]\n    end\n    \n    subgraph \"External Services\"\n        L[Stripe API]\n    end\n    \n    %% Request Flow\n    A -->|1. Payment Request| B\n    B -->|2. Validate User| D\n    D -->|3. User Data| J\n    B -->|4. Check Fraud| F\n    F -->|5. Risk Score| B\n    B -->|6. Query Payment| I\n    I -.->|7. TIMEOUT 5s| B\n    B -->|8. Retry| I\n    I -.->|9. Pool Exhausted| B\n    B -->|10. Publish Failure| K\n    K -->|11. Event| E\n    B -.->|12. Error 500| A\n    \n    %% Circuit Breaker State\n    B -->|Circuit OPEN| G\n    G -.->|Reject Requests| B\n    \n    %% Styling\n    classDef error fill:#ef4444,stroke:#dc2626,color:#fff\n    classDef warning fill:#f59e0b,stroke:#d97706,color:#fff\n    classDef success fill:#10b981,stroke:#059669,color:#fff\n    classDef external fill:#6366f1,stroke:#4f46e5,color:#fff\n    \n    class I,B,G error\n    class K,E warning\n    class D,J,F success\n    class L external"
+  }
+}

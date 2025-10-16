@@ -1,0 +1,13 @@
+{
+  "type": "mermaid",
+  "title": "Incident Timeline - Payment Service Failure",
+  "timestamp": "2025-10-16T16:30:00Z",
+  "metadata": {
+    "diagram_type": "gantt",
+    "analysis": "incident_timeline",
+    "description": "Timeline showing the progression of the payment service incident"
+  },
+  "data": {
+    "diagram": "gantt\n    title Payment Service Incident Timeline\n    dateFormat HH:mm:ss\n    axisFormat %H:%M:%S\n    \n    section Normal Operation\n    Service Healthy           :done, healthy, 16:00:00, 10m\n    \n    section Performance Degradation\n    CPU Usage Rising          :active, cpu, 16:10:00, 5m\n    Memory Pressure           :active, mem, 16:10:00, 5m\n    DB Connection Pool High   :active, pool, 16:10:00, 5m\n    \n    section Incident Start\n    First DB Timeout          :crit, timeout1, 16:10:15, 5s\n    Retry Failed              :crit, retry, 16:10:18, 2s\n    Connection Pool Exhausted :crit, exhaust, 16:10:23, 2s\n    Circuit Breaker Opens     :crit, cb_open, 16:10:25, 20s\n    \n    section Impact\n    Payment Requests Failing  :crit, failures, 16:10:15, 30s\n    Health Check Failed       :crit, health, 16:10:28, 17s\n    \n    section Recovery Attempts\n    Connection Pool Reset Attempt :active, reset1, 16:10:32, 3s\n    Emergency GC Triggered    :active, gc, 16:10:38, 2s\n    \n    section Recovery\n    DB Connection Restored    :done, db_up, 16:10:45, 1s\n    Circuit Breaker Half-Open :active, cb_half, 16:10:45, 5s\n    Test Requests Succeed     :done, test, 16:10:48, 2s\n    Circuit Breaker Closed    :done, cb_close, 16:10:50, 1s\n    \n    section Post-Recovery\n    Service Stabilizing       :active, stable, 16:10:51, 9s\n    Full Recovery Confirmed   :milestone, recovery, 16:11:00, 0s\n    Normal Operation Resumed  :done, normal, 16:11:00, 5m"
+  }
+}
