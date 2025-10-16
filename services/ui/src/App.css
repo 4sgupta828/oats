@@ -665,3 +665,48 @@
   cursor: not-allowed;
   opacity: 0.6;
 }
+
+/* Turn Extension Controls */
+.turn-extension-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.turns-input {
+  width: 60px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--background-secondary);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.extend-button {
+  background-color: #059669;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.extend-button:hover:not(:disabled) {
+  background-color: #047857;
+}
+
+.refine-button {
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.refine-button:hover:not(:disabled) {
+  background-color: var(--primary-color-hover);
+}

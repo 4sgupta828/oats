@@ -66,8 +66,9 @@ class SubmitFeedbackRequest(BaseModel):
     message: Optional[str] = None  # User's guidance/feedback message
 
 class ContinueExecutionRequest(BaseModel):
-    goal: str
-    max_turns: Optional[int] = 15
+    goal: Optional[str] = None  # Optional for turn extension mode
+    max_turns: Optional[int] = None
+    additional_turns: Optional[int] = None  # New field for turn extension
 
 class ResetExecutionRequest(BaseModel):
     goal: str
@@ -328,17 +329,18 @@ def abort_execution(execution_id: str):
 @app.post("/api/v1/executions/{execution_id}/continue")
 def continue_execution(execution_id: str, request: ContinueExecutionRequest):
     """
-    Continue execution with refined/additional goal.
+    Continue execution with refined/additional goal and/or additional turns.
     Keeps all state (facts, ruled_out, diagnosis) and transcript (with auto-summarization).
+
+    Supports three modes:
+    1. Turn extension only: additional_turns (no goal) - extends with same goal
+    2. Goal refinement only: goal (no additional_turns) - refines goal with default max_turns
+    3. Both: goal + additional_turns - refines goal AND extends turns
     """
     if not event_store:
         raise HTTPException(500, "Event store not initialized")
 
     try:
-        # Validate goal
-        if not request.goal or not request.goal.strip():
-            raise HTTPException(400, "Goal cannot be empty")
-
         # Check if execution exists and is paused
         status = event_store.get_execution_status(execution_id)
         if not status:
@@ -347,25 +349,68 @@ def continue_execution(execution_id: str, request: ContinueExecutionRequest):
         if status['status'] not in ['paused', 'cancelled']:
             raise HTTPException(400, f"Can only continue paused executions. Current status: {status['status']}")
 
-        print(f"▶️  Continuing execution {execution_id}")
+        # Determine the goal to use
+        current_goal = status.get('goal', '')
+        if request.goal and request.goal.strip():
+            # Use provided goal (goal refinement)
+            final_goal = request.goal.strip()
+            goal_changed = True
+        else:
+            # Use existing goal (turn extension without refinement)
+            if not current_goal:
+                raise HTTPException(400, "Cannot continue without a goal")
+            final_goal = current_goal
+            goal_changed = False
 
-        # Update execution goal in database
-        event_store.update_execution_goal(execution_id, request.goal.strip())
+        # Determine max_turns to use
+        if request.additional_turns:
+            # Calculate new max_turns based on additional turns
+            current_turn_count = status.get('turn_count', 0)
+            final_max_turns = current_turn_count + request.additional_turns
+            turns_extended = True
+        elif request.max_turns:
+            # Use explicitly provided max_turns
+            final_max_turns = request.max_turns
+            turns_extended = False
+        else:
+            # Default max_turns
+            final_max_turns = 15
+            turns_extended = False
+
+        # Log what we're doing
+        if goal_changed and turns_extended:
+            print(f"▶️  Continuing execution {execution_id} with refined goal AND {request.additional_turns} additional turns")
+        elif turns_extended:
+            print(f"🔄 Extending execution {execution_id} by {request.additional_turns} turns (same goal)")
+        elif goal_changed:
+            print(f"▶️  Continuing execution {execution_id} with refined goal")
+        else:
+            print(f"▶️  Continuing execution {execution_id}")
+
+        # Update execution goal in database if it changed
+        if goal_changed:
+            event_store.update_execution_goal(execution_id, final_goal)
 
         # Update status to running
         event_store.update_status(execution_id, 'running')
 
-        # Emit continuation event
+        # Emit continuation event with appropriate metadata
+        event_data = {'goal': final_goal, 'max_turns': final_max_turns}
+        if turns_extended:
+            event_data['additional_turns'] = request.additional_turns
+        if goal_changed:
+            event_data['goal_refined'] = True
+
         event_store.emit_event(
             execution_id, 0, 'execution_continued',
-            {'goal': request.goal.strip()},
+            event_data,
             success=True
         )
 
         # Start agent in background (reconstructs state from DB)
         thread = threading.Thread(
             target=run_agent_continue,
-            args=(execution_id, request.goal.strip(), request.max_turns),
+            args=(execution_id, final_goal, final_max_turns),
             daemon=True
         )
         thread.start()
@@ -375,8 +420,10 @@ def continue_execution(execution_id: str, request: ContinueExecutionRequest):
         return {
             "execution_id": execution_id,
             "status": "continued",
-            "goal": request.goal.strip(),
-            "max_turns": request.max_turns
+            "goal": final_goal,
+            "max_turns": final_max_turns,
+            "goal_refined": goal_changed,
+            "turns_extended": turns_extended
         }
 
     except HTTPException:
@@ -673,6 +720,9 @@ def run_agent_continue(execution_id: str, goal: str, max_turns: int):
         state.goal = goal
         if state.state:
             state.state.goal = goal
+
+        # Update max_turns (for turn extension)
+        state.max_turns = max_turns
 
         # Continue execution with existing state
         agent = AgentController(global_registry, event_store)

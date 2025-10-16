@@ -265,12 +265,53 @@ export function useSSE(backendUrl) {
     }
   }, [executionId, backendUrl]);
 
+  // Extend turns with optional goal refinement
+  const extendTurns = useCallback(async (additionalTurns, goalRefinement = null) => {
+    if (!executionId) {
+      throw new Error('No execution to extend');
+    }
+
+    try {
+      setIsExecuting(true);
+
+      const requestBody = {
+        additional_turns: additionalTurns
+      };
+
+      // Include goal if provided (allows combining turn extension with goal refinement)
+      if (goalRefinement && goalRefinement.trim()) {
+        requestBody.goal = goalRefinement.trim();
+      }
+
+      const response = await fetch(`${backendUrl}/api/v1/executions/${executionId}/continue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Execution extended successfully:', result);
+      return result;
+
+    } catch (error) {
+      console.error('Failed to extend execution:', error);
+      setIsExecuting(false);
+      throw error;
+    }
+  }, [executionId, backendUrl]);
+
   return {
     startExecution,
     stopExecution,
     submitFeedback,
     continueExecution,
     resetExecution,
+    extendTurns,
     events,
     isConnected,
     isExecuting,

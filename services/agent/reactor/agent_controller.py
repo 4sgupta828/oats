@@ -403,7 +403,7 @@ class AgentController:
                     pause_reason = 'Max turns reached - awaiting user input'
                     self._emit(execution_id, state.turn_count,
                              'execution_paused',
-                             {'reason': pause_reason},
+                             {'reason': pause_reason, 'is_max_turns': True, 'current_turns': state.turn_count, 'max_turns': state.max_turns},
                              success=True)
 
                     self.event_store.update_status(execution_id, 'paused')

@@ -73,7 +73,8 @@ const formatSSEEvent = (event) => {
       return {
         type: 'pause',
         summary: eventData.reason || 'Agent paused - awaiting user input',
-        turnsCompleted: event.turn
+        turnsCompleted: event.turn,
+        isMaxTurns: eventData.is_max_turns || false
       };
 
     case 'execution_failed':
@@ -155,6 +156,8 @@ function App() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetGoal, setResetGoal] = useState('');
   const [executionPaused, setExecutionPaused] = useState(false);
+  const [isMaxTurns, setIsMaxTurns] = useState(false);
+  const [additionalTurns, setAdditionalTurns] = useState(5);
   const messagesEndRef = useRef(null);
 
   // Get backend URL from runtime config (injected at container startup) or fallback to env var or localhost
@@ -170,12 +173,13 @@ function App() {
     sseHook.events.forEach(event => {
       console.log('[DEBUG] Processing event:', event.type, event);
 
+      const formatted = formatSSEEvent(event);
+
       // Check if execution is paused
       if (event.type === 'execution_paused') {
         setExecutionPaused(true);
+        setIsMaxTurns(formatted?.isMaxTurns || false);
       }
-
-      const formatted = formatSSEEvent(event);
       console.log('[DEBUG] Formatted result:', formatted);
       if (formatted) {
         setMessages(prev => {
@@ -238,6 +242,31 @@ function App() {
       setMessages(prev => [...prev, {
         sender: 'agent',
         data: { type: 'error', content: `Failed to continue execution: ${error.message}` }
+      }]);
+    }
+  };
+
+  const handleTurnExtension = async () => {
+    if (!additionalTurns || additionalTurns < 1) return;
+
+    // Determine the message based on whether goal refinement is included
+    const hasGoalRefinement = goal.trim().length > 0;
+    const message = hasGoalRefinement
+      ? `🔄 Extending by ${additionalTurns} turns + refining goal: "${goal}"`
+      : `🔄 Extending by ${additionalTurns} turns`;
+
+    setMessages(prev => [...prev, { sender: 'user', text: message }]);
+    setExecutionPaused(false);
+    setIsMaxTurns(false);
+
+    try {
+      // Pass goal to extendTurns if provided
+      await sseHook.extendTurns(additionalTurns, goal.trim() || null);
+      setGoal(''); // Clear the goal input after successful submission
+    } catch (error) {
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        data: { type: 'error', content: `Failed to extend execution: ${error.message}` }
       }]);
     }
   };
@@ -373,6 +402,8 @@ function App() {
           placeholder={
             sseHook.isExecuting
               ? "Analysis in progress..."
+              : executionPaused && isMaxTurns
+              ? "Optional: Add goal refinement..."
               : executionPaused
               ? "Refine goal or add context..."
               : "Describe your infrastructure issue..."
@@ -381,14 +412,43 @@ function App() {
         />
         {!sseHook.isExecuting ? (
           <div className="input-controls">
-            <button
-              type="submit"
-              className={executionPaused ? "continue-button" : "submit-button"}
-              disabled={sseHook.isExecuting || (executionPaused && !goal.trim())}
-              title={executionPaused ? "Continue with refined/additional context (press Enter)" : "Start analysis"}
-            >
-              {executionPaused ? '▶️ Continue' : 'Start Analysis'}
-            </button>
+            {executionPaused && isMaxTurns ? (
+              <div className="turn-extension-controls">
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={additionalTurns}
+                  onChange={(e) => setAdditionalTurns(parseInt(e.target.value) || 5)}
+                  className="turns-input"
+                  placeholder="Turns"
+                />
+                <button
+                  type="button"
+                  className="extend-button"
+                  onClick={handleTurnExtension}
+                  disabled={sseHook.isExecuting}
+                >
+                  🔄 Continue for {additionalTurns} turns
+                </button>
+                <button
+                  type="button"
+                  className="refine-button"
+                  onClick={() => setIsMaxTurns(false)}
+                >
+                  ✏️ Refine Goal
+                </button>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                className={executionPaused ? "continue-button" : "submit-button"}
+                disabled={sseHook.isExecuting || (executionPaused && !goal.trim())}
+                title={executionPaused ? "Continue with refined/additional context (press Enter)" : "Start analysis"}
+              >
+                {executionPaused ? '▶️ Continue' : 'Start Analysis'}
+              </button>
+            )}
           </div>
         ) : (
           <div className="execution-controls">
