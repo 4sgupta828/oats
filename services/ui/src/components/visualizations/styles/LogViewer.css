@@ -22,12 +22,64 @@
 
 .log-controls {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  align-items: center;
   margin-bottom: 12px;
 }
 
-.log-filter-input {
+.log-level-filters {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.level-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #2c2c2c;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.level-filter:hover {
+  background-color: #333;
+}
+
+.level-filter input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.level-filter.level-error {
+  border-left: 3px solid #ff6b6b;
+}
+
+.level-filter.level-warn {
+  border-left: 3px solid #ffa500;
+}
+
+.level-filter.level-info {
+  border-left: 3px solid #4488ff;
+}
+
+.level-filter.level-debug {
+  border-left: 3px solid #888;
+}
+
+.level-count {
+  color: #888;
+  font-size: 12px;
+}
+
+.log-search-container {
+  display: flex;
+  gap: 12px;
+}
+
+.log-search,
+.log-trace-filter {
   flex: 1;
   padding: 8px 12px;
   background-color: #2c2c2c;
@@ -37,7 +89,8 @@
   font-size: 14px;
 }
 
-.log-filter-input:focus {
+.log-search:focus,
+.log-trace-filter:focus {
   outline: none;
   border-color: #4488ff;
 }
@@ -57,10 +110,20 @@
   border-color: #4488ff;
 }
 
-.log-count {
+.log-stats {
   color: #888;
   font-size: 14px;
   white-space: nowrap;
+}
+
+.log-highlight-notice {
+  padding: 8px 12px;
+  background-color: rgba(68, 136, 255, 0.2);
+  border: 1px solid #4488ff;
+  border-radius: 4px;
+  color: #4488ff;
+  margin-bottom: 12px;
+  font-size: 14px;
 }
 
 .log-content {
@@ -93,9 +156,34 @@
   min-width: 80px;
 }
 
+.log-source {
+  color: #888;
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  margin-right: 8px;
+}
+
+.log-trace-id {
+  color: #4488ff;
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.log-trace-id:hover {
+  text-decoration: underline;
+}
+
 .log-message {
   flex: 1;
   color: #ccc;
+}
+
+.log-highlighted {
+  background-color: rgba(68, 136, 255, 0.15) !important;
+  border-left: 3px solid #4488ff;
+  padding-left: 9px !important;
 }
 
 .log-error {

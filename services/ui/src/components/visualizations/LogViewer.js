@@ -4,49 +4,81 @@ import VisualizationControls from './VisualizationControls';
 import './styles/LogViewer.css';
 
 const LogViewer = ({ spec, vizId }) => {
-  const [filterText, setFilterText] = useState('');
-  const [logLevel, setLogLevel] = useState('all');
+  const [filters, setFilters] = useState({
+    levels: { ERROR: true, WARN: true, INFO: true, DEBUG: true },
+    search: '',
+    timeRange: null,
+    traceId: ''
+  });
 
   const logs = useMemo(() => {
     return spec.data.logs || [];
   }, [spec.data.logs]);
 
   const filteredLogs = useMemo(() => {
-    let result = logs;
+    return logs.filter(log => {
+      // Handle different log formats (string vs object)
+      const logObj = typeof log === 'string' ? { level: 'INFO', message: log, timestamp: new Date().toISOString() } : log;
+      const logLevel = (logObj.level || 'INFO').toUpperCase();
 
-    // Filter by text
-    if (filterText) {
-      result = result.filter(log =>
-        log.message.toLowerCase().includes(filterText.toLowerCase())
-      );
-    }
+      // Filter by level
+      if (!filters.levels[logLevel]) return false;
 
-    // Filter by log level
-    if (logLevel !== 'all') {
-      result = result.filter(log => log.level === logLevel);
-    }
+      // Filter by search
+      if (filters.search && !logObj.message.toLowerCase().includes(filters.search.toLowerCase())) {
+        return false;
+      }
 
-    return result;
-  }, [logs, filterText, logLevel]);
+      // Filter by trace ID
+      if (filters.traceId && logObj.trace_id !== filters.traceId) {
+        return false;
+      }
 
-  const getLogLevelClass = (level) => {
-    switch (level?.toLowerCase()) {
-      case 'error': return 'log-error';
-      case 'warn':
-      case 'warning': return 'log-warning';
-      case 'info': return 'log-info';
-      case 'debug': return 'log-debug';
-      default: return 'log-default';
-    }
+      // Filter by time range
+      if (filters.timeRange && logObj.timestamp) {
+        const logTime = new Date(logObj.timestamp).getTime();
+        if (logTime < filters.timeRange.start || logTime > filters.timeRange.end) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [logs, filters]);
+
+  const isHighlighted = (log) => {
+    if (!spec.data.highlights?.timeRange || !log.timestamp) return false;
+    const logTime = new Date(log.timestamp).getTime();
+    const start = new Date(spec.data.highlights.timeRange.start).getTime();
+    const end = new Date(spec.data.highlights.timeRange.end).getTime();
+    return logTime >= start && logTime <= end;
+  };
+
+  const toggleLevel = (level) => {
+    setFilters({
+      ...filters,
+      levels: { ...filters.levels, [level]: !filters.levels[level] }
+    });
   };
 
   const renderLogLine = (index) => {
     const log = filteredLogs[index];
+    const logObj = typeof log === 'string' ? { level: 'INFO', message: log, timestamp: new Date().toISOString() } : log;
+    const highlighted = isHighlighted(logObj);
+
     return (
-      <div key={index} className={`log-line ${getLogLevelClass(log.level)}`}>
-        <span className="log-timestamp">{log.timestamp}</span>
-        <span className="log-level">[{log.level}]</span>
-        <span className="log-message">{log.message}</span>
+      <div key={index} className={`log-line log-${logObj.level?.toLowerCase() || 'info'} ${highlighted ? 'log-highlighted' : ''}`}>
+        {logObj.timestamp && <span className="log-timestamp">{logObj.timestamp}</span>}
+        <span className={`log-level log-level-${logObj.level?.toLowerCase() || 'info'}`}>
+          {logObj.level || 'INFO'}
+        </span>
+        {logObj.source && <span className="log-source">{logObj.source}</span>}
+        {logObj.trace_id && (
+          <span className="log-trace-id" title="Trace ID">
+            🔍 {logObj.trace_id}
+          </span>
+        )}
+        <span className="log-message">{logObj.message}</span>
       </div>
     );
   };
@@ -59,30 +91,54 @@ const LogViewer = ({ spec, vizId }) => {
       </div>
 
       <div className="log-controls">
-        <input
-          type="text"
-          placeholder="Filter logs..."
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          className="log-filter-input"
-        />
-        <select
-          value={logLevel}
-          onChange={(e) => setLogLevel(e.target.value)}
-          className="log-level-select"
-        >
-          <option value="all">All Levels</option>
-          <option value="error">Error</option>
-          <option value="warning">Warning</option>
-          <option value="info">Info</option>
-          <option value="debug">Debug</option>
-        </select>
-        <span className="log-count">
-          {filteredLogs.length} / {logs.length} logs
-        </span>
+        <div className="log-level-filters">
+          {Object.keys(filters.levels).map(level => (
+            <label key={level} className={`level-filter level-${level.toLowerCase()}`}>
+              <input
+                type="checkbox"
+                checked={filters.levels[level]}
+                onChange={() => toggleLevel(level)}
+              />
+              <span>{level}</span>
+              <span className="level-count">
+                ({spec.data.summary?.[level.toLowerCase()] || logs.filter(l => {
+                  const logObj = typeof l === 'string' ? { level: 'INFO' } : l;
+                  return (logObj.level || 'INFO').toUpperCase() === level;
+                }).length})
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <div className="log-search-container">
+          <input
+            type="text"
+            placeholder="Search logs..."
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            className="log-search"
+          />
+          <input
+            type="text"
+            placeholder="Filter by Trace ID..."
+            value={filters.traceId}
+            onChange={(e) => setFilters({ ...filters, traceId: e.target.value })}
+            className="log-trace-filter"
+          />
+        </div>
+
+        <div className="log-stats">
+          Showing <strong>{filteredLogs.length}</strong> / {logs.length} logs
+        </div>
       </div>
 
-      <div className="log-content" style={{ height: '500px', backgroundColor: '#1e1e1e' }}>
+      {spec.data.highlights?.timeRange && (
+        <div className="log-highlight-notice">
+          Highlighted: {spec.data.highlights.timeRange.reason}
+        </div>
+      )}
+
+      <div className="log-content" style={{ height: '600px', backgroundColor: '#1e1e1e' }}>
         <Virtuoso
           style={{ height: '100%' }}
           totalCount={filteredLogs.length}
