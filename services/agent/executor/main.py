@@ -60,9 +60,17 @@ def _validate_inputs(uf_descriptor: UFDescriptor, inputs: Dict[str, Any]) -> Any
         for field_name, field_def in schema_properties.items():
             # Handle anyOf (Union types)
             if 'anyOf' in field_def:
-                # For anyOf, we'll be more permissive and use Any type
-                from typing import Any
-                python_type = Any
+                # Parse anyOf to get the primary type (excluding null)
+                any_of_types = field_def['anyOf']
+                non_null_types = [t for t in any_of_types if t.get('type') != 'null']
+
+                if non_null_types:
+                    # Use the first non-null type for validation
+                    primary_type = non_null_types[0].get('type', 'string')
+                    python_type = type_mapping.get(primary_type, str)
+                else:
+                    # Fallback to string if we can't determine type
+                    python_type = str
             else:
                 field_type = field_def.get('type', 'string')
                 python_type = type_mapping.get(field_type, str)
