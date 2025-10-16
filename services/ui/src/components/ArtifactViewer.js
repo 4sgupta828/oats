@@ -216,6 +216,17 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
           </SyntaxHighlighter>
         );
 
+      case 'image':
+        return (
+          <div className="artifact-image">
+            <img
+              src={`${backendUrl}/api/v1/artifacts/${artifactPath}`}
+              alt={artifactPath}
+              style={{ maxWidth: '100%', height: 'auto' }}
+            />
+          </div>
+        );
+
       case 'table':
         return renderTable();
 
