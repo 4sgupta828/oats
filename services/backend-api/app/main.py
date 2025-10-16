@@ -96,8 +96,27 @@ def startup_event():
 
         # Initialize agent registry
         tools_path = agent_path / "tools"
-        global_registry.load_ufs_from_directory(str(tools_path))
-        print(f"✅ Agent registry initialized with {len(global_registry.list_ufs())} tools")
+        print(f"📦 Loading tools from: {tools_path}")
+
+        if not tools_path.exists():
+            raise RuntimeError(f"Tools directory not found: {tools_path}")
+
+        try:
+            global_registry.load_ufs_from_directory(str(tools_path))
+            tool_count = len(global_registry.list_ufs())
+
+            if tool_count == 0:
+                raise RuntimeError(f"No tools loaded from {tools_path}")
+
+            print(f"✅ Agent registry initialized with {tool_count} tools:")
+            for tool in global_registry.list_ufs():
+                print(f"   - {tool.name}:{tool.version}")
+
+        except Exception as e:
+            print(f"❌ Failed to load tools: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"Tool loading failed: {e}")
 
         print("\n" + "=" * 60)
         print("✅ OATS Agent API ready")
@@ -107,6 +126,8 @@ def startup_event():
 
     except Exception as e:
         print(f"\n❌ Failed to initialize services: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 

@@ -220,6 +220,11 @@ class AgentController:
                     state.state = parsed_response.state
 
                     # ═══════════════════════════════════════════════════════
+                    # (c) TURN BUDGET WARNINGS (P2 Enhancement)
+                    # ═══════════════════════════════════════════════════════
+                    self._check_turn_budget_warnings(execution_id, turn_number, state)
+
+                    # ═══════════════════════════════════════════════════════
                     # (e) LLM ESCALATION - Check if LLM needs user input
                     # ═══════════════════════════════════════════════════════
                     if self._llm_requests_input(parsed_response):
@@ -1314,6 +1319,58 @@ class AgentController:
         # Update transcript: [summary] + recent turns
         state.transcript = [summary_entry] + recent_turns
         logger.info(f"Auto-summarization complete: {len(state.transcript)} entries remain")
+
+    def _check_turn_budget_warnings(self, execution_id: str, turn_number: int, state: ReActState):
+        """
+        P2 Enhancement: Check turn budget and emit warnings at key thresholds.
+        Helps agent be more efficient and consider finishing when approaching limits.
+        """
+        max_turns = state.max_turns
+        percent_used = (turn_number / max_turns) * 100
+
+        # Warning thresholds
+        WARNING_AT_50_PERCENT = max_turns // 2  # 50% of budget
+        WARNING_AT_75_PERCENT = int(max_turns * 0.75)  # 75% of budget
+        CRITICAL_AT_90_PERCENT = int(max_turns * 0.9)  # 90% of budget
+
+        warning_message = None
+        warning_level = None
+
+        if turn_number == WARNING_AT_50_PERCENT:
+            warning_message = f"⚠️  Turn budget: {turn_number}/{max_turns} ({percent_used:.0f}%) - Consider focusing on highest-priority findings"
+            warning_level = "info"
+
+        elif turn_number == WARNING_AT_75_PERCENT:
+            warning_message = f"⚠️  Turn budget: {turn_number}/{max_turns} ({percent_used:.0f}%) - Start consolidating findings, prepare for finish"
+            warning_level = "warning"
+
+        elif turn_number == CRITICAL_AT_90_PERCENT:
+            warning_message = f"🚨 Turn budget CRITICAL: {turn_number}/{max_turns} ({percent_used:.0f}%) - MUST finish soon with comprehensive summary"
+            warning_level = "critical"
+
+        if warning_message:
+            logger.warning(warning_message)
+            self._emit(execution_id, turn_number,
+                      'turn_budget_warning',
+                      {
+                          'turn': turn_number,
+                          'max_turns': max_turns,
+                          'percent_used': percent_used,
+                          'message': warning_message,
+                          'level': warning_level,
+                          'recommendation': self._get_budget_recommendation(percent_used)
+                      })
+
+    def _get_budget_recommendation(self, percent_used: float) -> str:
+        """Get recommendation based on turn budget usage."""
+        if percent_used >= 90:
+            return "Use 'finish' tool immediately with comprehensive summary of all findings across turns"
+        elif percent_used >= 75:
+            return "Begin synthesizing findings from all turns into a coherent report. Plan to use 'finish' tool within next 2-3 turns"
+        elif percent_used >= 50:
+            return "Focus on completing high-priority investigations. Avoid exploring new tangents unless critical"
+        else:
+            return "Continue investigation as planned"
 
     def _create_error_result(self, state: ReActState, error_message: str) -> ReActResult:
         """Create error result for failed executions."""

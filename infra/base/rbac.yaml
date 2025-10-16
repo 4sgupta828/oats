@@ -1,31 +1,212 @@
-# NOTE: The agent is now embedded in the backend service.
-# These RBAC permissions provide minimal access for the backend API.
-# Extended permissions for pod/job creation have been removed.
+# OATS Infra-Copilot RBAC Configuration
+# Provides cluster-wide read access for comprehensive infrastructure troubleshooting
+# The agent needs broad visibility across all namespaces and resources
 
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: oats-backend
+  namespace: default
+  annotations:
+    # IRSA annotation will be added here for AWS account-wide access
+    # eks.amazonaws.com/role-arn: arn:aws:iam::<ACCOUNT_ID>:role/oats-infra-copilot-role
 ---
-# Minimal permissions for backend API service
+# ClusterRole for comprehensive cluster-wide read access
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
-  name: oats-backend-role
+  name: oats-infra-copilot-reader
 rules:
-  # Read access to pods for monitoring/status
+  # ==========================================
+  # Core Kubernetes Resources
+  # ==========================================
   - apiGroups: [""]
-    resources: ["pods", "pods/status"]
+    resources:
+      - nodes
+      - nodes/status
+      - nodes/metrics
+      - nodes/proxy
+      - pods
+      - pods/log
+      - pods/status
+      - pods/eviction
+      - services
+      - endpoints
+      - namespaces
+      - events
+      - configmaps
+      - secrets  # Read-only for troubleshooting
+      - persistentvolumes
+      - persistentvolumeclaims
+      - serviceaccounts
+      - resourcequotas
+      - limitranges
+      - replicationcontrollers
+      - componentstatuses
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Apps Resources
+  # ==========================================
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - daemonsets
+      - daemonsets/status
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - controllerrevisions
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Batch Resources
+  # ==========================================
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - jobs/status
+      - cronjobs
+      - cronjobs/status
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Networking
+  # ==========================================
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - ingresses/status
+      - ingressclasses
+      - networkpolicies
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Autoscaling
+  # ==========================================
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+      - horizontalpodautoscalers/status
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Policy
+  # ==========================================
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+      - poddisruptionbudgets/status
+      - podsecuritypolicies
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # RBAC Resources (to understand permissions)
+  # ==========================================
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Storage
+  # ==========================================
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+      - csidrivers
+      - csinodes
+      - csistoragecapacities
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Metrics
+  # ==========================================
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
     verbs: ["get", "list"]
+
+  # ==========================================
+  # Scheduling
+  # ==========================================
+  - apiGroups: ["scheduling.k8s.io"]
+    resources:
+      - priorityclasses
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Coordination (for leader election info)
+  # ==========================================
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Certificates
+  # ==========================================
+  - apiGroups: ["certificates.k8s.io"]
+    resources:
+      - certificatesigningrequests
+      - certificatesigningrequests/status
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # API Extensions
+  # ==========================================
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources:
+      - customresourcedefinitions
+      - customresourcedefinitions/status
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # API Registration
+  # ==========================================
+  - apiGroups: ["apiregistration.k8s.io"]
+    resources:
+      - apiservices
+      - apiservices/status
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Admission Control
+  # ==========================================
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs: ["get", "list", "watch"]
+
+  # ==========================================
+  # Node Resources
+  # ==========================================
+  - apiGroups: ["node.k8s.io"]
+    resources:
+      - runtimeclasses
+    verbs: ["get", "list", "watch"]
 ---
+# Bind the ClusterRole to the ServiceAccount for cluster-wide access
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
-  name: oats-backend-binding
+  name: oats-backend-infra-reader
 subjects:
   - kind: ServiceAccount
     name: oats-backend
+    namespace: default
 roleRef:
-  kind: Role
-  name: oats-backend-role
+  kind: ClusterRole
+  name: oats-infra-copilot-reader
   apiGroup: rbac.authorization.k8s.io
