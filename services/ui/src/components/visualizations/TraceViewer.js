@@ -6,11 +6,50 @@ const TraceViewer = ({ spec, vizId }) => {
   const [selectedSpan, setSelectedSpan] = useState(null);
 
   // Support both old format (traces array) and new format (spans array with traceId and duration)
-  const { spans, traceId, duration } = spec.data.spans ? spec.data : {
-    spans: spec.data.traces || [],
-    traceId: spec.metadata?.traceId || 'unknown',
-    duration: Math.max(...(spec.data.traces || []).map(t => (t.startTime || 0) + (t.duration || 0)))
+  // Also handle snake_case field names from the JSON
+  const rawSpans = spec.data.spans || spec.data.traces || [];
+  const traceId = spec.data.trace_id || spec.data.traceId || spec.metadata?.trace_id || spec.metadata?.traceId || 'unknown';
+
+  // Calculate total duration from spans
+  const calculateDuration = () => {
+    if (rawSpans.length === 0) return 0;
+    const maxEndTime = Math.max(...rawSpans.map(s => {
+      const startTime = s.start_time || s.startTime || 0;
+      const duration = s.duration_ms || s.duration || 0;
+      // Convert ISO timestamp strings to milliseconds offset if needed
+      if (typeof s.start_time === 'string') {
+        const rootTime = new Date(rawSpans[0].start_time || rawSpans[0].startTime).getTime();
+        const thisTime = new Date(s.start_time || s.startTime).getTime();
+        return (thisTime - rootTime) + duration;
+      }
+      return startTime + duration;
+    }));
+    return maxEndTime;
   };
+
+  const duration = spec.data.duration || spec.data.total_duration_ms || calculateDuration();
+
+  // Normalize span data to handle both snake_case and camelCase
+  const normalizeSpan = (span) => ({
+    ...span,
+    spanId: span.span_id || span.spanId || span.id,
+    parentSpanId: span.parent_span_id || span.parentSpanId || span.parentId,
+    startTime: (() => {
+      // Handle ISO timestamp strings by calculating offset from root span
+      if (typeof span.start_time === 'string' && rawSpans.length > 0) {
+        const rootTime = new Date(rawSpans[0].start_time || rawSpans[0].startTime).getTime();
+        const thisTime = new Date(span.start_time || span.startTime).getTime();
+        return thisTime - rootTime;
+      }
+      return span.start_time || span.startTime || 0;
+    })(),
+    duration: span.duration_ms || span.duration || 0,
+    isError: span.status === 'error' || span.error === true,
+    service: span.service || 'unknown',
+    operation: span.operation || 'unknown'
+  });
+
+  const spans = rawSpans.map(normalizeSpan);
 
   // Build span hierarchy
   const buildSpanTree = () => {
@@ -18,13 +57,13 @@ const TraceViewer = ({ spec, vizId }) => {
 
     const spanMap = {};
     spans.forEach(span => {
-      spanMap[span.spanId || span.id] = { ...span, children: [] };
+      spanMap[span.spanId] = { ...span, children: [] };
     });
 
     const rootSpans = [];
     spans.forEach(span => {
-      const spanId = span.spanId || span.id;
-      const parentId = span.parentId;
+      const spanId = span.spanId;
+      const parentId = span.parentSpanId;
 
       if (parentId && spanMap[parentId]) {
         spanMap[parentId].children.push(spanMap[spanId]);
@@ -37,15 +76,15 @@ const TraceViewer = ({ spec, vizId }) => {
   };
 
   const renderSpan = (span, depth = 0) => {
-    const spanId = span.spanId || span.id;
-    const startPercent = duration > 0 ? ((span.startTime || 0) / duration) * 100 : 0;
-    const widthPercent = duration > 0 ? ((span.duration || 0) / duration) * 100 : 100;
-    const isSelected = selectedSpan?.spanId === spanId || selectedSpan?.id === spanId;
+    const spanId = span.spanId;
+    const startPercent = duration > 0 ? (span.startTime / duration) * 100 : 0;
+    const widthPercent = duration > 0 ? (span.duration / duration) * 100 : 100;
+    const isSelected = selectedSpan?.spanId === spanId;
 
     return (
       <div key={spanId} className="trace-span-container">
         <div
-          className={`trace-span trace-span-depth-${depth} ${span.error ? 'trace-span-error' : ''} ${isSelected ? 'trace-span-selected' : ''}`}
+          className={`trace-span trace-span-depth-${depth} ${span.isError ? 'trace-span-error' : ''} ${isSelected ? 'trace-span-selected' : ''}`}
           onClick={() => setSelectedSpan(span)}
         >
           <div className="trace-span-label" style={{ paddingLeft: `${depth * 20}px`, width: '30%' }}>
@@ -59,7 +98,7 @@ const TraceViewer = ({ spec, vizId }) => {
               style={{
                 left: `${startPercent}%`,
                 width: `${widthPercent}%`,
-                backgroundColor: span.error ? '#ff4444' : '#4488ff'
+                backgroundColor: span.isError ? '#ff4444' : '#4488ff'
               }}
               title={`${span.service}: ${span.operation} (${span.duration}ms)`}
             />
@@ -128,9 +167,9 @@ const TraceViewer = ({ spec, vizId }) => {
             <strong>Duration:</strong> {selectedSpan.duration}ms
           </div>
           <div className="span-detail-row">
-            <strong>Start:</strong> +{selectedSpan.startTime || 0}ms
+            <strong>Start:</strong> +{selectedSpan.startTime}ms
           </div>
-          {selectedSpan.error && (
+          {selectedSpan.isError && (
             <div className="span-detail-row error">
               <strong>Error:</strong> Yes
             </div>

@@ -6,9 +6,29 @@
 
 .timeseries-header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 20px;
+}
+
+.timeseries-header h3 {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.timeseries-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.timeseries-chart-container {
+  background-color: #252525;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .selected-range-info {

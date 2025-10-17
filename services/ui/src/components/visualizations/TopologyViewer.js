@@ -14,7 +14,7 @@ import './styles/TopologyViewer.css';
 const TopologyViewer = ({ spec, vizId }) => {
   // Transform spec nodes to ReactFlow format
   const initialNodes = useMemo(() => {
-    return spec.data.nodes.map(node => ({
+    return spec.data.nodes.map((node, index) => ({
       id: node.id,
       data: {
         label: node.label,
@@ -22,7 +22,11 @@ const TopologyViewer = ({ spec, vizId }) => {
         metadata: node.metadata,
         annotation: spec.data.annotations?.[node.id]
       },
-      position: node.position,
+      // Generate positions if not provided (use a simple grid layout)
+      position: node.position || {
+        x: (index % 4) * 250,
+        y: Math.floor(index / 4) * 150
+      },
       style: {
         backgroundColor: getNodeColor(node.status),
         border: spec.data.highlights?.includes(node.id) ? '3px solid #ff0000' : '1px solid #888',
@@ -35,8 +39,9 @@ const TopologyViewer = ({ spec, vizId }) => {
   }, [spec]);
 
   const initialEdges = useMemo(() => {
-    return spec.data.edges.map(edge => ({
-      id: edge.id,
+    return spec.data.edges.map((edge, index) => ({
+      // Generate unique edge ID from source-target or use index
+      id: edge.id || `${edge.source}-${edge.target}-${index}`,
       source: edge.source,
       target: edge.target,
       label: edge.label,
@@ -51,7 +56,7 @@ const TopologyViewer = ({ spec, vizId }) => {
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
-  const onNodeClick = useCallback((event, node) => {
+  const onNodeClick = useCallback((_event, node) => {
     console.log('Node clicked:', node);
     // TODO: Show node details in modal/sidebar
   }, []);
