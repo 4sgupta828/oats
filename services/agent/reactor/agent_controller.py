@@ -193,7 +193,41 @@ class AgentController:
                     )
 
                     # B. Reason: Parse the response
-                    parsed_response = self._parse_llm_response(raw_response)
+                    try:
+                        parsed_response = self._parse_llm_response(raw_response)
+                    except Exception as parse_error:
+                        logger.error(f"Critical parsing error in turn {turn_number}: {parse_error}")
+                        # Emit error event
+                        self._emit(execution_id, turn_number,
+                                 'llm_response_parse_error',
+                                 {
+                                     'error': str(parse_error),
+                                     'raw_response_snippet': raw_response[:500]
+                                 },
+                                 success=False)
+                        # Create error entry and continue to next turn
+                        from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis
+                        error_entry = TranscriptEntry(
+                            turn=state.turn_count + 1,
+                            reflect=ReflectSection(
+                                turn=state.turn_count + 1,
+                                outcome="FAILURE",
+                                hypothesisResult="N/A",
+                                insight=f"LLM response parsing failed: {str(parse_error)[:200]}"
+                            ),
+                            strategize=StrategizeSection(
+                                reasoning="Need to retry with clearer prompt",
+                                hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
+                                ifInvalidated="N/A"
+                            ),
+                            state=state.state,
+                            act=ActSection(tool="error", params={"error": str(parse_error)}),
+                            observation=f"ERROR: Failed to parse LLM response - {str(parse_error)}",
+                            duration_ms=int((time.time() - turn_start_time) * 1000)
+                        )
+                        state.transcript.append(error_entry)
+                        state.turn_count += 1
+                        continue  # Skip to next turn
 
                     # ═══════════════════════════════════════════════════════
                     # (b) LLM RESPONSE PARSING
@@ -627,7 +661,10 @@ class AgentController:
             # Try to parse as direct JSON first (from structured output)
             try:
                 response_data = json.loads(raw_response)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as json_err:
+                logger.warning(f"Direct JSON parse failed: {json_err}")
+                logger.debug(f"Raw response that failed to parse: {raw_response[:1000]}")
+
                 # Fall back to extracting JSON from markdown or text
                 # Extract JSON from response (handle markdown code blocks)
                 json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_response, re.DOTALL)
@@ -641,8 +678,13 @@ class AgentController:
                     else:
                         raise ValueError("No JSON found in response")
 
-                # Parse JSON
-                response_data = json.loads(json_str)
+                # Parse JSON with better error handling
+                try:
+                    response_data = json.loads(json_str)
+                except json.JSONDecodeError as parse_err:
+                    logger.error(f"JSON parsing failed at position {parse_err.pos}: {parse_err.msg}")
+                    logger.error(f"Problematic JSON snippet: {json_str[max(0, parse_err.pos-50):parse_err.pos+50]}")
+                    raise ValueError(f"Invalid JSON: {parse_err.msg} at position {parse_err.pos}")
 
             # Validate and create ParsedLLMResponse
             from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis

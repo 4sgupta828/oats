@@ -161,6 +161,10 @@ class QueryLogsInput(UfInput):
 def query_logs(inputs: QueryLogsInput) -> dict:
     """Search logs using the configured log provider"""
     try:
+        # Handle both dict and Pydantic model inputs
+        if isinstance(inputs, dict):
+            inputs = QueryLogsInput(**inputs)
+        
         # Input validation
         if not validate_time_range(inputs.time_range):
             return {
@@ -206,9 +210,9 @@ def query_logs(inputs: QueryLogsInput) -> dict:
             ]
 
             # Check if we should save to file
-            if inputs.save_to_file and _should_save_to_file(normalized_data):
+            if _should_save_to_file(normalized_data):
                 # Save to file
-                output_path = inputs.output_file or _save_data_to_file(
+                output_path = _save_data_to_file(
                     {
                         "logs": normalized_data,
                         "metadata": result.metadata,
@@ -267,6 +271,10 @@ class QueryMetricsInput(UfInput):
 def query_metrics(inputs: QueryMetricsInput) -> dict:
     """Query metrics using the configured metric provider"""
     try:
+        # Handle both dict and Pydantic model inputs
+        if isinstance(inputs, dict):
+            inputs = QueryMetricsInput(**inputs)
+        
         # Input validation
         if not validate_time_range(inputs.time_range):
             return {
@@ -303,9 +311,9 @@ def query_metrics(inputs: QueryMetricsInput) -> dict:
 
         if result.success:
             # Check if we should save to file
-            if inputs.save_to_file and _should_save_to_file(result.data):
+            if _should_save_to_file(result.data):
                 # Save to file
-                output_path = inputs.output_file or _save_data_to_file(
+                output_path = _save_data_to_file(
                     {
                         "series": [{
                             "name": inputs.metric_name,
@@ -372,6 +380,10 @@ class QueryTracesInput(UfInput):
 def query_traces(inputs: QueryTracesInput) -> dict:
     """Query traces using the configured trace provider"""
     try:
+        # Handle both dict and Pydantic model inputs
+        if isinstance(inputs, dict):
+            inputs = QueryTracesInput(**inputs)
+        
         # Input validation
         if not validate_time_range(inputs.time_range):
             return {
@@ -401,10 +413,10 @@ def query_traces(inputs: QueryTracesInput) -> dict:
 
         if result.success:
             # Check if we should save to file
-            if inputs.save_to_file and _should_save_to_file(result.data):
+            if _should_save_to_file(result.data):
                 # Save to file
                 trace_suffix = inputs.trace_id[:16] if inputs.trace_id else (inputs.service or "traces")
-                output_path = inputs.output_file or _save_data_to_file(
+                output_path = _save_data_to_file(
                     {
                         "traces": result.data if isinstance(result.data, list) else [result.data],
                         "metadata": result.metadata,
@@ -470,6 +482,10 @@ class SearchCodeInput(UfInput):
 def search_code(inputs: SearchCodeInput) -> dict:
     """Search code using the configured code provider"""
     try:
+        # Handle both dict and Pydantic model inputs
+        if isinstance(inputs, dict):
+            inputs = SearchCodeInput(**inputs)
+        
         # Input validation
         if not inputs.query.strip():
             return {
@@ -497,9 +513,9 @@ def search_code(inputs: SearchCodeInput) -> dict:
 
         if result.success:
             # Check if we should save to file
-            if inputs.save_to_file and _should_save_to_file(result.data):
+            if _should_save_to_file(result.data):
                 # Save to file
-                output_path = inputs.output_file or _save_data_to_file(
+                output_path = _save_data_to_file(
                     {
                         "matches": result.data if isinstance(result.data, list) else [result.data],
                         "metadata": result.metadata,
@@ -568,6 +584,10 @@ class QueryCommitsInput(UfInput):
 def query_commits(inputs: QueryCommitsInput) -> dict:
     """Query commit history using the configured code provider"""
     try:
+        # Handle both dict and Pydantic model inputs
+        if isinstance(inputs, dict):
+            inputs = QueryCommitsInput(**inputs)
+        
         # Input validation
         if not inputs.repo.strip():
             return {
@@ -608,12 +628,12 @@ def query_commits(inputs: QueryCommitsInput) -> dict:
         if result.success:
             # Check if we should save to file (always for commits with diffs, or if count is large)
             commit_count = len(result.data) if isinstance(result.data, list) else 1
-            should_save = inputs.save_to_file and (inputs.include_diffs or _should_save_to_file(result.data, threshold_items=20))
+            should_save = inputs.include_diffs or _should_save_to_file(result.data, threshold_items=20)
 
             if should_save:
                 # Save to file
                 repo_suffix = inputs.repo.replace("/", "_")[:30]
-                output_path = inputs.output_file or _save_data_to_file(
+                output_path = _save_data_to_file(
                     {
                         "commits": result.data if isinstance(result.data, list) else [result.data],
                         "metadata": result.metadata,

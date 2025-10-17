@@ -274,14 +274,14 @@ After executing a tool, you receive an observation. For large datasets, observat
 
 **Layer 1 - Summary (always present):**
 ```json
-{
+{{
   "output_file": ".oats_artifacts/<id>/data.json",
-  "summary": {
+  "summary": {{
     "total_items": 247,
-    "key_metrics": {...},
+    "key_metrics": {{...}},
     "sample": [first 3 items]
-  }
-}
+  }}
+}}
 ```
 
 **Trust the summary (99% of cases):**
@@ -305,7 +305,7 @@ cat <output_file>  # Use sparingly
 **Efficient tool chaining:**
 ```json
 // ✅ Direct chaining (1 turn)
-{"tool": "generate_visualization", "params": {"input_file": "data.json"}}
+{{"tool": "generate_visualization", "params": {{"input_file": "data.json"}}}}
 
 // ❌ Wasteful validation (2 turns)
 // Turn 1: inspect_json_file(...)  // Unnecessary if summary present
