@@ -356,7 +356,7 @@ class ReActToolExecutor:
     def get_artifact_info(self) -> list:
         """
         Extract artifact information from the last tool result.
-        Returns a list of dicts with 'path' and 'type' keys.
+        Returns a list of dicts with full metadata (path, type, content_type, suggested_visualizations, etc.)
         """
         artifacts = []
 
@@ -367,23 +367,42 @@ class ReActToolExecutor:
         if isinstance(self._last_tool_result.output, dict):
             output_dict = self._last_tool_result.output
 
-            # Single artifact case (visualization tools, file tools)
+            # Single artifact case (tools using universal artifact metadata)
             if 'artifact_path' in output_dict:
-                artifact_type = output_dict.get('artifact_type', 'file')
-                artifacts.append({
+                artifact_info = {
                     'path': output_dict['artifact_path'],
-                    'type': artifact_type
-                })
-                logger.info(f"Extracted artifact from tool output: {output_dict['artifact_path']} ({artifact_type})")
+                    'type': output_dict.get('artifact_type') or output_dict.get('content_type', 'file')
+                }
+
+                # Include all universal artifact metadata fields if present
+                if 'content_type' in output_dict:
+                    artifact_info['content_type'] = output_dict['content_type']
+                if 'suggested_visualizations' in output_dict:
+                    artifact_info['suggested_visualizations'] = output_dict['suggested_visualizations']
+                if 'metadata' in output_dict:
+                    artifact_info['metadata'] = output_dict['metadata']
+
+                artifacts.append(artifact_info)
+                logger.info(f"Extracted artifact from tool output: {output_dict['artifact_path']} (type: {artifact_info['type']})")
 
             # Multiple artifacts case
             elif 'artifacts' in output_dict and isinstance(output_dict['artifacts'], list):
                 for artifact in output_dict['artifacts']:
                     if isinstance(artifact, dict) and 'path' in artifact:
-                        artifacts.append({
+                        artifact_info = {
                             'path': artifact['path'],
-                            'type': artifact.get('type', 'file')
-                        })
+                            'type': artifact.get('type') or artifact.get('content_type', 'file')
+                        }
+
+                        # Include metadata if present
+                        if 'content_type' in artifact:
+                            artifact_info['content_type'] = artifact['content_type']
+                        if 'suggested_visualizations' in artifact:
+                            artifact_info['suggested_visualizations'] = artifact['suggested_visualizations']
+                        if 'metadata' in artifact:
+                            artifact_info['metadata'] = artifact['metadata']
+
+                        artifacts.append(artifact_info)
                 logger.info(f"Extracted {len(artifacts)} artifacts from tool output")
 
         return artifacts

@@ -287,7 +287,7 @@ After executing a tool, you receive an observation. For large datasets, observat
 **Trust the summary (99% of cases):**
 - Tool already analyzed full data
 - Extract facts directly: `state.facts.append("23 errors in 500 logs")`
-- Chain to visualization: `generate_visualization(input_file=...)`
+- Artifacts are automatically saved with visualization metadata for UI display
 
 **Layer 2 - Preview (if needed):**
 Use when summary is unclear or you need specific patterns:
@@ -302,14 +302,15 @@ Only when file is small (<500 lines) or you need complete causal chain:
 cat <output_file>  # Use sparingly
 ```
 
-**Efficient tool chaining:**
+**Efficient data handling:**
 ```json
-// ✅ Direct chaining (1 turn)
-{{"tool": "generate_visualization", "params": {{"input_file": "data.json"}}}}
+// ✅ Observability tools automatically create artifacts with visualization metadata
+{{"tool": "query_logs", "params": {{"query": "error", "time_range": "1h"}}}}
+// Returns artifact with suggested_visualizations - UI offers visualization options
 
-// ❌ Wasteful validation (2 turns)
+// ❌ Wasteful validation when summary present
 // Turn 1: inspect_json_file(...)  // Unnecessary if summary present
-// Turn 2: generate_visualization(...)
+// Turn 2: re-process same data
 ```
 
 **Special Case: Large Shell Command Outputs (.ufflow_temp)**
@@ -324,7 +325,7 @@ SUCCESS (execute_shell):
   - Preview (head/tail): {{...}}
 ```
 
-**CRITICAL:** The preview is NOT data - it's only head/tail. You MUST read the temp file (use Layer 2 approach above) or chain to visualization tools directly. **NEVER fabricate data based on the preview - this causes hallucinated results.**
+**CRITICAL:** The preview is NOT data - it's only head/tail. You MUST read the temp file (use Layer 2 approach above) to access the complete data. **NEVER fabricate data based on the preview - this causes hallucinated results.**
 
 ---
 
@@ -498,6 +499,115 @@ journalctl -u myservice --since "1 hour ago" | grep -c ERROR
 - Does this need iteration or complex logic? → Write script
 - Will I need to refine the analysis? → Write script (easier to iterate)
 - Am I gathering data from >5 sources? → Write script
+
+---
+
+### Producing Artifacts for Visualization
+
+**Principle:** When producing data output (scripts, tools, queries), structure it to enable UI visualization.
+
+**Universal Artifact Format:**
+```json
+{{
+  "artifact_version": "1.0",
+  "content_type": "<see table below>",
+  "timestamp": "2025-10-17T12:00:00Z",
+  "source_tool": "script_name",
+  "suggested_visualizations": ["<see table below>"],
+  "visualization_hints": {{"<see table below>"}},
+  "metadata": {{"total_items": 150, "query": "...", "time_range": "..."}},
+  "data": {{"<content-specific structure>"}}}
+}}
+```
+
+**Content Types and Visualizations:**
+
+| content_type | suggested_visualizations | Required data structure | Required visualization_hints |
+|-------------|-------------------------|------------------------|----------------------------|
+| **logs** | ["logs_viewer", "timeline", "table"] | `{{"logs": [{{"timestamp": "...", "level": "ERROR", "message": "...", "service": "..."}}]}}` | `time_field`, `level_field`, `message_field`, `highlight_patterns` |
+| **metrics** | ["timeseries", "heatmap", "table"] | `{{"series": [{{"name": "cpu", "data": [{{"timestamp": "...", "value": 45.2}}]}}]}}` | `y_axis_label`, `aggregation_type`, `chart_type` |
+| **traces** | ["trace_waterfall", "trace_flamegraph", "table"] | `{{"traces": [{{"traceId": "...", "spans": [{{"spanId": "...", "duration": 125}}]}}]}}` | `duration_field`, `span_hierarchy`, `highlight_errors` |
+| **topology** | ["graph_hierarchical", "graph_force_directed", "table"] | `{{"nodes": [{{"id": "s1", "label": "API"}}], "edges": [{{"source": "s1", "target": "s2"}}]}}` | `layout_algorithm`, `node_types`, `edge_weight_field` |
+| **table** | ["table", "grid", "csv_export"] | Array of uniform objects: `[{{"col1": "val1", "col2": "val2"}}]` | `columns`, `sortable`, `filterable` |
+| **json** | ["json_viewer", "tree_viewer", "table"] | Any valid JSON structure | `collapsible`, `schema_hints` |
+| **csv** | ["table", "grid", "chart"] | CSV string or array of arrays | `delimiter`, `has_header` |
+
+**Example - Logs:**
+```python
+import json
+from datetime import datetime
+
+# Collect log data
+logs = [
+  {{"timestamp": "2025-10-17T12:00:00Z", "level": "ERROR", "message": "Connection timeout", "service": "api"}},
+  {{"timestamp": "2025-10-17T12:01:00Z", "level": "ERROR", "message": "Database unreachable", "service": "api"}}
+]
+
+artifact = {{
+  "artifact_version": "1.0",
+  "content_type": "logs",
+  "timestamp": datetime.utcnow().isoformat() + "Z",
+  "source_tool": "error_analysis.py",
+  "suggested_visualizations": ["logs_viewer", "timeline", "table"],
+  "visualization_hints": {{
+    "time_field": "timestamp",
+    "level_field": "level",
+    "message_field": "message",
+    "highlight_patterns": ["error", "timeout", "failed"]
+  }},
+  "metadata": {{
+    "total_logs": len(logs),
+    "time_range": "1h",
+    "query": "level:ERROR"
+  }},
+  "data": {{
+    "logs": logs
+  }}
+}}
+
+# Save to file
+with open(".oats_artifacts/execution_<id>/logs_errors_<timestamp>.json", "w") as f:
+  json.dump(artifact, f, indent=2)
+
+print("Artifact available: .oats_artifacts/execution_<id>/logs_errors_<timestamp>.json")
+```
+
+**Example - Topology:**
+```python
+artifact = {{
+  "artifact_version": "1.0",
+  "content_type": "topology",
+  "suggested_visualizations": ["graph_hierarchical", "graph_force_directed"],
+  "visualization_hints": {{
+    "layout_algorithm": "hierarchical",
+    "node_types": ["service", "database"],
+    "edge_weight_field": "request_count"
+  }},
+  "data": {{
+    "nodes": [
+      {{"id": "api", "label": "API Gateway", "type": "service"}},
+      {{"id": "db", "label": "PostgreSQL", "type": "database"}}
+    ],
+    "edges": [
+      {{"source": "api", "target": "db", "request_count": 1500}}
+    ]
+  }}
+}}
+```
+
+**Quick Decision Guide:**
+- Time-series data with timestamps? → **metrics**
+- Log entries with levels and messages? → **logs**
+- Service dependencies or network graph? → **topology**
+- Distributed traces with spans? → **traces**
+- Tabular data (rows/columns)? → **table**
+- Generic structured data? → **json**
+
+**Requirements:**
+1. Always include `content_type` and `suggested_visualizations` from table above
+2. Use consistent data structure (arrays of objects with uniform fields)
+3. Provide complete `metadata` (totals, query details, time ranges)
+4. Emit marker: `print("Artifact available: <path>")` after saving
 
 ---
 

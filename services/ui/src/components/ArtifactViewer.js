@@ -90,9 +90,19 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
   const [content, setContent] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedVisualization, setSelectedVisualization] = useState(null);
 
   const artifactPath = artifact.path;
   const artifactType = artifact.type;
+
+  // Check if this is a universal artifact format (has suggested visualizations)
+  const isUniversalFormat = artifact.suggested_visualizations && artifact.suggested_visualizations.length > 0;
+  const suggestedVisualizations = artifact.suggested_visualizations || [];
+
+  // Set default visualization when artifact loads
+  const defaultVisualization = isUniversalFormat
+    ? (artifact.metadata?.default_view || suggestedVisualizations[0])
+    : null;
 
   const fetchArtifact = async () => {
     if (!artifactPath) return;
@@ -137,7 +147,12 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
       return <div className="artifact-empty">No content available</div>;
     }
 
-    // Render based on artifact type
+    // Handle universal artifact format (new system)
+    if (isUniversalFormat) {
+      return renderUniversalArtifact();
+    }
+
+    // Render based on artifact type (legacy system)
     switch (artifactType) {
       case 'json':
         try {
@@ -236,6 +251,75 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
 
       default:
         return renderPlainText();
+    }
+  };
+
+  const renderUniversalArtifact = () => {
+    try {
+      const artifact = JSON.parse(content);
+
+      // Validate universal format
+      if (!artifact.artifact_version || !artifact.content_type || !artifact.data) {
+        console.error('Invalid universal artifact format');
+        return renderPlainText();
+      }
+
+      // Use selected visualization or default
+      const activeVisualization = selectedVisualization || defaultVisualization;
+
+      // Map content_type to visualization spec type for VisualizationViewer
+      const contentTypeToSpecType = {
+        'logs': 'logs',
+        'metrics': 'timeseries',
+        'traces': 'trace',
+        'topology': 'topology'
+      };
+
+      const specType = contentTypeToSpecType[artifact.content_type] || artifact.content_type;
+
+      // Create visualization spec for VisualizationViewer
+      const vizSpec = {
+        type: specType,
+        ...artifact.data,
+        metadata: artifact.metadata,
+        visualization_hints: artifact.visualization_hints
+      };
+
+      return (
+        <div className="universal-artifact-viewer">
+          {/* Visualization selector dropdown */}
+          {suggestedVisualizations.length > 1 && (
+            <div className="visualization-selector">
+              <label htmlFor="viz-select">View as: </label>
+              <select
+                id="viz-select"
+                value={activeVisualization}
+                onChange={(e) => setSelectedVisualization(e.target.value)}
+                style={{
+                  padding: '4px 8px',
+                  marginLeft: '8px',
+                  borderRadius: '4px',
+                  border: '1px solid #555',
+                  backgroundColor: '#2d2d2d',
+                  color: '#e0e0e0'
+                }}
+              >
+                {suggestedVisualizations.map(viz => (
+                  <option key={viz} value={viz}>
+                    {viz.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Render the visualization */}
+          <VisualizationViewer spec={vizSpec} artifactPath={artifactPath} />
+        </div>
+      );
+    } catch (e) {
+      console.error('Failed to parse universal artifact:', e);
+      return renderPlainText();
     }
   };
 
@@ -392,7 +476,10 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
   };
 
   const getArtifactIcon = () => {
-    switch (artifactType) {
+    // Use content_type for universal format, otherwise fall back to type
+    const typeToCheck = artifact.content_type || artifactType;
+
+    switch (typeToCheck) {
       case 'json': return '📄';
       case 'code': return '💻';
       case 'logs': return '📋';
@@ -406,6 +493,7 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
       case 'archive': return '📦';
       case 'script': return '📜';
       case 'sql': return '🗄️';
+      case 'topology': return '🌐';
       case 'visualization': return '📊';
       default: return '📎';
     }
@@ -426,7 +514,7 @@ const SingleArtifactViewer = ({ artifact, backendUrl, onDownload }) => {
         >
           <span className="artifact-toggle-icon">{isOpen ? '▼' : '▶'}</span>
           <span className="artifact-label">{getArtifactLabel()}</span>
-          <span className="artifact-type-badge">{artifactType}</span>
+          <span className="artifact-type-badge">{artifact.content_type || artifactType}</span>
         </button>
         <button
           className="artifact-download-button"
