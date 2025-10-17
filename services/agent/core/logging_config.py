@@ -107,7 +107,7 @@ class UFFlowLogger:
         root_logger.addHandler(error_handler)
 
         # Set specific logger levels
-        logging.getLogger('ufflow').setLevel(logging.DEBUG)
+        logging.getLogger('ufflow').setLevel(logging.INFO)  # Changed from DEBUG to INFO
         logging.getLogger('openai').setLevel(logging.WARNING)
         logging.getLogger('urllib3').setLevel(logging.WARNING)
         logging.getLogger('requests').setLevel(logging.WARNING)

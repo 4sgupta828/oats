@@ -126,8 +126,10 @@ class ReActToolExecutor:
             return observation
 
         except Exception as e:
+            import traceback
             duration = time.time() - start_time
-            logger.error(f"Tool execution failed after {duration:.2f}s: {e}")
+            logger.error(f"Tool execution failed after {duration:.2f}s: {e}", exc_info=True)
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             return f"ERROR: Tool execution failed - {str(e)}"
 
     def _is_large_output(self, output: str) -> bool:
@@ -181,8 +183,10 @@ class ReActToolExecutor:
                         if isinstance(item, dict) and 'file' in item:
                             files.add(item['file'])
                     summary.files_with_matches = len(files)
-            except:
-                pass
+            except Exception as e:
+                import traceback
+                logger.error(f"Failed to extract search metrics from output: {e}", exc_info=True)
+                logger.debug(f"Traceback: {traceback.format_exc()}")
 
         return summary
 
@@ -417,8 +421,10 @@ class ReActToolExecutor:
                             # Store relative path and mtime
                             rel_path = os.path.relpath(filepath, self.workspace_root)
                             snapshot[rel_path] = os.path.getmtime(filepath)
-                        except (OSError, ValueError):
-                            pass
+                        except (OSError, ValueError) as e:
+                            import traceback
+                            logger.debug(f"Skipping file {filepath} due to access error: {e}")
+                            logger.debug(f"Traceback: {traceback.format_exc()}")
 
         except Exception as e:
             logger.warning(f"Error creating workspace snapshot: {e}")

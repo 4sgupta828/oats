@@ -393,7 +393,9 @@ class AgentController:
                         self._auto_summarize_if_needed(state)
 
                 except Exception as e:
-                    logger.error(f"Error in turn {state.turn_count + 1}: {e}")
+                    import traceback
+                    logger.error(f"Error in turn {state.turn_count + 1}: {e}", exc_info=True)
+                    logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
                     # Add error observation to transcript
                     from reactor.models import TranscriptEntry, ReflectSection, StrategizeSection, ActSection, Hypothesis
@@ -460,9 +462,11 @@ class AgentController:
             )
 
         except Exception as e:
+            import traceback
             duration = time.time() - start_time
             error_msg = f"Unexpected error during ReAct execution: {e}"
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
             if self.event_store and execution_id:
                 import traceback
@@ -619,7 +623,9 @@ class AgentController:
             return full_path
 
         except Exception as e:
-            logger.error(f"Failed to save final results: {e}")
+            import traceback
+            logger.error(f"Failed to save final results: {e}", exc_info=True)
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
             return f"ERROR: Could not save final results - {e}"
 
     def _extract_final_outputs(self, state: ReActState) -> List[str]:
@@ -887,7 +893,9 @@ class AgentController:
             return update if update else None
 
         except Exception as e:
-            logger.warning(f"Failed to parse working memory update: {e}")
+            import traceback
+            logger.warning(f"Failed to parse working memory update: {e}", exc_info=True)
+            logger.debug(f"Traceback: {traceback.format_exc()}")
             return None
 
     def _update_working_memory(self, state: ReActState, memory_update: Dict[str, Any]) -> None:
@@ -926,7 +934,9 @@ class AgentController:
             logger.debug(f"Updated working memory: {len(state.working_memory.known_facts)} facts, {len(state.working_memory.evidence_gaps)} gaps")
 
         except Exception as e:
-            logger.error(f"Failed to update working memory: {e}")
+            import traceback
+            logger.error(f"Failed to update working memory: {e}", exc_info=True)
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
     def _extract_action_json(self, raw_response: str) -> Optional[Dict[str, Any]]:
         """Extract action JSON using multiple robust strategies."""
@@ -982,7 +992,10 @@ class AgentController:
             python_dict = ast.literal_eval(dict_str)
             # Convert to proper JSON
             return json.dumps(python_dict)
-        except:
+        except Exception as e:
+            import traceback
+            logger.debug(f"ast.literal_eval failed, using simple replacements: {e}")
+            logger.debug(f"Traceback: {traceback.format_exc()}")
             # If ast fails, try simple replacements
             # Replace single quotes with double quotes for keys and string values
             normalized = re.sub(r"'([^']*)':", r'"\1":', dict_str)  # Keys
@@ -1013,7 +1026,10 @@ class AgentController:
                             }
                     else:
                         return json.loads(match)
-                except (json.JSONDecodeError, IndexError):
+                except (json.JSONDecodeError, IndexError) as e:
+                    import traceback
+                    logger.debug(f"JSON extraction strategy failed: {e}")
+                    logger.debug(f"Traceback: {traceback.format_exc()}")
                     continue
         return None
 
@@ -1032,7 +1048,10 @@ class AgentController:
         if params_match:
             try:
                 result["parameters"] = json.loads(params_match.group(1))
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                import traceback
+                logger.debug(f"Failed to parse parameters JSON: {e}")
+                logger.debug(f"Traceback: {traceback.format_exc()}")
                 # Try to fix common issues in parameters
                 params_str = params_match.group(1)
                 # Fix unescaped newlines and quotes in script content
@@ -1090,8 +1109,10 @@ class AgentController:
                     try:
                         from reactor.models import WorkingMemoryUpdate
                         wm_update = WorkingMemoryUpdate(**parsed_data["working_memory_update"])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        import traceback
+                        logger.warning(f"Failed to parse working memory update in fallback: {e}", exc_info=True)
+                        logger.debug(f"Traceback: {traceback.format_exc()}")
 
                 return ParsedLLMResponse(
                     thought=parsed_data.get("thought", "Unable to extract thought"),
@@ -1149,7 +1170,9 @@ class AgentController:
                 print(f"   python -m venv .venv && source .venv/bin/activate")
 
         except Exception as e:
-            logger.warning(f"Error checking Python environment at startup: {e}")
+            import traceback
+            logger.warning(f"Error checking Python environment at startup: {e}", exc_info=True)
+            logger.debug(f"Traceback: {traceback.format_exc()}")
 
     def _is_python_project(self) -> bool:
         """Check if current directory is a Python project."""
@@ -1168,8 +1191,10 @@ class AgentController:
             for item in os.listdir("."):
                 if item.endswith(".py"):
                     return True
-        except OSError:
-            pass
+        except OSError as e:
+            import traceback
+            logger.debug(f"OS error while checking Python project files: {e}")
+            logger.debug(f"Traceback: {traceback.format_exc()}")
 
         return False
 
@@ -1251,7 +1276,9 @@ class AgentController:
                 logger.error(f"Failed to create venv: {result.stderr}")
 
         except Exception as e:
-            logger.error(f"Failed to create virtual environment: {e}")
+            import traceback
+            logger.error(f"Failed to create virtual environment: {e}", exc_info=True)
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
         return False
 
