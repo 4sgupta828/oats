@@ -9,6 +9,7 @@ from pydantic import Field
 from typing import Optional, Dict, List, Any
 from core.sdk import uf, UfInput
 from core.logging_config import get_logger
+from core.artifact_metadata import create_artifact_with_metadata, should_save_to_file
 import re
 import json
 from pathlib import Path
@@ -156,8 +157,8 @@ class QueryLogsInput(UfInput):
     output_file: Optional[str] = Field(None, description="Explicit output file path (auto-generated if not provided)")
 
 
-@uf(name="query_logs", version="2.0.0",
-   description="Search logs across configured log backends. IMPORTANT: Large results (>50 entries) are automatically saved to files to avoid context bloat. Use the returned file path with visualization tools like generate_logs_visualization(input_file=...). Supports natural language queries translated to provider-specific syntax.")
+@uf(name="query_logs", version="3.0.0",
+   description="Search logs across configured log backends. Large results (>50 entries) are automatically saved to files with rich metadata. The UI will automatically detect and offer appropriate visualizations (logs viewer, timeline, table). Supports natural language queries translated to provider-specific syntax.")
 def query_logs(inputs: QueryLogsInput) -> dict:
     """Search logs using the configured log provider"""
     try:
@@ -209,40 +210,70 @@ def query_logs(inputs: QueryLogsInput) -> dict:
                 for entry in result.data
             ]
 
+            # Create summary
+            summary = _create_summary_for_logs(normalized_data)
+
             # Check if we should save to file
-            if _should_save_to_file(normalized_data):
-                # Save to file
-                output_path = _save_data_to_file(
-                    {
+            if should_save_to_file(normalized_data):
+                # Save with universal metadata
+                artifact_result = create_artifact_with_metadata(
+                    content_type="logs",
+                    data={
                         "logs": normalized_data,
-                        "metadata": result.metadata,
                         "query": inputs.query,
                         "time_range": inputs.time_range
                     },
-                    "logs",
-                    inputs.query.replace(" ", "_")[:30]
+                    source_tool="query_logs",
+                    metadata={
+                        "provider": result.metadata.get("provider", "unknown"),
+                        "total_logs": len(normalized_data),
+                        "query": inputs.query,
+                        "time_range": inputs.time_range,
+                        **result.metadata
+                    },
+                    visualization_hints={
+                        "time_field": "timestamp",
+                        "level_field": "level",
+                        "message_field": "message",
+                        "highlight_patterns": ["error", "exception", "timeout", "failed"]
+                    },
+                    save_to_file=True,
+                    file_suffix=inputs.query.replace(" ", "_")[:30]
                 )
 
-                # Create summary
-                summary = _create_summary_for_logs(normalized_data)
-
-                # Emit artifact marker
-                print(f"Artifact available: {output_path}")
-
-                return {
-                    "status": "success",
-                    "output_file": output_path,
-                    "summary": summary,
-                    "provider": result.metadata.get("provider", "unknown"),
-                    "message": f"Retrieved {len(normalized_data)} log entries. Full data saved to {output_path}. Use this file with generate_logs_visualization(input_file='{output_path}')"
-                }
+                if artifact_result["status"] == "success":
+                    return {
+                        "status": "success",
+                        "artifact_path": artifact_result["artifact_path"],
+                        "content_type": "logs",
+                        "suggested_visualizations": artifact_result["suggested_visualizations"],
+                        "summary": summary,
+                        "message": f"Retrieved {len(normalized_data)} log entries. Data saved with visualization metadata. UI will offer: {', '.join(artifact_result['suggested_visualizations'])}"
+                    }
+                else:
+                    return artifact_result
             else:
-                # Small result - return inline
+                # Small result - return inline with metadata
+                artifact_result = create_artifact_with_metadata(
+                    content_type="logs",
+                    data={
+                        "logs": normalized_data,
+                        "query": inputs.query,
+                        "time_range": inputs.time_range
+                    },
+                    source_tool="query_logs",
+                    metadata={
+                        "provider": result.metadata.get("provider", "unknown"),
+                        "total_logs": len(normalized_data),
+                        **result.metadata
+                    },
+                    save_to_file=False
+                )
+
                 return {
                     "status": "success",
-                    "data": normalized_data,
-                    "metadata": result.metadata,
-                    "provider": result.metadata.get("provider", "unknown"),
+                    "artifact": artifact_result["artifact"],
+                    "inline": True,
                     "count": len(normalized_data)
                 }
         else:
@@ -266,8 +297,8 @@ class QueryMetricsInput(UfInput):
     output_file: Optional[str] = Field(None, description="Explicit output file path")
 
 
-@uf(name="query_metrics", version="2.0.0",
-   description="Query time-series metrics from monitoring systems. IMPORTANT: Large results are saved to files automatically. Use the returned file path with generate_metrics_visualization(input_file=...). Supports checking resource utilization, request rates, error rates, latency percentiles.")
+@uf(name="query_metrics", version="3.0.0",
+   description="Query time-series metrics from monitoring systems. Large results are saved to files with rich metadata. The UI will automatically detect and offer appropriate visualizations (timeseries chart, heatmap, table). Supports resource utilization, request rates, error rates, latency percentiles.")
 def query_metrics(inputs: QueryMetricsInput) -> dict:
     """Query metrics using the configured metric provider"""
     try:
@@ -310,48 +341,78 @@ def query_metrics(inputs: QueryMetricsInput) -> dict:
         )
 
         if result.success:
+            # Create summary
+            summary = _create_summary_for_metrics(result.data, inputs.metric_name)
+
             # Check if we should save to file
-            if _should_save_to_file(result.data):
-                # Save to file
-                output_path = _save_data_to_file(
-                    {
+            if should_save_to_file(result.data):
+                # Save with universal metadata
+                artifact_result = create_artifact_with_metadata(
+                    content_type="metrics",
+                    data={
                         "series": [{
                             "name": inputs.metric_name,
                             "data": result.data,
-                            "metadata": result.metadata
-                        }],
-                        "yAxisLabel": inputs.metric_name,
-                        "query_info": {
-                            "metric_name": inputs.metric_name,
-                            "dimensions": inputs.dimensions,
-                            "time_range": inputs.time_range,
                             "aggregation": inputs.aggregation
-                        }
+                        }],
+                        "time_range": inputs.time_range
                     },
-                    "metrics",
-                    inputs.metric_name.replace(".", "_")[:30]
+                    source_tool="query_metrics",
+                    metadata={
+                        "provider": result.metadata.get("provider", "unknown"),
+                        "metric_name": inputs.metric_name,
+                        "dimensions": inputs.dimensions,
+                        "time_range": inputs.time_range,
+                        "aggregation": inputs.aggregation,
+                        "data_points": summary.get("data_points", 0),
+                        **result.metadata
+                    },
+                    visualization_hints={
+                        "y_axis_label": inputs.metric_name,
+                        "aggregation_type": inputs.aggregation,
+                        "chart_type": "line",
+                        "show_legend": True
+                    },
+                    save_to_file=True,
+                    file_suffix=inputs.metric_name.replace(".", "_")[:30]
                 )
 
-                # Create summary
-                summary = _create_summary_for_metrics(result.data, inputs.metric_name)
-
-                # Emit artifact marker
-                print(f"Artifact available: {output_path}")
-
-                return {
-                    "status": "success",
-                    "output_file": output_path,
-                    "summary": summary,
-                    "provider": result.metadata.get("provider", "unknown"),
-                    "message": f"Retrieved metric data for '{inputs.metric_name}'. Full data saved to {output_path}. Use with generate_metrics_visualization(input_file='{output_path}')"
-                }
+                if artifact_result["status"] == "success":
+                    return {
+                        "status": "success",
+                        "artifact_path": artifact_result["artifact_path"],
+                        "content_type": "metrics",
+                        "suggested_visualizations": artifact_result["suggested_visualizations"],
+                        "summary": summary,
+                        "message": f"Retrieved metric '{inputs.metric_name}' with {summary.get('data_points', 0)} data points. UI will offer: {', '.join(artifact_result['suggested_visualizations'])}"
+                    }
+                else:
+                    return artifact_result
             else:
-                # Small result - return inline
+                # Small result - return inline with metadata
+                artifact_result = create_artifact_with_metadata(
+                    content_type="metrics",
+                    data={
+                        "series": [{
+                            "name": inputs.metric_name,
+                            "data": result.data,
+                            "aggregation": inputs.aggregation
+                        }],
+                        "time_range": inputs.time_range
+                    },
+                    source_tool="query_metrics",
+                    metadata={
+                        "provider": result.metadata.get("provider", "unknown"),
+                        "metric_name": inputs.metric_name,
+                        **result.metadata
+                    },
+                    save_to_file=False
+                )
+
                 return {
                     "status": "success",
-                    "data": result.data,
-                    "metadata": result.metadata,
-                    "provider": result.metadata.get("provider", "unknown")
+                    "artifact": artifact_result["artifact"],
+                    "inline": True
                 }
         else:
             return create_error_response(
@@ -375,8 +436,8 @@ class QueryTracesInput(UfInput):
     output_file: Optional[str] = Field(None, description="Explicit output file path")
 
 
-@uf(name="query_traces", version="2.0.0",
-   description="Search distributed traces. IMPORTANT: Large results are saved to files automatically. Use the returned file path with generate_trace_visualization(input_file=...). Use trace_id for specific trace lookup, or service+operation+filters to find problematic traces.")
+@uf(name="query_traces", version="3.0.0",
+   description="Search distributed traces. Large results are saved to files with rich metadata. The UI will automatically detect and offer appropriate visualizations (trace waterfall, flamegraph, table). Use trace_id for specific trace lookup, or service+operation+filters to find problematic traces.")
 def query_traces(inputs: QueryTracesInput) -> dict:
     """Query traces using the configured trace provider"""
     try:
@@ -412,49 +473,83 @@ def query_traces(inputs: QueryTracesInput) -> dict:
         )
 
         if result.success:
+            # Calculate trace metrics
+            traces_list = result.data if isinstance(result.data, list) else [result.data]
+            trace_count = len(traces_list)
+
+            # Extract span info if available
+            total_spans = 0
+            for trace in traces_list:
+                if isinstance(trace, dict) and "spans" in trace:
+                    total_spans += len(trace["spans"])
+
             # Check if we should save to file
-            if _should_save_to_file(result.data):
-                # Save to file
+            if should_save_to_file(result.data):
+                # Save with universal metadata
                 trace_suffix = inputs.trace_id[:16] if inputs.trace_id else (inputs.service or "traces")
-                output_path = _save_data_to_file(
-                    {
-                        "traces": result.data if isinstance(result.data, list) else [result.data],
-                        "metadata": result.metadata,
-                        "query_info": {
-                            "trace_id": inputs.trace_id,
-                            "service": inputs.service,
-                            "operation": inputs.operation,
-                            "time_range": inputs.time_range
-                        }
+
+                artifact_result = create_artifact_with_metadata(
+                    content_type="traces",
+                    data={
+                        "traces": traces_list,
+                        "service": inputs.service,
+                        "operation": inputs.operation,
+                        "time_range": inputs.time_range
                     },
-                    "traces",
-                    trace_suffix.replace(".", "_")[:30]
+                    source_tool="query_traces",
+                    metadata={
+                        "provider": result.metadata.get("provider", "unknown"),
+                        "trace_id": inputs.trace_id,
+                        "service": inputs.service,
+                        "operation": inputs.operation,
+                        "time_range": inputs.time_range,
+                        "trace_count": trace_count,
+                        "total_spans": total_spans,
+                        **result.metadata
+                    },
+                    visualization_hints={
+                        "duration_field": "duration",
+                        "span_hierarchy": True,
+                        "show_timeline": True,
+                        "highlight_errors": True
+                    },
+                    save_to_file=True,
+                    file_suffix=trace_suffix.replace(".", "_")[:30]
                 )
 
-                # Create summary
-                trace_count = len(result.data) if isinstance(result.data, list) else 1
-                summary = {
-                    "trace_count": trace_count,
-                    "sample": result.data[0] if isinstance(result.data, list) and result.data else result.data
-                }
-
-                # Emit artifact marker
-                print(f"Artifact available: {output_path}")
-
-                return {
-                    "status": "success",
-                    "output_file": output_path,
-                    "summary": summary,
-                    "provider": result.metadata.get("provider", "unknown"),
-                    "message": f"Retrieved {trace_count} trace(s). Full data saved to {output_path}. Use with generate_trace_visualization(input_file='{output_path}')"
-                }
+                if artifact_result["status"] == "success":
+                    return {
+                        "status": "success",
+                        "artifact_path": artifact_result["artifact_path"],
+                        "content_type": "traces",
+                        "suggested_visualizations": artifact_result["suggested_visualizations"],
+                        "summary": {"trace_count": trace_count, "total_spans": total_spans},
+                        "message": f"Retrieved {trace_count} trace(s) with {total_spans} spans total. UI will offer: {', '.join(artifact_result['suggested_visualizations'])}"
+                    }
+                else:
+                    return artifact_result
             else:
-                # Small result - return inline
+                # Small result - return inline with metadata
+                artifact_result = create_artifact_with_metadata(
+                    content_type="traces",
+                    data={
+                        "traces": traces_list,
+                        "service": inputs.service,
+                        "time_range": inputs.time_range
+                    },
+                    source_tool="query_traces",
+                    metadata={
+                        "provider": result.metadata.get("provider", "unknown"),
+                        "trace_count": trace_count,
+                        **result.metadata
+                    },
+                    save_to_file=False
+                )
+
                 return {
                     "status": "success",
-                    "data": result.data,
-                    "metadata": result.metadata,
-                    "provider": result.metadata.get("provider", "unknown")
+                    "artifact": artifact_result["artifact"],
+                    "inline": True
                 }
         else:
             return create_error_response(
@@ -477,8 +572,8 @@ class SearchCodeInput(UfInput):
     output_file: Optional[str] = Field(None, description="Explicit output file path")
 
 
-@uf(name="search_code", version="2.0.0",
-   description="Search source code repositories. IMPORTANT: Large search results (>50 matches) are saved to files automatically. Work with file paths, not inline data. Use this to find where errors are logged, how services are configured, or locate specific code patterns.")
+@uf(name="search_code", version="3.0.0",
+   description="Search source code repositories. Large search results (>50 matches) are saved to files with rich metadata. The UI will automatically offer appropriate visualizations (code viewer, table). Use this to find where errors are logged, how services are configured, or locate specific code patterns.")
 def search_code(inputs: SearchCodeInput) -> dict:
     """Search code using the configured code provider"""
     try:
