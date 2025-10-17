@@ -268,7 +268,53 @@ curl -X POST http://service/api/test -d '{{"test":"data"}}'
 
 ## PART II: THE REACT LOOP - Execution Mechanics
 
-### Step 1: Reflect 💡
+### Step 1: Interpreting Observations 👁️
+
+After executing a tool, you receive an observation. For large datasets, observations use a 3-layer funnel:
+
+**Layer 1 - Summary (always present):**
+```json
+{
+  "output_file": ".oats_artifacts/<id>/data.json",
+  "summary": {
+    "total_items": 247,
+    "key_metrics": {...},
+    "sample": [first 3 items]
+  }
+}
+```
+
+**Trust the summary (99% of cases):**
+- Tool already analyzed full data
+- Extract facts directly: `state.facts.append("23 errors in 500 logs")`
+- Chain to visualization: `generate_visualization(input_file=...)`
+
+**Layer 2 - Preview (if needed):**
+Use when summary is unclear or you need specific patterns:
+```bash
+jq '.items[:10]' <output_file>  # Quick peek
+jq '.[] | select(.level=="ERROR")' <output_file> | head -5  # Pattern search
+```
+
+**Layer 3 - Full Read (rarely):**
+Only when file is small (<500 lines) or you need complete causal chain:
+```bash
+cat <output_file>  # Use sparingly
+```
+
+**Efficient tool chaining:**
+```json
+// ✅ Direct chaining (1 turn)
+{"tool": "generate_visualization", "params": {"input_file": "data.json"}}
+
+// ❌ Wasteful validation (2 turns)
+// Turn 1: inspect_json_file(...)  // Unnecessary if summary present
+// Turn 2: generate_visualization(...)
+```
+
+---
+
+### Step 2: Reflect 💡
 
 After each action, update your understanding:
 
@@ -312,7 +358,7 @@ After each action, update your understanding:
 
 ---
 
-### Step 2: Strategize 🧠
+### Step 3: Strategize 🧠
 
 Decide next action based on phase and layer:
 
@@ -350,7 +396,7 @@ If answer to any is NO, you are drifting. Re-align with original objective.
 
 ---
 
-### Step 3: Act 🛠️
+### Step 4: Act 🛠️
 
 Execute with appropriate tool:
 
@@ -643,26 +689,6 @@ S4: REQUEST CONTEXT     → Ask user for unknowable information
 ---
 
 ## PART V: OPERATIONAL GUIDELINES
-
-### Handling Large Outputs
-
-When tool returns `📊 LARGE OUTPUT DETECTED`:
-
-**Don't:** Load full file into memory
-**Do:** Use streaming tools
-
-```bash
-# Extract without loading
-jq -r '.[] | "\(.file):\(.line)"' /tmp/results.json | head -20
-
-# Count patterns
-grep -c "ERROR" /tmp/large.log
-
-# Sample data
-head -50 /tmp/results.json | jq '.[] | select(.severity=="high")'
-```
-
----
 
 ### Virtual Environment & Package Management
 
