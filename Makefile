@@ -4,7 +4,7 @@
 REGISTRY ?= 911167909198.dkr.ecr.us-west-2.amazonaws.com
 BACKEND_IMG := $(REGISTRY)/oats-backend-api
 UI_IMG := $(REGISTRY)/oats-ui
-TAG ?= latest
+TAG ?= $(shell date +%Y%m%d-%H%M%S)
 AWS_REGION ?= us-west-2
 
 # --- Main Commands ---
@@ -26,6 +26,8 @@ deploy-backend: ecr-login
 	@echo "🔄 Updating deployment image..."
 	@kubectl set image deployment/oats-backend-api backend-api=$(BACKEND_IMG):$(TAG)
 	@kubectl patch deployment oats-backend-api -p '{"spec":{"template":{"spec":{"containers":[{"name":"backend-api","imagePullPolicy":"Always"}]}}}}'
+	@echo "🔄 Forcing pod restart to ensure latest image..."
+	@kubectl rollout restart deployment/oats-backend-api
 	@kubectl rollout status deployment/oats-backend-api --timeout=120s
 	@echo "✅ Backend deployed successfully!"
 
@@ -39,6 +41,8 @@ deploy-ui: ecr-login
 	@echo "🔄 Updating deployment image..."
 	@kubectl set image deployment/oats-ui ui=$(UI_IMG):$(TAG)
 	@kubectl patch deployment oats-ui -p '{"spec":{"template":{"spec":{"containers":[{"name":"ui","imagePullPolicy":"Always"}]}}}}'
+	@echo "🔄 Forcing pod restart to ensure latest image..."
+	@kubectl rollout restart deployment/oats-ui
 	@kubectl rollout status deployment/oats-ui --timeout=120s
 	@echo "✅ UI deployed successfully!"
 
@@ -46,6 +50,39 @@ deploy-ui: ecr-login
 .PHONY: deploy-all
 deploy-all: deploy-backend deploy-ui
 	@echo "✅ Full deployment complete!"
+
+# Deploy with latest tag (for testing)
+.PHONY: deploy-latest
+deploy-latest:
+	@echo "🔨 Building backend for cloud (latest tag)..."
+	@docker build --platform linux/amd64 -t $(BACKEND_IMG):latest -f ./services/backend-api/Dockerfile .
+	@echo "📤 Pushing to ECR..."
+	@docker push $(BACKEND_IMG):latest
+	@echo "🔄 Updating deployment image..."
+	@kubectl set image deployment/oats-backend-api backend-api=$(BACKEND_IMG):latest
+	@kubectl rollout restart deployment/oats-backend-api
+	@kubectl rollout status deployment/oats-backend-api --timeout=120s
+	@echo "✅ Backend deployed successfully!"
+	@echo "🔨 Building UI for cloud (latest tag)..."
+	@docker build --platform linux/amd64 -t $(UI_IMG):latest -f ./services/ui/Dockerfile ./services/ui
+	@echo "📤 Pushing to ECR..."
+	@docker push $(UI_IMG):latest
+	@echo "🔄 Updating deployment image..."
+	@kubectl set image deployment/oats-ui ui=$(UI_IMG):latest
+	@kubectl rollout restart deployment/oats-ui
+	@kubectl rollout status deployment/oats-ui --timeout=120s
+	@echo "✅ UI deployed successfully!"
+	@echo "✅ Latest tag deployment complete!"
+
+# Force restart deployments (useful when using latest tag)
+.PHONY: restart-all
+restart-all:
+	@echo "🔄 Restarting all deployments..."
+	@kubectl rollout restart deployment/oats-backend-api
+	@kubectl rollout restart deployment/oats-ui
+	@kubectl rollout status deployment/oats-backend-api --timeout=120s
+	@kubectl rollout status deployment/oats-ui --timeout=120s
+	@echo "✅ All deployments restarted!"
 
 # Initial cloud setup (creates all resources)
 .PHONY: setup
@@ -128,7 +165,9 @@ help:
 	@echo "📦 Deployment:"
 	@echo "  make deploy-backend    Deploy backend to cloud (build+push+restart)"
 	@echo "  make deploy-ui         Deploy UI to cloud (build+push+restart)"
-	@echo "  make deploy-all        Deploy both backend and UI"
+	@echo "  make deploy-all        Deploy both backend and UI (timestamped tags)"
+	@echo "  make deploy-latest     Deploy both with latest tag + force restart"
+	@echo "  make restart-all       Force restart all deployments"
 	@echo ""
 	@echo "🚀 Setup:"
 	@echo "  make setup             Initial cloud setup (creates all resources)"
