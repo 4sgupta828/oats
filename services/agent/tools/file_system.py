@@ -7,6 +7,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pydantic import Field
 from core.sdk import uf, UfInput
+from core.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger('tools.file_system')
 
 class CreateFileInput(UfInput):
     filename: str = Field(..., description="The name of the file to create. Use relative paths for proper placement.")
@@ -123,8 +127,20 @@ def create_file(inputs: CreateFileInput) -> dict:
             if len(parts) > 1:
                 # Include .oats_artifacts/ in the path for correct API resolution
                 relative_artifact_path = f".oats_artifacts/{parts[1]}"
+                logger.info(f"Artifact available: {relative_artifact_path}", extra={
+                    "extra_fields": {"artifact_path": relative_artifact_path, "file_type": file_type}
+                })
                 print(f"Artifact available: {relative_artifact_path}")
 
+    logger.info(f"{file_type.capitalize()} '{inputs.filename}' created successfully", extra={
+        "extra_fields": {
+            "filename": inputs.filename,
+            "file_type": file_type,
+            "size": size,
+            "path": validated_path,
+            "is_artifact": should_be_artifact
+        }
+    })
     print(f"{file_type.capitalize()} '{inputs.filename}' created successfully, size: {size} bytes.")
     print(f"  → Location: {validated_path}")
 
@@ -181,6 +197,16 @@ def read_file(inputs: ReadFileInput) -> str:
         actual_end = end_idx + 1
         total_lines_read = len(targeted_lines)
 
+        logger.info(f"Read {total_lines_read} lines from '{inputs.filename}'", extra={
+            "extra_fields": {
+                "filename": inputs.filename,
+                "start_line": actual_start,
+                "end_line": actual_end,
+                "lines_read": total_lines_read,
+                "characters": len(content),
+                "context_lines": inputs.context_lines
+            }
+        })
         print(f"Read {total_lines_read} lines ({actual_start}-{actual_end}) from '{inputs.filename}' ({len(content)} characters).")
         if inputs.context_lines > 0:
             print(f"  → Included {inputs.context_lines} context lines before/after the target range")
@@ -198,6 +224,14 @@ def read_file(inputs: ReadFileInput) -> str:
     else:
         # Read entire file (original behavior)
         content = ''.join(lines)
+        logger.info(f"Read entire file '{inputs.filename}'", extra={
+            "extra_fields": {
+                "filename": inputs.filename,
+                "characters": len(content),
+                "lines": len(lines),
+                "path": validated_path
+            }
+        })
         print(f"Read entire file '{inputs.filename}' ({len(content)} characters, {len(lines)} lines).")
         print(f"  → Location: {validated_path}")
         return content
@@ -391,6 +425,14 @@ def list_files(inputs: ListFilesInput) -> dict:
                   (" (recursive)" if inputs.recursive else ""))
             print(f"  → Discovered {len(log_files)} log files for analysis")
         except Exception as e:
+            logger.error(f"Failed to discover log files in '{inputs.path}': {e}", exc_info=True, extra={
+                "extra_fields": {
+                    "error_type": "log_discovery_failure",
+                    "operation": "list_files",
+                    "path": inputs.path,
+                    "recursive": inputs.recursive
+                }
+            })
             print(f"Listed {len(files)} files and {len(directories)} directories in '{inputs.path}'" +
                   (" (recursive)" if inputs.recursive else ""))
             print(f"  → Warning: Failed to discover log files: {e}")
@@ -410,9 +452,25 @@ def delete_file(inputs: DeleteFileInput) -> dict:
     validated_path = validate_workspace_path(inputs.filename, "file deletion")
 
     if not os.path.exists(validated_path):
+        logger.error(f"File not found for deletion: '{inputs.filename}'", extra={
+            "extra_fields": {
+                "error_type": "file_not_found",
+                "operation": "delete_file",
+                "filename": inputs.filename,
+                "validated_path": validated_path
+            }
+        })
         raise FileNotFoundError(f"File '{inputs.filename}' does not exist.")
 
     if os.path.isdir(validated_path):
+        logger.error(f"Cannot delete directory as file: '{inputs.filename}'", extra={
+            "extra_fields": {
+                "error_type": "invalid_path_type",
+                "operation": "delete_file",
+                "filename": inputs.filename,
+                "validated_path": validated_path
+            }
+        })
         raise IsADirectoryError(f"'{inputs.filename}' is a directory, not a file.")
 
     # Get file size before deletion for reporting
@@ -445,6 +503,14 @@ def file_exists(inputs: FileExistsInput) -> dict:
 
     except Exception as e:
         # If path validation fails, it doesn't exist within workspace
+        logger.warning(f"Path validation failed for existence check: '{inputs.filename}'", extra={
+            "extra_fields": {
+                "error_type": "path_validation_failure",
+                "operation": "file_exists",
+                "filename": inputs.filename,
+                "error_message": str(e)
+            }
+        })
         result = {"path": inputs.filename, "exists": False, "error": str(e)}
         print(f"'{inputs.filename}' does not exist or is outside workspace")
         return result
@@ -470,6 +536,13 @@ def user_prompt(inputs: UserPromptInput) -> dict:
             turn_number = context.get('turn_number', 0)
             print(f"[DEBUG] user_prompt: event_store={event_store is not None}, execution_id={execution_id}, turn_number={turn_number}")
     except Exception as e:
+        logger.error(f"Failed to get execution context for user prompt: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "context_retrieval_failure",
+                "operation": "user_prompt",
+                "question": inputs.question[:100]
+            }
+        })
         print(f"[DEBUG] user_prompt: Failed to get context: {e}")
 
     # If we have event store, use event-driven flow (for UI)
@@ -588,6 +661,13 @@ def user_prompt(inputs: UserPromptInput) -> dict:
                 }
 
         except KeyboardInterrupt:
+            logger.warning("User interrupted prompt with Ctrl+C", extra={
+                "extra_fields": {
+                    "error_type": "user_interrupt",
+                    "operation": "user_prompt",
+                    "question": inputs.question[:100]
+                }
+            })
             print("\n🛑 User interrupted with Ctrl+C")
             return {
                 "response": "",
@@ -595,6 +675,13 @@ def user_prompt(inputs: UserPromptInput) -> dict:
                 "message": "User interrupted with Ctrl+C"
             }
         except EOFError:
+            logger.warning("No response provided (EOF) for user prompt", extra={
+                "extra_fields": {
+                    "error_type": "eof_error",
+                    "operation": "user_prompt",
+                    "question": inputs.question[:100]
+                }
+            })
             print("\n📝 No response provided (EOF)")
             return {
                 "response": "",
@@ -730,12 +817,30 @@ def edit_file(inputs: EditFileInput) -> dict:
         os.replace(tmp_path, validated_path)
 
     except Exception as e:
+        logger.error(f"Failed to write file '{inputs.filename}': {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "file_write_failure",
+                "operation": "edit_file",
+                "filename": inputs.filename,
+                "validated_path": validated_path,
+                "start_line": inputs.start_line,
+                "end_line": inputs.end_line,
+                "lines_added": len(new_lines),
+                "temp_file": tmp_path if 'tmp_path' in locals() else None
+            }
+        })
         # Clean up temp file if it exists
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             try:
                 os.unlink(tmp_path)
-            except:
-                pass
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup temp file after write failure: {cleanup_error}", exc_info=True, extra={
+                    "extra_fields": {
+                        "error_type": "temp_file_cleanup_failure",
+                        "operation": "edit_file",
+                        "temp_file": tmp_path
+                    }
+                })
         raise IOError(f"Failed to write file '{inputs.filename}': {e}")
 
     # Get final file size
@@ -805,6 +910,13 @@ def user_confirm(inputs: UserConfirmInput) -> dict:
         }
 
     except KeyboardInterrupt:
+        logger.warning("User interrupted confirmation with Ctrl+C", extra={
+            "extra_fields": {
+                "error_type": "user_interrupt",
+                "operation": "user_confirm",
+                "message": inputs.message[:100]
+            }
+        })
         print("\n🛑 User interrupted - treating as 'No'")
         return {
             "confirmed": False,
@@ -813,6 +925,14 @@ def user_confirm(inputs: UserConfirmInput) -> dict:
             "message": "User interrupted with Ctrl+C - denied"
         }
     except EOFError:
+        logger.warning("No input available (EOF) for user confirmation", extra={
+            "extra_fields": {
+                "error_type": "eof_error",
+                "operation": "user_confirm",
+                "message": inputs.message[:100],
+                "default_used": inputs.default_yes
+            }
+        })
         # No input available, use default
         confirmed = inputs.default_yes
         print(f"No input available, using default: {'Yes' if confirmed else 'No'}")

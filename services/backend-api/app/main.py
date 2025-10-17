@@ -30,6 +30,12 @@ from registry.main import global_registry
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from database.event_store import get_event_store, close_event_store
 
+# Import logging
+from core.logging_config import get_logger
+
+# Initialize logger
+logger = get_logger('backend_api')
+
 # --- Setup ---
 app = FastAPI(
     title="OATS SRE Co-Pilot API",
@@ -81,31 +87,47 @@ def startup_event():
     """Initialize services on startup."""
     global event_store
 
-    print("=" * 60)
-    print("🚀 Starting OATS Agent API - Event-Driven Architecture")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("🚀 Starting OATS Agent API - Event-Driven Architecture")
+    logger.info("=" * 60)
 
     # Check for DATABASE_URL
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        print("\n❌ ERROR: DATABASE_URL environment variable not set")
-        print("\nPlease set DATABASE_URL:")
-        print("  export DATABASE_URL='postgresql://user:password@host:port/database'")
-        print("\nOr initialize the database:")
-        print("  python database/init_db.py")
-        print()
+        error_msg = "DATABASE_URL environment variable not set"
+        logger.error(error_msg, extra={
+            "extra_fields": {
+                "error_type": "configuration",
+                "component": "startup",
+                "required_env_var": "DATABASE_URL"
+            }
+        })
+        logger.error("Please set DATABASE_URL: export DATABASE_URL='postgresql://user:password@host:port/database'")
+        logger.error("Or initialize the database: python database/init_db.py")
         raise RuntimeError("DATABASE_URL not configured")
 
     try:
         # Initialize event store
+        logger.info("Initializing event store", extra={
+            "extra_fields": {"component": "event_store"}
+        })
         event_store = get_event_store()
-        print("✅ Event store initialized")
+        logger.info("✅ Event store initialized successfully")
 
         # Initialize agent registry
         tools_path = agent_path / "tools"
-        print(f"📦 Loading tools from: {tools_path}")
+        logger.info(f"Loading tools from: {tools_path}", extra={
+            "extra_fields": {"tools_path": str(tools_path)}
+        })
 
         if not tools_path.exists():
+            logger.error(f"Tools directory not found: {tools_path}", extra={
+                "extra_fields": {
+                    "error_type": "configuration",
+                    "component": "tool_registry",
+                    "tools_path": str(tools_path)
+                }
+            })
             raise RuntimeError(f"Tools directory not found: {tools_path}")
 
         try:
@@ -113,39 +135,61 @@ def startup_event():
             tool_count = len(global_registry.list_ufs())
 
             if tool_count == 0:
+                logger.error("No tools loaded from tools directory", extra={
+                    "extra_fields": {
+                        "error_type": "configuration",
+                        "component": "tool_registry",
+                        "tools_path": str(tools_path)
+                    }
+                })
                 raise RuntimeError(f"No tools loaded from {tools_path}")
 
-            print(f"✅ Agent registry initialized with {tool_count} tools:")
+            logger.info(f"✅ Agent registry initialized with {tool_count} tools")
             for tool in global_registry.list_ufs():
-                print(f"   - {tool.name}:{tool.version}")
+                logger.info(f"   - {tool.name}:{tool.version}")
 
         except Exception as e:
-            print(f"❌ Failed to load tools: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Failed to load tools: {e}", exc_info=True, extra={
+                "extra_fields": {
+                    "error_type": "tool_loading",
+                    "component": "tool_registry",
+                    "tools_path": str(tools_path)
+                }
+            })
             raise RuntimeError(f"Tool loading failed: {e}")
 
-        print("\n" + "=" * 60)
-        print("✅ OATS Agent API ready")
-        print("   SSE streaming: http://localhost:8000/api/v1/executions")
-        print("   Health check: http://localhost:8000/health")
-        print("=" * 60 + "\n")
+        logger.info("\n" + "=" * 60)
+        logger.info("✅ OATS Agent API ready")
+        logger.info("   SSE streaming: http://localhost:8000/api/v1/executions")
+        logger.info("   Health check: http://localhost:8000/health")
+        logger.info("=" * 60 + "\n")
 
     except Exception as e:
-        print(f"\n❌ Failed to initialize services: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to initialize services: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "startup_failure",
+                "component": "startup"
+            }
+        })
         raise
 
 
 @app.on_event("shutdown")
 def shutdown_event():
     """Cleanup on shutdown."""
-    print("\n🛑 Shutting down OATS Agent API...")
-    if event_store:
-        close_event_store()
-        print("✅ Event store closed")
-    print("✅ Shutdown complete\n")
+    logger.info("🛑 Shutting down OATS Agent API...")
+    try:
+        if event_store:
+            close_event_store()
+            logger.info("✅ Event store closed")
+        logger.info("✅ Shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "shutdown_error",
+                "component": "shutdown"
+            }
+        })
 
 
 # --- API Endpoints ---
@@ -181,7 +225,13 @@ def health_check():
         # Test event store connection
         if event_store:
             event_store.get_execution_status("test")  # Will fail but tests connection
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Health check test query failed (expected): {e}", extra={
+            "extra_fields": {
+                "component": "health_check",
+                "test_execution_id": "test"
+            }
+        })
         pass  # Expected to fail with test ID
 
     return {
@@ -199,18 +249,44 @@ def health_check():
 def start_execution(request: StartExecutionRequest):
     """Start a new agent execution."""
     if not event_store:
+        logger.error("Event store not initialized", extra={
+            "extra_fields": {"error_type": "configuration", "component": "start_execution"}
+        })
         raise HTTPException(500, "Event store not initialized")
 
     try:
         # Validate goal
         if not request.goal or not request.goal.strip():
+            logger.warning("Empty goal provided", extra={
+                "extra_fields": {
+                    "error_type": "validation",
+                    "component": "start_execution",
+                    "user_id": request.user_id
+                }
+            })
             raise HTTPException(400, "Goal cannot be empty")
 
         if len(request.goal) > 10000:
+            logger.warning(f"Goal too long: {len(request.goal)} characters", extra={
+                "extra_fields": {
+                    "error_type": "validation",
+                    "component": "start_execution",
+                    "goal_length": len(request.goal),
+                    "max_allowed": 10000,
+                    "user_id": request.user_id
+                }
+            })
             raise HTTPException(400, "Goal too long (max 10000 characters)")
 
         # Create execution in database
         execution_id = event_store.create_execution(request.goal.strip())
+        logger.info(f"Created execution {execution_id}", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "goal_preview": request.goal[:100],
+                "max_turns": request.max_turns
+            }
+        })
 
         # Start agent in background thread
         thread = threading.Thread(
@@ -220,7 +296,12 @@ def start_execution(request: StartExecutionRequest):
         )
         thread.start()
 
-        print(f"🚀 Started execution {execution_id} for goal: {request.goal[:100]}...")
+        logger.info(f"🚀 Started execution {execution_id}", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "goal_preview": request.goal[:100]
+            }
+        })
 
         return {
             "execution_id": execution_id,
@@ -232,7 +313,13 @@ def start_execution(request: StartExecutionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to start execution: {e}")
+        logger.error(f"Failed to start execution: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "execution_start_failure",
+                "component": "start_execution",
+                "goal_preview": request.goal[:100] if request.goal else None
+            }
+        })
         raise HTTPException(500, f"Failed to start execution: {str(e)}")
 
 
@@ -248,6 +335,12 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
     async def event_generator():
         try:
             current_last_id = last_event_id
+            logger.debug(f"Starting SSE stream for execution {execution_id}", extra={
+                "extra_fields": {
+                    "execution_id": execution_id,
+                    "last_event_id": last_event_id
+                }
+            })
 
             while True:
                 # Poll for new events
@@ -270,15 +363,31 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
                 # User must explicitly continue or reset
                 status = event_store.get_execution_status(execution_id)
                 if status and status['status'] == 'cancelled':
+                    logger.info(f"SSE stream ending for cancelled execution {execution_id}", extra={
+                        "extra_fields": {"execution_id": execution_id}
+                    })
                     break  # Only break on cancellation
 
                 # Short delay before next poll
                 await asyncio.sleep(0.1)
 
         except asyncio.CancelledError:
-            print(f"SSE stream cancelled for execution {execution_id}")
+            logger.warning(f"SSE stream cancelled for execution {execution_id}", extra={
+                "extra_fields": {
+                    "error_type": "stream_cancelled",
+                    "execution_id": execution_id,
+                    "last_event_id": current_last_id if 'current_last_id' in locals() else last_event_id
+                }
+            })
         except Exception as e:
-            print(f"Error in SSE stream for execution {execution_id}: {e}")
+            logger.error(f"Error in SSE stream for execution {execution_id}: {e}", exc_info=True, extra={
+                "extra_fields": {
+                    "error_type": "sse_stream_error",
+                    "execution_id": execution_id,
+                    "last_event_id": current_last_id if 'current_last_id' in locals() else last_event_id,
+                    "error_class": type(e).__name__
+                }
+            })
             yield {
                 "event": "error",
                 "data": json.dumps({"error": str(e)})
@@ -291,16 +400,32 @@ async def stream_events(execution_id: str, last_event_id: int = 0):
 def abort_execution(execution_id: str):
     """Abort a running execution."""
     if not event_store:
+        logger.error("Event store not initialized", extra={
+            "extra_fields": {"error_type": "configuration", "component": "abort_execution"}
+        })
         raise HTTPException(500, "Event store not initialized")
 
     try:
         # Check if execution exists
         status = event_store.get_execution_status(execution_id)
         if not status:
+            logger.warning(f"Execution not found: {execution_id}", extra={
+                "extra_fields": {
+                    "error_type": "not_found",
+                    "execution_id": execution_id
+                }
+            })
             raise HTTPException(404, "Execution not found")
 
         # Only allow aborting running or paused executions
         if status['status'] not in ['running', 'paused']:
+            logger.warning(f"Cannot abort execution {execution_id} with status {status['status']}", extra={
+                "extra_fields": {
+                    "error_type": "invalid_state",
+                    "execution_id": execution_id,
+                    "current_status": status['status']
+                }
+            })
             raise HTTPException(400, f"Cannot abort execution with status: {status['status']}")
 
         # Set status to cancelled
@@ -313,7 +438,9 @@ def abort_execution(execution_id: str):
             success=False
         )
 
-        print(f"🛑 Aborted execution {execution_id}")
+        logger.info(f"🛑 Aborted execution {execution_id}", extra={
+            "extra_fields": {"execution_id": execution_id}
+        })
 
         return {
             "status": "aborted",
@@ -323,7 +450,12 @@ def abort_execution(execution_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to abort execution: {e}")
+        logger.error(f"Failed to abort execution {execution_id}: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "abort_failure",
+                "execution_id": execution_id
+            }
+        })
         raise HTTPException(500, f"Failed to abort execution: {str(e)}")
 
 
@@ -380,13 +512,21 @@ def continue_execution(execution_id: str, request: ContinueExecutionRequest):
 
         # Log what we're doing
         if goal_changed and turns_extended:
-            print(f"▶️  Continuing execution {execution_id} with refined goal AND {request.additional_turns} additional turns")
+            logger.info(f"▶️  Continuing execution {execution_id} with refined goal AND {request.additional_turns} additional turns", extra={
+                "extra_fields": {"execution_id": execution_id, "additional_turns": request.additional_turns, "goal_changed": True}
+            })
         elif turns_extended:
-            print(f"🔄 Extending execution {execution_id} by {request.additional_turns} turns (same goal)")
+            logger.info(f"🔄 Extending execution {execution_id} by {request.additional_turns} turns (same goal)", extra={
+                "extra_fields": {"execution_id": execution_id, "additional_turns": request.additional_turns}
+            })
         elif goal_changed:
-            print(f"▶️  Continuing execution {execution_id} with refined goal")
+            logger.info(f"▶️  Continuing execution {execution_id} with refined goal", extra={
+                "extra_fields": {"execution_id": execution_id, "goal_changed": True}
+            })
         else:
-            print(f"▶️  Continuing execution {execution_id}")
+            logger.info(f"▶️  Continuing execution {execution_id}", extra={
+                "extra_fields": {"execution_id": execution_id}
+            })
 
         # Update execution goal in database if it changed
         if goal_changed:
@@ -416,7 +556,13 @@ def continue_execution(execution_id: str, request: ContinueExecutionRequest):
         )
         thread.start()
 
-        print(f"🚀 Continued execution {execution_id}")
+        logger.info(f"🚀 Continued execution {execution_id}", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "goal_refined": goal_changed,
+                "turns_extended": turns_extended
+            }
+        })
 
         return {
             "execution_id": execution_id,
@@ -430,9 +576,14 @@ def continue_execution(execution_id: str, request: ContinueExecutionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to continue execution: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to continue execution {execution_id}: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "continue_failure",
+                "execution_id": execution_id,
+                "goal_changed": goal_changed if 'goal_changed' in locals() else None,
+                "turns_extended": turns_extended if 'turns_extended' in locals() else None
+            }
+        })
         raise HTTPException(500, f"Failed to continue execution: {str(e)}")
 
 
@@ -448,14 +599,26 @@ def reset_execution(execution_id: str, request: ResetExecutionRequest):
     try:
         # Validate goal
         if not request.goal or not request.goal.strip():
+            logger.warning("Empty goal provided for reset", extra={
+                "extra_fields": {
+                    "error_type": "validation",
+                    "execution_id": execution_id,
+                    "component": "reset_execution"
+                }
+            })
             raise HTTPException(400, "Goal cannot be empty")
 
         # Check if execution exists
         status = event_store.get_execution_status(execution_id)
         if not status:
+            logger.warning(f"Execution not found for reset: {execution_id}", extra={
+                "extra_fields": {"error_type": "not_found", "execution_id": execution_id}
+            })
             raise HTTPException(404, "Execution not found")
 
-        print(f"🔄 Resetting execution {execution_id} (force complete)")
+        logger.info(f"🔄 Resetting execution {execution_id} (force complete)", extra={
+            "extra_fields": {"execution_id": execution_id, "new_goal": request.goal[:100]}
+        })
 
         # Force complete the current goal
         event_store.update_status(execution_id, 'completed')
@@ -487,7 +650,12 @@ def reset_execution(execution_id: str, request: ResetExecutionRequest):
         )
         thread.start()
 
-        print(f"🚀 Started fresh execution {new_execution_id} (reset from {execution_id})")
+        logger.info(f"🚀 Started fresh execution {new_execution_id} (reset from {execution_id})", extra={
+            "extra_fields": {
+                "new_execution_id": new_execution_id,
+                "previous_execution_id": execution_id
+            }
+        })
 
         return {
             "execution_id": new_execution_id,
@@ -501,9 +669,12 @@ def reset_execution(execution_id: str, request: ResetExecutionRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to reset execution: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to reset execution {execution_id}: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "reset_failure",
+                "execution_id": execution_id
+            }
+        })
         raise HTTPException(500, f"Failed to reset execution: {str(e)}")
 
 
@@ -517,6 +688,15 @@ def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
         # Validate interrupt type
         valid_types = ['feedback', 'pause', 'stop', 'interrupt', 'input', 'approval', 'user_prompt_response']  # Include user_prompt_response
         if feedback.interrupt_type not in valid_types:
+            logger.warning(f"Invalid interrupt type '{feedback.interrupt_type}' for execution {execution_id}", extra={
+                "extra_fields": {
+                    "error_type": "validation",
+                    "component": "submit_feedback",
+                    "execution_id": execution_id,
+                    "invalid_type": feedback.interrupt_type,
+                    "valid_types": valid_types
+                }
+            })
             raise HTTPException(400, f"Invalid interrupt_type. Must be one of: {valid_types}")
 
         # Map legacy 'interrupt' to 'pause' for backward compatibility
@@ -541,7 +721,13 @@ def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
             feedback_data
         )
 
-        print(f"📝 Submitted {interrupt_type} interrupt for execution {execution_id}")
+        logger.info(f"📝 Submitted {interrupt_type} interrupt for execution {execution_id}", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "turn_number": feedback.turn_number,
+                "interrupt_type": interrupt_type
+            }
+        })
 
         return {
             "status": "submitted",
@@ -553,7 +739,14 @@ def submit_feedback(execution_id: str, feedback: SubmitFeedbackRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to submit feedback: {e}")
+        logger.error(f"Failed to submit feedback for execution {execution_id}: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "feedback_submission_failure",
+                "execution_id": execution_id,
+                "turn_number": feedback.turn_number if feedback else None,
+                "interrupt_type": feedback.interrupt_type if feedback else None
+            }
+        })
         raise HTTPException(500, f"Failed to submit feedback: {str(e)}")
 
 
@@ -573,7 +766,12 @@ def get_execution_status(execution_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to get execution status: {e}")
+        logger.error(f"Failed to get execution status for {execution_id}: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "status_retrieval_failure",
+                "execution_id": execution_id
+            }
+        })
         raise HTTPException(500, f"Failed to get execution status: {str(e)}")
 
 
@@ -594,7 +792,12 @@ def list_executions(limit: int = 50):
         }
 
     except Exception as e:
-        print(f"Failed to list executions: {e}")
+        logger.error(f"Failed to list executions: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "list_executions_failure",
+                "requested_limit": limit
+            }
+        })
         raise HTTPException(500, f"Failed to list executions: {str(e)}")
 
 
@@ -619,6 +822,13 @@ def get_artifact(file_path: str):
 
             # Security check: Ensure resolved path is within temp directory
             if not str(resolved_path).startswith(str(agent_temp_base.resolve())):
+                logger.warning(f"Security: Path traversal attempt in temp files: {file_path}", extra={
+                    "extra_fields": {
+                        "error_type": "security_violation",
+                        "file_path": file_path,
+                        "resolved_path": str(resolved_path)
+                    }
+                })
                 raise HTTPException(403, "Access denied: File path outside artifact directory")
         else:
             # This is a regular workspace file (from create_file, write_file, etc.)
@@ -629,13 +839,32 @@ def get_artifact(file_path: str):
 
             # Security check: Ensure resolved path is within workspace
             if not str(resolved_path).startswith(str(workspace_root.resolve())):
+                logger.warning(f"Security: Path traversal attempt in workspace: {file_path}", extra={
+                    "extra_fields": {
+                        "error_type": "security_violation",
+                        "file_path": file_path,
+                        "resolved_path": str(resolved_path)
+                    }
+                })
                 raise HTTPException(403, "Access denied: File path outside workspace")
 
         # Check if file exists
         if not resolved_path.exists():
+            logger.warning(f"Artifact not found: {file_path}", extra={
+                "extra_fields": {
+                    "error_type": "not_found",
+                    "file_path": file_path
+                }
+            })
             raise HTTPException(404, f"Artifact not found: {file_path}")
 
         if not resolved_path.is_file():
+            logger.warning(f"Path is not a file: {file_path}", extra={
+                "extra_fields": {
+                    "error_type": "invalid_path",
+                    "file_path": file_path
+                }
+            })
             raise HTTPException(400, "Path is not a file")
 
         # Detect file type and determine content type
@@ -655,7 +884,12 @@ def get_artifact(file_path: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to serve artifact '{file_path}': {e}")
+        logger.error(f"Failed to serve artifact '{file_path}': {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "artifact_serve_failure",
+                "file_path": file_path
+            }
+        })
         raise HTTPException(500, f"Failed to serve artifact: {str(e)}")
 
 
@@ -675,6 +909,13 @@ def download_artifacts_as_zip(execution_id: str):
 
         # Check if artifacts directory exists
         if not artifacts_dir.exists():
+            logger.warning(f"No artifacts directory for execution {execution_id}", extra={
+                "extra_fields": {
+                    "error_type": "not_found",
+                    "execution_id": execution_id,
+                    "artifacts_dir": str(artifacts_dir)
+                }
+            })
             raise HTTPException(404, f"No artifacts found for execution {execution_id}")
 
         # Check if directory has any files
@@ -682,6 +923,13 @@ def download_artifacts_as_zip(execution_id: str):
         artifact_files = [f for f in artifact_files if f.is_file()]
 
         if not artifact_files:
+            logger.warning(f"No artifact files in directory for execution {execution_id}", extra={
+                "extra_fields": {
+                    "error_type": "not_found",
+                    "execution_id": execution_id,
+                    "artifacts_dir": str(artifacts_dir)
+                }
+            })
             raise HTTPException(404, f"No artifact files found for execution {execution_id}")
 
         # Create a temporary ZIP file
@@ -706,7 +954,12 @@ def download_artifacts_as_zip(execution_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to create ZIP for execution '{execution_id}': {e}")
+        logger.error(f"Failed to create ZIP for execution '{execution_id}': {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "zip_creation_failure",
+                "execution_id": execution_id
+            }
+        })
         raise HTTPException(500, f"Failed to create artifact ZIP: {str(e)}")
 
 
@@ -735,13 +988,32 @@ def browse_directory(dir_path: str = ""):
 
         # Security check: Ensure path is within workspace
         if not str(resolved_dir).startswith(str(workspace_root.resolve())):
+            logger.warning(f"Security: Path traversal attempt in browse: {dir_path}", extra={
+                "extra_fields": {
+                    "error_type": "security_violation",
+                    "dir_path": dir_path,
+                    "resolved_path": str(resolved_dir)
+                }
+            })
             raise HTTPException(403, "Access denied: Path outside workspace")
 
         # Check if directory exists
         if not resolved_dir.exists():
+            logger.warning(f"Directory not found: {dir_path}", extra={
+                "extra_fields": {
+                    "error_type": "not_found",
+                    "dir_path": dir_path
+                }
+            })
             raise HTTPException(404, f"Directory not found: {dir_path}")
 
         if not resolved_dir.is_dir():
+            logger.warning(f"Path is not a directory: {dir_path}", extra={
+                "extra_fields": {
+                    "error_type": "invalid_path",
+                    "dir_path": dir_path
+                }
+            })
             raise HTTPException(400, "Path is not a directory")
 
         # List directory contents
@@ -778,7 +1050,15 @@ def browse_directory(dir_path: str = ""):
                 }
                 entries.append(entry)
 
-        except PermissionError:
+        except PermissionError as e:
+            logger.error(f"Permission denied browsing directory '{dir_path}': {e}", exc_info=True, extra={
+                "extra_fields": {
+                    "error_type": "permission_denied",
+                    "component": "browse_directory",
+                    "dir_path": dir_path,
+                    "resolved_path": str(resolved_dir) if 'resolved_dir' in locals() else None
+                }
+            })
             raise HTTPException(403, "Permission denied")
 
         # Build breadcrumb path
@@ -800,9 +1080,12 @@ def browse_directory(dir_path: str = ""):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Failed to browse directory '{dir_path}': {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to browse directory '{dir_path}': {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "browse_failure",
+                "dir_path": dir_path
+            }
+        })
         raise HTTPException(500, f"Failed to browse directory: {str(e)}")
 
 
@@ -848,10 +1131,21 @@ def detect_file_type(filename: str) -> str:
 def run_agent_execution(execution_id: str, goal: str, max_turns: int):
     """Run agent execution in background thread with event emission."""
     if not event_store:
-        print("Event store not initialized")
+        logger.error("Event store not initialized in background execution", extra={
+            "extra_fields": {
+                "error_type": "configuration",
+                "execution_id": execution_id
+            }
+        })
         return
 
-    print(f"🤖 Starting agent execution {execution_id}")
+    logger.info(f"🤖 Starting agent execution {execution_id}", extra={
+        "extra_fields": {
+            "execution_id": execution_id,
+            "goal_preview": goal[:100],
+            "max_turns": max_turns
+        }
+    })
 
     try:
         # Create sync agent controller with event store
@@ -863,17 +1157,35 @@ def run_agent_execution(execution_id: str, goal: str, max_turns: int):
         # Agent controller already set status to 'paused' or 'cancelled'
         # Don't override it - agent never truly "completes"
         if result.success:
-            print(f"⏸️  Agent execution {execution_id} paused")
+            logger.info(f"⏸️  Agent execution {execution_id} paused", extra={
+                "extra_fields": {
+                    "execution_id": execution_id,
+                    "final_status": "paused"
+                }
+            })
         else:
             event_store.update_status(execution_id, 'failed')
-            print(f"⚠️  Agent execution {execution_id} failed")
+            logger.warning(f"⚠️  Agent execution {execution_id} failed", extra={
+                "extra_fields": {
+                    "execution_id": execution_id,
+                    "final_status": "failed"
+                }
+            })
 
     except Exception as e:
-        print(f"❌ Agent execution {execution_id} crashed: {e}")
+        logger.error(f"❌ Agent execution {execution_id} crashed: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "execution_crash",
+                "execution_id": execution_id,
+                "goal_preview": goal[:100],
+                "max_turns": max_turns,
+                "error_class": type(e).__name__
+            }
+        })
         import traceback
         event_store.emit_event(
             execution_id, 0, 'execution_failed',
-            {"error": str(e), "traceback": traceback.format_exc()},
+            {"error": str(e), "error_class": type(e).__name__, "traceback": traceback.format_exc()},
             success=False
         )
         event_store.update_status(execution_id, 'failed')
@@ -885,21 +1197,47 @@ def run_agent_continue(execution_id: str, goal: str, max_turns: int):
     Auto-summarization happens transparently during execution.
     """
     if not event_store:
-        print("Event store not initialized")
+        logger.error("Event store not initialized in continue execution", extra={
+            "extra_fields": {
+                "error_type": "configuration",
+                "execution_id": execution_id
+            }
+        })
         return
 
-    print(f"▶️  Continuing agent execution {execution_id}")
+    logger.info(f"▶️  Continuing agent execution {execution_id}", extra={
+        "extra_fields": {
+            "execution_id": execution_id,
+            "goal_preview": goal[:100],
+            "max_turns": max_turns
+        }
+    })
 
     try:
         # Reconstruct state from events
-        print(f"📥 Reconstructing state from execution {execution_id}")
+        logger.info(f"📥 Reconstructing state from execution {execution_id}", extra={
+            "extra_fields": {"execution_id": execution_id}
+        })
         state = reconstruct_state_from_events(execution_id)
 
         if not state:
+            logger.error(f"Could not reconstruct state from execution {execution_id}", extra={
+                "extra_fields": {
+                    "error_type": "state_reconstruction_failure",
+                    "execution_id": execution_id
+                }
+            })
             raise ValueError(f"Could not reconstruct state from execution {execution_id}")
 
-        print(f"✅ State reconstructed: {state.turn_count} turns, {len(state.transcript)} entries, "
-              f"{len(state.state.facts) if state.state else 0} facts")
+        logger.info(f"✅ State reconstructed: {state.turn_count} turns, {len(state.transcript)} entries, "
+              f"{len(state.state.facts) if state.state else 0} facts", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "turn_count": state.turn_count,
+                "transcript_entries": len(state.transcript),
+                "facts_count": len(state.state.facts) if state.state else 0
+            }
+        })
 
         # Update goal (refined/additional context)
         state.goal = goal
@@ -914,15 +1252,28 @@ def run_agent_continue(execution_id: str, goal: str, max_turns: int):
         agent.execute_goal(goal, max_turns, execution_id, existing_state=state)
 
         # Always pauses - never truly "completes"
-        print(f"⏸️  Agent execution {execution_id} paused")
+        logger.info(f"⏸️  Agent execution {execution_id} paused", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "final_status": "paused"
+            }
+        })
 
     except Exception as e:
-        print(f"❌ Agent execution {execution_id} crashed during continue: {e}")
+        logger.error(f"❌ Agent execution {execution_id} crashed during continue: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "continue_execution_crash",
+                "execution_id": execution_id,
+                "goal_preview": goal[:100],
+                "max_turns": max_turns,
+                "error_class": type(e).__name__,
+                "state_reconstructed": 'state' in locals()
+            }
+        })
         import traceback
-        traceback.print_exc()
         event_store.emit_event(
             execution_id, 0, 'execution_failed',
-            {"error": str(e), "traceback": traceback.format_exc()},
+            {"error": str(e), "error_class": type(e).__name__, "traceback": traceback.format_exc()},
             success=False
         )
         event_store.update_status(execution_id, 'failed')
@@ -1012,20 +1363,36 @@ def reconstruct_state_from_events(execution_id: str):
                         state.state = entry.state
 
                 except Exception as e:
-                    print(f"⚠️  Could not reconstruct turn {turn_num}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.warning(f"⚠️  Could not reconstruct turn {turn_num}: {e}", exc_info=True, extra={
+                        "extra_fields": {
+                            "error_type": "turn_reconstruction_failure",
+                            "execution_id": execution_id,
+                            "turn_number": turn_num,
+                            "error_class": type(e).__name__,
+                            "has_llm_response": 'llm_response' in turn and bool(turn.get('llm_response')),
+                            "has_tool_result": 'tool_result' in turn and bool(turn.get('tool_result'))
+                        }
+                    })
                     continue
 
-        print(f"📊 Reconstructed state: {len(state.transcript)} transcript entries, "
-              f"{len(state.state.facts) if state.state else 0} facts")
+        logger.info(f"📊 Reconstructed state: {len(state.transcript)} transcript entries, "
+              f"{len(state.state.facts) if state.state else 0} facts", extra={
+            "extra_fields": {
+                "execution_id": execution_id,
+                "transcript_entries": len(state.transcript),
+                "facts_count": len(state.state.facts) if state.state else 0
+            }
+        })
 
         return state
 
     except Exception as e:
-        print(f"❌ Failed to reconstruct state: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"❌ Failed to reconstruct state for execution {execution_id}: {e}", exc_info=True, extra={
+            "extra_fields": {
+                "error_type": "state_reconstruction_failure",
+                "execution_id": execution_id
+            }
+        })
         return None
 
 
