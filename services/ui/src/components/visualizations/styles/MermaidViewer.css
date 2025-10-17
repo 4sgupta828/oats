@@ -29,12 +29,23 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 300px;
+  min-height: 400px;
+  width: 100%;
+}
+
+.mermaid-content > div {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .mermaid-content svg {
   max-width: 100%;
-  height: auto;
+  height: auto !important;
+  width: auto !important;
+  min-width: 600px;
+  min-height: 400px;
 }
 
 /* Mermaid diagram dark theme overrides */
