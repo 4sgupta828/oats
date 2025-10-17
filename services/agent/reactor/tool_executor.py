@@ -28,6 +28,7 @@ class ReActToolExecutor:
         self.execution_id = None
         self.turn_number = 0
         self._last_full_stdout = None  # Store full stdout for final result extraction
+        self._last_tool_result = None  # Store complete tool result for artifact extraction
         # Create temp directory inside repo to adhere to workspace security rules
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         temp_base = os.path.join(repo_root, ".ufflow_temp")
@@ -106,6 +107,9 @@ class ReActToolExecutor:
 
             # Execute tool using existing infrastructure
             result = execute_tool(uf_descriptor, parameters)
+
+            # Store complete tool result for artifact extraction
+            self._last_tool_result = result
 
             # Detect new/modified files after execution (ONLY for execute_shell)
             detected_artifacts = []
@@ -344,6 +348,41 @@ class ReActToolExecutor:
     def get_last_full_stdout(self) -> Optional[str]:
         """Get the full stdout from the last executed tool (for final result extraction)."""
         return self._last_full_stdout
+
+    def get_artifact_info(self) -> list:
+        """
+        Extract artifact information from the last tool result.
+        Returns a list of dicts with 'path' and 'type' keys.
+        """
+        artifacts = []
+
+        if not self._last_tool_result or not self._last_tool_result.output:
+            return artifacts
+
+        # Check if tool returned dict with artifact info
+        if isinstance(self._last_tool_result.output, dict):
+            output_dict = self._last_tool_result.output
+
+            # Single artifact case (visualization tools, file tools)
+            if 'artifact_path' in output_dict:
+                artifact_type = output_dict.get('artifact_type', 'file')
+                artifacts.append({
+                    'path': output_dict['artifact_path'],
+                    'type': artifact_type
+                })
+                logger.info(f"Extracted artifact from tool output: {output_dict['artifact_path']} ({artifact_type})")
+
+            # Multiple artifacts case
+            elif 'artifacts' in output_dict and isinstance(output_dict['artifacts'], list):
+                for artifact in output_dict['artifacts']:
+                    if isinstance(artifact, dict) and 'path' in artifact:
+                        artifacts.append({
+                            'path': artifact['path'],
+                            'type': artifact.get('type', 'file')
+                        })
+                logger.info(f"Extracted {len(artifacts)} artifacts from tool output")
+
+        return artifacts
 
     def get_available_tools_summary(self) -> str:
         """Get a summary of available tools for error messages."""

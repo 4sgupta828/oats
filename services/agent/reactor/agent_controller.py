@@ -330,8 +330,22 @@ class AgentController:
                     # Determine success from observation
                     tool_success = not observation.startswith("ERROR")
 
-                    # Extract artifact paths (now supports multiple)
-                    artifact_paths = self._extract_artifact_paths(observation)
+                    # Extract artifact info directly from tool result (SDK-based)
+                    # This is more reliable than parsing observation strings
+                    artifacts_from_tool = self.tool_executor.get_artifact_info()
+
+                    # Fallback: Also check observation string for workspace artifacts (execute_shell)
+                    artifacts_from_observation = []
+                    if not artifacts_from_tool:
+                        # Only use regex parsing as fallback for legacy tools
+                        artifact_paths = self._extract_artifact_paths(observation)
+                        artifacts_from_observation = [
+                            {'path': path, 'type': self._detect_artifact_type(path)}
+                            for path in artifact_paths
+                        ]
+
+                    # Combine artifacts (tool result takes priority)
+                    all_artifacts = artifacts_from_tool if artifacts_from_tool else artifacts_from_observation
 
                     # Store complete tool output with intelligent truncation
                     tool_event_data = {
@@ -343,17 +357,12 @@ class AgentController:
                     }
 
                     # Add artifact information if available (send ALL artifacts to UI)
-                    if artifact_paths:
-                        # Send all artifacts to UI
-                        all_artifacts = [
-                            {'path': path, 'type': self._detect_artifact_type(path)}
-                            for path in artifact_paths
-                        ]
+                    if all_artifacts:
                         tool_event_data['artifacts'] = all_artifacts
 
                         # For backward compatibility, also include first artifact
-                        tool_event_data['artifact_path'] = artifact_paths[0]
-                        tool_event_data['artifact_type'] = self._detect_artifact_type(artifact_paths[0])
+                        tool_event_data['artifact_path'] = all_artifacts[0]['path']
+                        tool_event_data['artifact_type'] = all_artifacts[0]['type']
 
                     self._emit(execution_id, turn_number,
                              'tool_success' if tool_success else 'tool_failed',
