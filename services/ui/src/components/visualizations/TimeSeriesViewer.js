@@ -1,20 +1,83 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactECharts from 'echarts-for-react';
 import VisualizationControls from './VisualizationControls';
 import './styles/TimeSeriesViewer.css';
 
 const TimeSeriesViewer = ({ spec, vizId }) => {
   const [selectedTimeRange, setSelectedTimeRange] = useState(null);
+  const [globalTimeRange, setGlobalTimeRange] = useState({ start: 0, end: 100 }); // Percentage
+  const [showCorrelation, setShowCorrelation] = useState(false);
+  const [correlations, setCorrelations] = useState([]);
+
+  // Calculate correlations between metrics
+  const calculateCorrelation = useMemo(() => {
+    if (!spec.data.series || spec.data.series.length < 2) return [];
+
+    const results = [];
+    const series = spec.data.series;
+
+    // Calculate correlation for each pair of metrics
+    for (let i = 0; i < series.length; i++) {
+      for (let j = i + 1; j < series.length; j++) {
+        const seriesA = series[i];
+        const seriesB = series[j];
+
+        // Get data in the selected time range
+        const startIdx = Math.floor((globalTimeRange.start / 100) * seriesA.data.length);
+        const endIdx = Math.ceil((globalTimeRange.end / 100) * seriesA.data.length);
+
+        const dataA = seriesA.data.slice(startIdx, endIdx).map(d => d.value);
+        const dataB = seriesB.data.slice(startIdx, endIdx).map(d => d.value);
+
+        // Calculate Pearson correlation coefficient
+        const n = Math.min(dataA.length, dataB.length);
+        if (n < 2) continue;
+
+        const meanA = dataA.reduce((a, b) => a + b, 0) / n;
+        const meanB = dataB.reduce((a, b) => a + b, 0) / n;
+
+        let numerator = 0;
+        let sumSqA = 0;
+        let sumSqB = 0;
+
+        for (let k = 0; k < n; k++) {
+          const diffA = dataA[k] - meanA;
+          const diffB = dataB[k] - meanB;
+          numerator += diffA * diffB;
+          sumSqA += diffA * diffA;
+          sumSqB += diffB * diffB;
+        }
+
+        const denominator = Math.sqrt(sumSqA * sumSqB);
+        const correlation = denominator === 0 ? 0 : numerator / denominator;
+
+        results.push({
+          metricA: seriesA.name,
+          metricB: seriesB.name,
+          correlation: correlation.toFixed(3),
+          strength: Math.abs(correlation) > 0.7 ? 'Strong' : Math.abs(correlation) > 0.4 ? 'Moderate' : 'Weak',
+          direction: correlation > 0 ? 'Positive' : 'Negative'
+        });
+      }
+    }
+
+    return results.sort((a, b) => Math.abs(parseFloat(b.correlation)) - Math.abs(parseFloat(a.correlation)));
+  }, [spec.data.series, globalTimeRange]);
 
   // Create a separate chart option for each series
-  const createChartOption = (series) => {
+  const createChartOption = (series, syncTimeRange = true) => {
     // Get anomalies that affect this specific metric
     const relevantAnomalies = (spec.data.anomalies || []).filter(anomaly => {
       return !anomaly.affected_metrics || anomaly.affected_metrics.includes(series.name);
     });
 
+    // Filter data based on global time range
+    const startIdx = Math.floor((globalTimeRange.start / 100) * series.data.length);
+    const endIdx = Math.ceil((globalTimeRange.end / 100) * series.data.length);
+    const filteredData = series.data.slice(startIdx, endIdx);
+
     // Calculate proper Y-axis range with some padding
-    const values = series.data.map(d => d.value);
+    const values = filteredData.map(d => d.value);
     const minValue = Math.min(...values);
     const maxValue = Math.max(...values);
     const padding = (maxValue - minValue) * 0.1; // 10% padding
@@ -93,7 +156,7 @@ const TimeSeriesViewer = ({ spec, vizId }) => {
         {
           name: series.name,
           type: 'line',
-          data: series.data.map(d => [d.timestamp, d.value]),
+          data: filteredData.map(d => [d.timestamp, d.value]),
           smooth: true,
           lineStyle: {
             width: 2,
@@ -136,7 +199,14 @@ const TimeSeriesViewer = ({ spec, vizId }) => {
           } : undefined
         }
       ],
-      dataZoom: [
+      dataZoom: syncTimeRange ? [
+        {
+          type: 'inside',
+          start: 0,
+          end: 100,
+          filterMode: 'filter'
+        }
+      ] : [
         {
           type: 'inside',
           start: 0,
@@ -172,14 +242,112 @@ const TimeSeriesViewer = ({ spec, vizId }) => {
     <div className="timeseries-viewer">
       <div className="timeseries-header">
         <h3>{spec.title}</h3>
-        <VisualizationControls vizId={vizId} spec={spec} type="timeseries" />
+        <div className="timeseries-controls">
+          <button
+            className="correlation-button"
+            onClick={() => {
+              setShowCorrelation(!showCorrelation);
+              if (!showCorrelation) setCorrelations(calculateCorrelation);
+            }}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: showCorrelation ? '#4488ff' : '#2c2c2c',
+              color: '#fff',
+              border: '1px solid #666',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              marginRight: '12px'
+            }}
+          >
+            {showCorrelation ? 'Hide' : 'Show'} Correlations
+          </button>
+          <VisualizationControls vizId={vizId} spec={spec} type="timeseries" />
+        </div>
+      </div>
+
+      {showCorrelation && correlations.length > 0 && (
+        <div className="correlation-panel">
+          <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#fff' }}>
+            Metric Correlations (in selected range)
+          </h4>
+          <div className="correlation-grid">
+            {correlations.map((corr, idx) => (
+              <div key={idx} className="correlation-item" style={{
+                padding: '10px',
+                backgroundColor: '#2c2c2c',
+                borderRadius: '4px',
+                borderLeft: `4px solid ${corr.direction === 'Positive' ? '#4caf50' : '#f44336'}`
+              }}>
+                <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>
+                  {corr.metricA} ⟷ {corr.metricB}
+                </div>
+                <div style={{ fontSize: '11px', opacity: 0.8 }}>
+                  <span style={{ color: corr.direction === 'Positive' ? '#4caf50' : '#f44336' }}>
+                    {corr.direction} {corr.correlation}
+                  </span>
+                  {' '}({corr.strength})
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Global time range slider */}
+      <div className="global-time-control">
+        <label style={{ fontSize: '13px', color: '#aaa', marginBottom: '8px', display: 'block' }}>
+          Time Window: {globalTimeRange.start.toFixed(0)}% - {globalTimeRange.end.toFixed(0)}%
+        </label>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={globalTimeRange.start}
+            onChange={(e) => {
+              const start = parseFloat(e.target.value);
+              if (start < globalTimeRange.end - 5) {
+                setGlobalTimeRange({ ...globalTimeRange, start });
+              }
+            }}
+            style={{ flex: 1 }}
+          />
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={globalTimeRange.end}
+            onChange={(e) => {
+              const end = parseFloat(e.target.value);
+              if (end > globalTimeRange.start + 5) {
+                setGlobalTimeRange({ ...globalTimeRange, end });
+              }
+            }}
+            style={{ flex: 1 }}
+          />
+          <button
+            onClick={() => setGlobalTimeRange({ start: 0, end: 100 })}
+            style={{
+              padding: '6px 12px',
+              backgroundColor: '#2c2c2c',
+              color: '#fff',
+              border: '1px solid #666',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '11px'
+            }}
+          >
+            Reset
+          </button>
+        </div>
       </div>
 
       <div className="timeseries-charts">
         {spec.data.series.map((series, index) => (
           <div key={index} className="timeseries-chart-container">
             <ReactECharts
-              option={createChartOption(series)}
+              option={createChartOption(series, true)}
               style={{ height: '280px', width: '100%' }}
               onEvents={{
                 click: onChartClick

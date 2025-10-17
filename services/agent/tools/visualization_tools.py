@@ -70,31 +70,74 @@ def save_visualization_artifact(viz_spec: Dict[str, Any], viz_type: str, name_su
 
 
 class GenerateMetricsVisualizationInput(UfInput):
-    """Generate time-series visualization from metrics data"""
+    """Generate time-series visualization from metrics data
+
+    Use either input_file OR (series + other params). If input_file is provided, it takes precedence.
+    """
     title: str = Field(..., description="Chart title (e.g., 'Pod Memory Usage - production')")
-    y_axis_label: str = Field(..., description="Y-axis label (e.g., 'Memory (MB)', 'CPU (%)')")
-    series: List[Dict[str, Any]] = Field(..., description="List of time-series data: [{'name': 'pod-1', 'data': [[timestamp_ms, value], ...]}]")
+    input_file: Optional[str] = Field(None, description="Path to JSON file containing metrics data with structure: {'series': [...], 'anomalies': [...], 'y_axis_label': '...'}. Use this to avoid passing large data through LLM context.")
+    y_axis_label: Optional[str] = Field(None, description="Y-axis label (e.g., 'Memory (MB)', 'CPU (%)'). Required if not in input_file.")
+    series: Optional[List[Dict[str, Any]]] = Field(None, description="List of time-series data: [{'name': 'pod-1', 'data': [[timestamp_ms, value], ...]}]. Required if input_file not provided.")
     anomalies: Optional[List[Dict[str, Any]]] = Field(None, description="Anomaly regions: [{'start': ts, 'end': ts, 'reason': 'spike detected', 'severity': 'critical'}]")
     events: Optional[List[Dict[str, Any]]] = Field(None, description="Event markers: [{'timestamp': ts, 'label': 'Deployment', 'description': '...'}]")
     metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata (namespace, cluster, etc.)")
 
 
 @uf(name="generate_metrics_visualization", version="1.0.0",
-   description="Generate interactive time-series chart from metrics data. Use this after querying metrics to create visual representation with anomaly highlighting and zoom capabilities.")
+   description="Generate interactive time-series chart from metrics data. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat. The tool will read and parse the file internally.")
 def generate_metrics_visualization(inputs: GenerateMetricsVisualizationInput) -> dict:
     """Generate time-series visualization from metrics"""
     try:
+        # Read from file if provided
+        if inputs.input_file:
+            try:
+                with open(inputs.input_file, 'r') as f:
+                    file_data = json.load(f)
+
+                # Extract data from file
+                series = file_data.get('series', [])
+                y_axis_label = file_data.get('y_axis_label', file_data.get('yAxisLabel', 'Value'))
+                anomalies = file_data.get('anomalies', inputs.anomalies or [])
+                events = file_data.get('events', inputs.events or [])
+                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+
+                logger.info(f"Loaded metrics from file: {inputs.input_file} ({len(series)} series, {sum(len(s.get('data', [])) for s in series)} data points)")
+
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+                }
+        else:
+            # Use inline data
+            if not inputs.series:
+                return {
+                    "status": "error",
+                    "error": "Either input_file or series must be provided"
+                }
+            if not inputs.y_axis_label:
+                return {
+                    "status": "error",
+                    "error": "y_axis_label is required when not using input_file"
+                }
+
+            series = inputs.series
+            y_axis_label = inputs.y_axis_label
+            anomalies = inputs.anomalies or []
+            events = inputs.events or []
+            metadata = inputs.metadata or {}
+
         # Build visualization spec
         viz_spec = {
             "type": "timeseries",
             "title": inputs.title,
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "metadata": inputs.metadata or {},
+            "metadata": metadata,
             "data": {
-                "yAxisLabel": inputs.y_axis_label,
-                "series": inputs.series,
-                "anomalies": inputs.anomalies or [],
-                "events": inputs.events or []
+                "yAxisLabel": y_axis_label,
+                "series": series,
+                "anomalies": anomalies,
+                "events": events
             }
         }
 
@@ -103,9 +146,10 @@ def generate_metrics_visualization(inputs: GenerateMetricsVisualizationInput) ->
         result = save_visualization_artifact(viz_spec, "timeseries", name_suffix)
 
         if result["status"] == "success":
+            total_points = sum(len(s.get('data', [])) for s in series)
             return {
                 **result,
-                "message": f"Created time-series visualization with {len(inputs.series)} series"
+                "message": f"Created time-series visualization with {len(series)} series ({total_points} data points total)"
             }
         else:
             return result
@@ -119,10 +163,14 @@ def generate_metrics_visualization(inputs: GenerateMetricsVisualizationInput) ->
 
 
 class GenerateTopologyVisualizationInput(UfInput):
-    """Generate topology/network graph visualization"""
+    """Generate topology/network graph visualization
+
+    Use either input_file OR (nodes + edges). If input_file is provided, it takes precedence.
+    """
     title: str = Field(..., description="Graph title (e.g., 'Service Dependencies - prod namespace')")
-    nodes: List[Dict[str, Any]] = Field(..., description="Nodes: [{'id': 'svc-1', 'label': 'API', 'type': 'service', 'status': 'healthy', 'position': {'x': 0, 'y': 0}, 'metadata': {...}}]")
-    edges: List[Dict[str, Any]] = Field(..., description="Edges: [{'id': 'edge-1', 'source': 'svc-1', 'target': 'svc-2', 'label': 'HTTP', 'type': 'http'}]")
+    input_file: Optional[str] = Field(None, description="Path to JSON file containing topology data with structure: {'nodes': [...], 'edges': [...], 'layout': '...'}. Use this to avoid passing large graph data through LLM context.")
+    nodes: Optional[List[Dict[str, Any]]] = Field(None, description="Nodes: [{'id': 'svc-1', 'label': 'API', 'type': 'service', 'status': 'healthy', 'metadata': {...}}]. Required if input_file not provided.")
+    edges: Optional[List[Dict[str, Any]]] = Field(None, description="Edges: [{'id': 'edge-1', 'source': 'svc-1', 'target': 'svc-2', 'label': 'HTTP', 'type': 'http'}]. Required if input_file not provided.")
     highlights: Optional[List[str]] = Field(None, description="Node IDs to highlight (e.g., unhealthy services)")
     annotations: Optional[Dict[str, str]] = Field(None, description="Annotations for nodes: {'node-id': 'High error rate detected'}")
     layout: str = Field(default="hierarchical", description="Layout algorithm: 'hierarchical', 'force', 'circular'")
@@ -130,26 +178,62 @@ class GenerateTopologyVisualizationInput(UfInput):
 
 
 @uf(name="generate_topology_visualization", version="1.0.0",
-   description="Generate interactive topology/dependency graph. Use this to visualize service mesh, pod relationships, network topology, or any node-edge graph structure.")
+   description="Generate interactive topology/dependency graph. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat. The tool will read and parse the file internally.")
 def generate_topology_visualization(inputs: GenerateTopologyVisualizationInput) -> dict:
     """Generate topology visualization from nodes and edges"""
     try:
+        # Read from file if provided
+        if inputs.input_file:
+            try:
+                with open(inputs.input_file, 'r') as f:
+                    file_data = json.load(f)
+
+                # Extract data from file
+                nodes = file_data.get('nodes', [])
+                edges = file_data.get('edges', [])
+                layout = file_data.get('layout', inputs.layout)
+                highlights = file_data.get('highlights', inputs.highlights or [])
+                annotations = file_data.get('annotations', inputs.annotations or {})
+                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+
+                logger.info(f"Loaded topology from file: {inputs.input_file} ({len(nodes)} nodes, {len(edges)} edges)")
+
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+                }
+        else:
+            # Use inline data
+            if not inputs.nodes or not inputs.edges:
+                return {
+                    "status": "error",
+                    "error": "Either input_file or (nodes + edges) must be provided"
+                }
+
+            nodes = inputs.nodes
+            edges = inputs.edges
+            layout = inputs.layout
+            highlights = inputs.highlights or []
+            annotations = inputs.annotations or {}
+            metadata = inputs.metadata or {}
+
         # Build visualization spec
         viz_spec = {
             "type": "topology",
             "title": inputs.title,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "metadata": {
-                **(inputs.metadata or {}),
-                "node_count": len(inputs.nodes),
-                "edge_count": len(inputs.edges)
+                **metadata,
+                "node_count": len(nodes),
+                "edge_count": len(edges)
             },
             "data": {
-                "nodes": inputs.nodes,
-                "edges": inputs.edges,
-                "highlights": inputs.highlights or [],
-                "annotations": inputs.annotations or {},
-                "layout": inputs.layout
+                "nodes": nodes,
+                "edges": edges,
+                "highlights": highlights,
+                "annotations": annotations,
+                "layout": layout
             }
         }
 
@@ -160,7 +244,7 @@ def generate_topology_visualization(inputs: GenerateTopologyVisualizationInput) 
         if result["status"] == "success":
             return {
                 **result,
-                "message": f"Created topology visualization with {len(inputs.nodes)} nodes and {len(inputs.edges)} edges"
+                "message": f"Created topology visualization with {len(nodes)} nodes and {len(edges)} edges"
             }
         else:
             return result
@@ -174,28 +258,60 @@ def generate_topology_visualization(inputs: GenerateTopologyVisualizationInput) 
 
 
 class GenerateLogsVisualizationInput(UfInput):
-    """Generate advanced log viewer with filtering"""
+    """Generate advanced log viewer with filtering
+
+    Use either input_file OR logs. If input_file is provided, it takes precedence.
+    """
     title: str = Field(..., description="Log viewer title (e.g., 'Application Logs - pod-abc-123')")
-    logs: List[Dict[str, Any]] = Field(..., description="Log entries: [{'timestamp': '2024-...', 'level': 'ERROR', 'message': '...', 'source': 'app.py:45', 'trace_id': '...'}]")
+    input_file: Optional[str] = Field(None, description="Path to JSON file containing logs data with structure: {'logs': [...], 'summary': {...}}. Use this to avoid passing large log data through LLM context.")
+    logs: Optional[List[Dict[str, Any]]] = Field(None, description="Log entries: [{'timestamp': '2024-...', 'level': 'ERROR', 'message': '...', 'source': 'app.py:45', 'trace_id': '...'}]. Required if input_file not provided.")
     summary: Optional[Dict[str, int]] = Field(None, description="Log level summary: {'error': 10, 'warn': 20, 'info': 100, 'debug': 50}")
     highlights: Optional[Dict[str, Any]] = Field(None, description="Time range highlights: {'timeRange': {'start': '...', 'end': '...', 'reason': 'Error spike'}}")
     metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata (pod, namespace, container, etc.)")
 
 
 @uf(name="generate_logs_visualization", version="1.0.0",
-   description="Generate advanced log viewer with filtering, search, and level-based highlighting. Use this after querying logs to provide interactive log analysis.")
+   description="Generate advanced log viewer with filtering, search, and level-based highlighting. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat.")
 def generate_logs_visualization(inputs: GenerateLogsVisualizationInput) -> dict:
     """Generate logs visualization from log entries"""
     try:
+        # Read from file if provided
+        if inputs.input_file:
+            try:
+                with open(inputs.input_file, 'r') as f:
+                    file_data = json.load(f)
+
+                logs = file_data.get('logs', [])
+                summary = file_data.get('summary', inputs.summary)
+                highlights = file_data.get('highlights', inputs.highlights or {})
+                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+
+                logger.info(f"Loaded logs from file: {inputs.input_file} ({len(logs)} log entries)")
+
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+                }
+        else:
+            if not inputs.logs:
+                return {
+                    "status": "error",
+                    "error": "Either input_file or logs must be provided"
+                }
+
+            logs = inputs.logs
+            summary = inputs.summary
+            highlights = inputs.highlights or {}
+            metadata = inputs.metadata or {}
+
         # Calculate summary if not provided
-        if not inputs.summary:
+        if not summary:
             summary = {"error": 0, "warn": 0, "info": 0, "debug": 0}
-            for log in inputs.logs:
+            for log in logs:
                 level = log.get("level", "INFO").lower()
                 if level in summary:
                     summary[level] += 1
-        else:
-            summary = inputs.summary
 
         # Build visualization spec
         viz_spec = {
@@ -203,13 +319,13 @@ def generate_logs_visualization(inputs: GenerateLogsVisualizationInput) -> dict:
             "title": inputs.title,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "metadata": {
-                **(inputs.metadata or {}),
-                "total_logs": len(inputs.logs)
+                **metadata,
+                "total_logs": len(logs)
             },
             "data": {
-                "logs": inputs.logs,
+                "logs": logs,
                 "summary": summary,
-                "highlights": inputs.highlights or {}
+                "highlights": highlights
             }
         }
 
@@ -220,7 +336,7 @@ def generate_logs_visualization(inputs: GenerateLogsVisualizationInput) -> dict:
         if result["status"] == "success":
             return {
                 **result,
-                "message": f"Created log visualization with {len(inputs.logs)} log entries ({summary.get('error', 0)} errors)"
+                "message": f"Created log visualization with {len(logs)} log entries ({summary.get('error', 0)} errors)"
             }
         else:
             return result
@@ -234,44 +350,78 @@ def generate_logs_visualization(inputs: GenerateLogsVisualizationInput) -> dict:
 
 
 class GenerateTraceVisualizationInput(UfInput):
-    """Generate distributed trace waterfall visualization"""
+    """Generate distributed trace waterfall visualization
+
+    Use either input_file OR (trace_id + duration + spans). If input_file is provided, it takes precedence.
+    """
     title: str = Field(..., description="Trace title (e.g., 'Distributed Trace - Request ID: abc123')")
-    trace_id: str = Field(..., description="Trace ID")
-    duration: int = Field(..., description="Total trace duration in milliseconds")
-    spans: List[Dict[str, Any]] = Field(..., description="Spans: [{'spanId': 'span-1', 'parentId': None, 'service': 'api-gateway', 'operation': 'GET /api/users', 'startTime': 0, 'duration': 1250, 'error': False, 'tags': {...}}]")
+    input_file: Optional[str] = Field(None, description="Path to JSON file containing trace data with structure: {'trace_id': '...', 'duration': ..., 'spans': [...]}. Use this to avoid passing large trace data through LLM context.")
+    trace_id: Optional[str] = Field(None, description="Trace ID. Required if input_file not provided.")
+    duration: Optional[int] = Field(None, description="Total trace duration in milliseconds. Required if input_file not provided.")
+    spans: Optional[List[Dict[str, Any]]] = Field(None, description="Spans: [{'spanId': 'span-1', 'parentId': None, 'service': 'api-gateway', 'operation': 'GET /api/users', 'startTime': 0, 'duration': 1250, 'error': False, 'tags': {...}}]. Required if input_file not provided.")
     metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata (root_service, etc.)")
 
 
 @uf(name="generate_trace_visualization", version="1.0.0",
-   description="Generate waterfall visualization for distributed traces. Use this after querying traces to show request flow through microservices with timing and error information.")
+   description="Generate waterfall visualization for distributed traces. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat.")
 def generate_trace_visualization(inputs: GenerateTraceVisualizationInput) -> dict:
     """Generate trace visualization from span data"""
     try:
+        # Read from file if provided
+        if inputs.input_file:
+            try:
+                with open(inputs.input_file, 'r') as f:
+                    file_data = json.load(f)
+
+                trace_id = file_data.get('trace_id', file_data.get('traceId', 'unknown'))
+                duration = file_data.get('duration', 0)
+                spans = file_data.get('spans', [])
+                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+
+                logger.info(f"Loaded trace from file: {inputs.input_file} (trace_id: {trace_id}, {len(spans)} spans)")
+
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+                }
+        else:
+            if not inputs.trace_id or not inputs.spans or inputs.duration is None:
+                return {
+                    "status": "error",
+                    "error": "Either input_file or (trace_id + duration + spans) must be provided"
+                }
+
+            trace_id = inputs.trace_id
+            duration = inputs.duration
+            spans = inputs.spans
+            metadata = inputs.metadata or {}
+
         # Build visualization spec
         viz_spec = {
             "type": "trace",
             "title": inputs.title,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "metadata": {
-                **(inputs.metadata or {}),
-                "trace_id": inputs.trace_id,
-                "span_count": len(inputs.spans)
+                **metadata,
+                "trace_id": trace_id,
+                "span_count": len(spans)
             },
             "data": {
-                "traceId": inputs.trace_id,
-                "duration": inputs.duration,
-                "spans": inputs.spans
+                "traceId": trace_id,
+                "duration": duration,
+                "spans": spans
             }
         }
 
         # Save as artifact
-        name_suffix = f"trace_{inputs.trace_id[:16]}"
+        name_suffix = f"trace_{trace_id[:16]}"
         result = save_visualization_artifact(viz_spec, "trace", name_suffix)
 
         if result["status"] == "success":
             return {
                 **result,
-                "message": f"Created trace visualization with {len(inputs.spans)} spans ({inputs.duration}ms total)"
+                "message": f"Created trace visualization with {len(spans)} spans ({duration}ms total)"
             }
         else:
             return result
