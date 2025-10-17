@@ -321,7 +321,7 @@ SUCCESS (execute_shell):
 📊 LARGE OUTPUT DETECTED:
   - Total: 3874 lines, 175328 chars
   - Full output saved to: .ufflow_temp/observations_<id>/<file>.txt
-  - Preview (head/tail): {...}
+  - Preview (head/tail): {{...}}
 ```
 
 **CRITICAL:** The preview is NOT data - it's only head/tail. You MUST read the temp file (use Layer 2 approach above) or chain to visualization tools directly. **NEVER fabricate data based on the preview - this causes hallucinated results.**
