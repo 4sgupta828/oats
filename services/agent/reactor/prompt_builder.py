@@ -317,11 +317,54 @@ class ReActPromptBuilder:
         # Load the template
         template = self._load_prompt_template()
 
+        # Split template into system prompt and turn-specific parts
+        # The system prompt ends before "## Input Context (This Turn)"
+        lines = template.split('\n')
+        system_lines = []
+        turn_specific_lines = []
+        
+        in_system_prompt = True
+        for line in lines:
+            if line.strip() == "## Input Context (This Turn)":
+                in_system_prompt = False
+                turn_specific_lines.append(line)
+            elif in_system_prompt:
+                system_lines.append(line)
+            else:
+                turn_specific_lines.append(line)
+        
+        # Join the system prompt lines
+        system_template = '\n'.join(system_lines)
+        
+        # Escape single braces in JSON examples (but preserve template variables)
+        # Template variables are already in {{variable}} format, so we need to be careful
+        import re
+        
+        # First, protect template variables
+        template_vars = {}
+        var_counter = 0
+        
+        # Find all template variables like {{variable}}
+        template_pattern = r'\{\{([^}]+)\}\}'
+        for match in re.finditer(template_pattern, system_template):
+            var_name = match.group(1)
+            placeholder = f"__TEMPLATE_VAR_{var_counter}__"
+            template_vars[placeholder] = match.group(0)
+            system_template = system_template.replace(match.group(0), placeholder, 1)
+            var_counter += 1
+        
+        # Now escape all remaining single braces
+        system_template = system_template.replace('{', '{{').replace('}', '}}')
+        
+        # Restore template variables
+        for placeholder, original in template_vars.items():
+            system_template = system_template.replace(placeholder, original)
+        
         # Get system-specific commands
         system_commands = self._get_system_specific_commands()
 
         # Replace placeholders with actual values
-        prompt = template.format(
+        prompt = system_template.format(
             os=self.system_context['os'],
             shell_notes=self.system_context['shell_notes'],
             python_version=self.system_context['python_version'],
