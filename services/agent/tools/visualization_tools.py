@@ -72,60 +72,54 @@ def save_visualization_artifact(viz_spec: Dict[str, Any], viz_type: str, name_su
 class GenerateMetricsVisualizationInput(UfInput):
     """Generate time-series visualization from metrics data
 
-    Use either input_file OR (series + other params). If input_file is provided, it takes precedence.
+    IMPORTANT: This tool REQUIRES input_file. DO NOT pass inline data.
+    The tool reads all necessary data from the file.
     """
     title: str = Field(..., description="Chart title (e.g., 'Pod Memory Usage - production')")
-    input_file: Optional[str] = Field(None, description="Path to JSON file containing metrics data with structure: {'series': [...], 'anomalies': [...], 'y_axis_label': '...'}. Use this to avoid passing large data through LLM context.")
-    y_axis_label: Optional[str] = Field(None, description="Y-axis label (e.g., 'Memory (MB)', 'CPU (%)'). Required if not in input_file.")
-    series: Optional[List[Dict[str, Any]]] = Field(None, description="List of time-series data: [{'name': 'pod-1', 'data': [[timestamp_ms, value], ...]}]. Required if input_file not provided.")
-    anomalies: Optional[List[Dict[str, Any]]] = Field(None, description="Anomaly regions: [{'start': ts, 'end': ts, 'reason': 'spike detected', 'severity': 'critical'}]")
-    events: Optional[List[Dict[str, Any]]] = Field(None, description="Event markers: [{'timestamp': ts, 'label': 'Deployment', 'description': '...'}]")
-    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata (namespace, cluster, etc.)")
+    input_file: str = Field(..., description="REQUIRED: Path to JSON file containing metrics data. File must have structure: {'series': [...], 'y_axis_label': '...', 'anomalies': [...], 'events': [...], 'metadata': {...}}. The 'series' and 'y_axis_label' fields are required in the file.")
+    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata to merge with file metadata (namespace, cluster, etc.)")
 
 
 @uf(name="generate_metrics_visualization", version="1.0.0",
-   description="Generate interactive time-series chart from metrics data. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat. The tool will read and parse the file internally.")
+   description="Generate interactive time-series chart from metrics data. REQUIRES input_file parameter with path to JSON file. DO NOT pass inline data like series or y_axis_label - they must be in the file.")
 def generate_metrics_visualization(inputs: GenerateMetricsVisualizationInput) -> dict:
     """Generate time-series visualization from metrics"""
     try:
-        # Read from file if provided
-        if inputs.input_file:
-            try:
-                with open(inputs.input_file, 'r') as f:
-                    file_data = json.load(f)
+        # Read from file
+        try:
+            with open(inputs.input_file, 'r') as f:
+                file_data = json.load(f)
 
-                # Extract data from file
-                series = file_data.get('series', [])
-                y_axis_label = file_data.get('y_axis_label', file_data.get('yAxisLabel', 'Value'))
-                anomalies = file_data.get('anomalies', inputs.anomalies or [])
-                events = file_data.get('events', inputs.events or [])
-                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+            # Extract data from file
+            series = file_data.get('series', [])
+            y_axis_label = file_data.get('y_axis_label', file_data.get('yAxisLabel', 'Value'))
+            anomalies = file_data.get('anomalies', [])
+            events = file_data.get('events', [])
+            metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
 
-                logger.info(f"Loaded metrics from file: {inputs.input_file} ({len(series)} series, {sum(len(s.get('data', [])) for s in series)} data points)")
-
-            except Exception as e:
+            if not series:
                 return {
                     "status": "error",
-                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
-                }
-        else:
-            # Use inline data
-            if not inputs.series:
-                return {
-                    "status": "error",
-                    "error": "Either input_file or series must be provided"
-                }
-            if not inputs.y_axis_label:
-                return {
-                    "status": "error",
-                    "error": "y_axis_label is required when not using input_file"
+                    "error": f"'series' field is required in input file {inputs.input_file}"
                 }
 
-            series = inputs.series
-            y_axis_label = inputs.y_axis_label
-            anomalies = inputs.anomalies or []
-            events = inputs.events or []
-            metadata = inputs.metadata or {}
+            logger.info(f"Loaded metrics from file: {inputs.input_file} ({len(series)} series, {sum(len(s.get('data', [])) for s in series)} data points)")
+
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "error": f"File not found: '{inputs.input_file}'"
+            }
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "error": f"Invalid JSON in file '{inputs.input_file}': {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+            }
 
         # Build visualization spec
         viz_spec = {
@@ -165,58 +159,56 @@ def generate_metrics_visualization(inputs: GenerateMetricsVisualizationInput) ->
 class GenerateTopologyVisualizationInput(UfInput):
     """Generate topology/network graph visualization
 
-    Use either input_file OR (nodes + edges). If input_file is provided, it takes precedence.
+    IMPORTANT: This tool REQUIRES input_file. DO NOT pass inline data.
+    The tool reads all necessary data from the file.
     """
     title: str = Field(..., description="Graph title (e.g., 'Service Dependencies - prod namespace')")
-    input_file: Optional[str] = Field(None, description="Path to JSON file containing topology data with structure: {'nodes': [...], 'edges': [...], 'layout': '...'}. Use this to avoid passing large graph data through LLM context.")
-    nodes: Optional[List[Dict[str, Any]]] = Field(None, description="Nodes: [{'id': 'svc-1', 'label': 'API', 'type': 'service', 'status': 'healthy', 'metadata': {...}}]. Required if input_file not provided.")
-    edges: Optional[List[Dict[str, Any]]] = Field(None, description="Edges: [{'id': 'edge-1', 'source': 'svc-1', 'target': 'svc-2', 'label': 'HTTP', 'type': 'http'}]. Required if input_file not provided.")
-    highlights: Optional[List[str]] = Field(None, description="Node IDs to highlight (e.g., unhealthy services)")
-    annotations: Optional[Dict[str, str]] = Field(None, description="Annotations for nodes: {'node-id': 'High error rate detected'}")
-    layout: str = Field(default="hierarchical", description="Layout algorithm: 'hierarchical', 'force', 'circular'")
-    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata")
+    input_file: str = Field(..., description="REQUIRED: Path to JSON file containing topology data. File must have structure: {'nodes': [...], 'edges': [...], 'layout': '...', 'highlights': [...], 'annotations': {...}, 'metadata': {...}}. The 'nodes' and 'edges' fields are required in the file.")
+    layout: str = Field(default="hierarchical", description="Layout algorithm override: 'hierarchical', 'force', 'circular'. If not specified, uses layout from file.")
+    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata to merge with file metadata")
 
 
 @uf(name="generate_topology_visualization", version="1.0.0",
-   description="Generate interactive topology/dependency graph. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat. The tool will read and parse the file internally.")
+   description="Generate interactive topology/dependency graph. REQUIRES input_file parameter with path to JSON file. DO NOT pass inline data like nodes or edges - they must be in the file.")
 def generate_topology_visualization(inputs: GenerateTopologyVisualizationInput) -> dict:
     """Generate topology visualization from nodes and edges"""
     try:
-        # Read from file if provided
-        if inputs.input_file:
-            try:
-                with open(inputs.input_file, 'r') as f:
-                    file_data = json.load(f)
+        # Read from file
+        try:
+            with open(inputs.input_file, 'r') as f:
+                file_data = json.load(f)
 
-                # Extract data from file
-                nodes = file_data.get('nodes', [])
-                edges = file_data.get('edges', [])
-                layout = file_data.get('layout', inputs.layout)
-                highlights = file_data.get('highlights', inputs.highlights or [])
-                annotations = file_data.get('annotations', inputs.annotations or {})
-                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+            # Extract data from file
+            nodes = file_data.get('nodes', [])
+            edges = file_data.get('edges', [])
+            layout = file_data.get('layout', inputs.layout)
+            highlights = file_data.get('highlights', [])
+            annotations = file_data.get('annotations', {})
+            metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
 
-                logger.info(f"Loaded topology from file: {inputs.input_file} ({len(nodes)} nodes, {len(edges)} edges)")
-
-            except Exception as e:
+            if not nodes or not edges:
                 return {
                     "status": "error",
-                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
-                }
-        else:
-            # Use inline data
-            if not inputs.nodes or not inputs.edges:
-                return {
-                    "status": "error",
-                    "error": "Either input_file or (nodes + edges) must be provided"
+                    "error": f"'nodes' and 'edges' fields are required in input file {inputs.input_file}"
                 }
 
-            nodes = inputs.nodes
-            edges = inputs.edges
-            layout = inputs.layout
-            highlights = inputs.highlights or []
-            annotations = inputs.annotations or {}
-            metadata = inputs.metadata or {}
+            logger.info(f"Loaded topology from file: {inputs.input_file} ({len(nodes)} nodes, {len(edges)} edges)")
+
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "error": f"File not found: '{inputs.input_file}'"
+            }
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "error": f"Invalid JSON in file '{inputs.input_file}': {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+            }
 
         # Build visualization spec
         viz_spec = {
@@ -260,50 +252,52 @@ def generate_topology_visualization(inputs: GenerateTopologyVisualizationInput) 
 class GenerateLogsVisualizationInput(UfInput):
     """Generate advanced log viewer with filtering
 
-    Use either input_file OR logs. If input_file is provided, it takes precedence.
+    IMPORTANT: This tool REQUIRES input_file. DO NOT pass inline data.
+    The tool reads all necessary data from the file.
     """
     title: str = Field(..., description="Log viewer title (e.g., 'Application Logs - pod-abc-123')")
-    input_file: Optional[str] = Field(None, description="Path to JSON file containing logs data with structure: {'logs': [...], 'summary': {...}}. Use this to avoid passing large log data through LLM context.")
-    logs: Optional[List[Dict[str, Any]]] = Field(None, description="Log entries: [{'timestamp': '2024-...', 'level': 'ERROR', 'message': '...', 'source': 'app.py:45', 'trace_id': '...'}]. Required if input_file not provided.")
-    summary: Optional[Dict[str, int]] = Field(None, description="Log level summary: {'error': 10, 'warn': 20, 'info': 100, 'debug': 50}")
-    highlights: Optional[Dict[str, Any]] = Field(None, description="Time range highlights: {'timeRange': {'start': '...', 'end': '...', 'reason': 'Error spike'}}")
-    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata (pod, namespace, container, etc.)")
+    input_file: str = Field(..., description="REQUIRED: Path to JSON file containing logs data. File must have structure: {'logs': [...], 'summary': {...}, 'highlights': {...}, 'metadata': {...}}. The 'logs' field is required in the file.")
+    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata to merge with file metadata (pod, namespace, container, etc.)")
 
 
 @uf(name="generate_logs_visualization", version="1.0.0",
-   description="Generate advanced log viewer with filtering, search, and level-based highlighting. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat.")
+   description="Generate advanced log viewer with filtering, search, and level-based highlighting. REQUIRES input_file parameter with path to JSON file. DO NOT pass inline data like logs - they must be in the file.")
 def generate_logs_visualization(inputs: GenerateLogsVisualizationInput) -> dict:
     """Generate logs visualization from log entries"""
     try:
-        # Read from file if provided
-        if inputs.input_file:
-            try:
-                with open(inputs.input_file, 'r') as f:
-                    file_data = json.load(f)
+        # Read from file
+        try:
+            with open(inputs.input_file, 'r') as f:
+                file_data = json.load(f)
 
-                logs = file_data.get('logs', [])
-                summary = file_data.get('summary', inputs.summary)
-                highlights = file_data.get('highlights', inputs.highlights or {})
-                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+            logs = file_data.get('logs', [])
+            summary = file_data.get('summary')
+            highlights = file_data.get('highlights', {})
+            metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
 
-                logger.info(f"Loaded logs from file: {inputs.input_file} ({len(logs)} log entries)")
-
-            except Exception as e:
+            if not logs:
                 return {
                     "status": "error",
-                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
-                }
-        else:
-            if not inputs.logs:
-                return {
-                    "status": "error",
-                    "error": "Either input_file or logs must be provided"
+                    "error": f"'logs' field is required in input file {inputs.input_file}"
                 }
 
-            logs = inputs.logs
-            summary = inputs.summary
-            highlights = inputs.highlights or {}
-            metadata = inputs.metadata or {}
+            logger.info(f"Loaded logs from file: {inputs.input_file} ({len(logs)} log entries)")
+
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "error": f"File not found: '{inputs.input_file}'"
+            }
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "error": f"Invalid JSON in file '{inputs.input_file}': {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+            }
 
         # Calculate summary if not provided
         if not summary:
@@ -352,50 +346,52 @@ def generate_logs_visualization(inputs: GenerateLogsVisualizationInput) -> dict:
 class GenerateTraceVisualizationInput(UfInput):
     """Generate distributed trace waterfall visualization
 
-    Use either input_file OR (trace_id + duration + spans). If input_file is provided, it takes precedence.
+    IMPORTANT: This tool REQUIRES input_file. DO NOT pass inline data.
+    The tool reads all necessary data from the file.
     """
     title: str = Field(..., description="Trace title (e.g., 'Distributed Trace - Request ID: abc123')")
-    input_file: Optional[str] = Field(None, description="Path to JSON file containing trace data with structure: {'trace_id': '...', 'duration': ..., 'spans': [...]}. Use this to avoid passing large trace data through LLM context.")
-    trace_id: Optional[str] = Field(None, description="Trace ID. Required if input_file not provided.")
-    duration: Optional[int] = Field(None, description="Total trace duration in milliseconds. Required if input_file not provided.")
-    spans: Optional[List[Dict[str, Any]]] = Field(None, description="Spans: [{'spanId': 'span-1', 'parentId': None, 'service': 'api-gateway', 'operation': 'GET /api/users', 'startTime': 0, 'duration': 1250, 'error': False, 'tags': {...}}]. Required if input_file not provided.")
-    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata (root_service, etc.)")
+    input_file: str = Field(..., description="REQUIRED: Path to JSON file containing trace data. File must have structure: {'trace_id': '...', 'duration': ..., 'spans': [...], 'metadata': {...}}. The 'trace_id', 'duration', and 'spans' fields are required in the file.")
+    metadata: Optional[Dict[str, str]] = Field(None, description="Additional metadata to merge with file metadata (root_service, etc.)")
 
 
 @uf(name="generate_trace_visualization", version="1.0.0",
-   description="Generate waterfall visualization for distributed traces. PREFERRED: Use input_file to pass file path instead of inline data to avoid context bloat.")
+   description="Generate waterfall visualization for distributed traces. REQUIRES input_file parameter with path to JSON file. DO NOT pass inline data like trace_id, duration, or spans - they must be in the file.")
 def generate_trace_visualization(inputs: GenerateTraceVisualizationInput) -> dict:
     """Generate trace visualization from span data"""
     try:
-        # Read from file if provided
-        if inputs.input_file:
-            try:
-                with open(inputs.input_file, 'r') as f:
-                    file_data = json.load(f)
+        # Read from file
+        try:
+            with open(inputs.input_file, 'r') as f:
+                file_data = json.load(f)
 
-                trace_id = file_data.get('trace_id', file_data.get('traceId', 'unknown'))
-                duration = file_data.get('duration', 0)
-                spans = file_data.get('spans', [])
-                metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
+            trace_id = file_data.get('trace_id', file_data.get('traceId', 'unknown'))
+            duration = file_data.get('duration', 0)
+            spans = file_data.get('spans', [])
+            metadata = {**(file_data.get('metadata', {})), **(inputs.metadata or {})}
 
-                logger.info(f"Loaded trace from file: {inputs.input_file} (trace_id: {trace_id}, {len(spans)} spans)")
-
-            except Exception as e:
+            if not trace_id or not spans or duration is None:
                 return {
                     "status": "error",
-                    "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
-                }
-        else:
-            if not inputs.trace_id or not inputs.spans or inputs.duration is None:
-                return {
-                    "status": "error",
-                    "error": "Either input_file or (trace_id + duration + spans) must be provided"
+                    "error": f"'trace_id', 'duration', and 'spans' fields are required in input file {inputs.input_file}"
                 }
 
-            trace_id = inputs.trace_id
-            duration = inputs.duration
-            spans = inputs.spans
-            metadata = inputs.metadata or {}
+            logger.info(f"Loaded trace from file: {inputs.input_file} (trace_id: {trace_id}, {len(spans)} spans)")
+
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "error": f"File not found: '{inputs.input_file}'"
+            }
+        except json.JSONDecodeError as e:
+            return {
+                "status": "error",
+                "error": f"Invalid JSON in file '{inputs.input_file}': {str(e)}"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Failed to read input_file '{inputs.input_file}': {str(e)}"
+            }
 
         # Build visualization spec
         viz_spec = {
