@@ -67,7 +67,7 @@ const AgentMessage = ({ message, backendUrl, executionId, onUserPromptResponse }
     const codeContent = message.params?.content || message.params?.new_content;
 
     // Create a params object without the code content for cleaner display
-    const displayParams = { ...message.params };
+    const displayParams = { ...(message.params || {}) };
     if (isFileOp && codeContent) {
       delete displayParams.content;
       delete displayParams.new_content;
@@ -115,7 +115,7 @@ const AgentMessage = ({ message, backendUrl, executionId, onUserPromptResponse }
                   }}
                   showLineNumbers={true}
                 >
-                  {codeContent}
+                  {typeof codeContent === 'string' ? codeContent : String(codeContent || '')}
                 </SyntaxHighlighter>
               </div>
 
@@ -150,7 +150,7 @@ const AgentMessage = ({ message, backendUrl, executionId, onUserPromptResponse }
                   borderRadius: '4px'
                 }}
               >
-                {JSON.stringify(message.params, null, 2)}
+                {JSON.stringify(message.params || {}, null, 2)}
               </SyntaxHighlighter>
             </div>
           )}

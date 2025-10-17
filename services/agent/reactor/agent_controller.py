@@ -1280,8 +1280,18 @@ class AgentController:
         if not artifact_path:
             return 'file'
 
-        # Extract extension
+        # Extract extension and filename
         _, ext = os.path.splitext(artifact_path.lower())
+        filename_lower = artifact_path.lower()
+
+        # Check for visualization artifacts first (priority check)
+        # Visualization files are in .oats_artifacts and have specific prefixes
+        if '.oats_artifacts' in artifact_path and ext == '.json':
+            # Check for visualization type prefixes
+            viz_types = ['topology', 'timeseries', 'mermaid', 'trace', 'logs']
+            for viz_type in viz_types:
+                if viz_type in filename_lower:
+                    return 'visualization'
 
         # Map extensions to types
         type_map = {
@@ -1316,7 +1326,6 @@ class AgentController:
             return 'code'
 
         # Check for trace/metric patterns in filename
-        filename_lower = artifact_path.lower()
         if 'trace' in filename_lower or 'span' in filename_lower:
             return 'traces'
         if 'metric' in filename_lower or 'stats' in filename_lower:
