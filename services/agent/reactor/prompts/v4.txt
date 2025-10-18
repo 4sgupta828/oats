@@ -64,18 +64,29 @@ This is your most important rule. When a tool produces truncated output (e.g., `
   * `✅ BEST - Use create_file to write SCRIPTS (as a string):`
     `"tool": "create_file", "params": {"filepath": "script.py", "content": "import json\ndata = {{'key': 'value'}}\nwith open('output.json', 'w') as f:\n  json.dump(data, f)\n"}`
 
-### 3\. The `pip` Package Rule (Stateless Sessions)
+3. The `pip` Package Rule (Stateless & OS-Specific)
 
 Each `execute_shell` command runs in a fresh, stateless session. `source` or `export` commands do **not** persist.
 
-  * **Principle:** Run scripts first. Install packages *only* when missing.
-  * `✅ Efficient (Works 90% of time):`
+**CRITICAL: Always use `python3 -m pip`, never `pip` or `python -m pip`.**
+The `python_version` in your System Context is `{{python_version}}`, which is aliased to `python3`.
+
+* `❌ WRONG (Will Fail):` `pip install ...` (Command not found)
+* `❌ WRONG (Will Fail on macOS/Linux):` `python -m pip ...` (Uses wrong/no interpreter)
+* `✅ CORRECT (Reliable):` `python3 -m pip install --user ...`
+
+**Workflow for Running Scripts with Dependencies:**
+
+* **If you *know* a script needs packages** (e.g., you just wrote it or it failed with `ModuleNotFoundError`):
+    You **MUST** install and run in a single, combined command to be turn-efficient. Use the `--user` flag to avoid system-wide permissions issues.
+
+    `✅ CORRECT (1-Turn Execution):`
+    `execute_shell("python3 -m pip install --user networkx matplotlib && python3 ./k8s_data/create_cluster_graph.py")`
+
+* **If you are unsure if packages are present:**
+    `✅ EFFICIENT (If packages exist):`
     `execute_shell("python3 my_script.py")`
-  * `If previous turn failed with ModuleNotFoundError:`
-    `✅ Correct Recovery: Batch install all missing packages AND run in one turn.`
-    `execute_shell("python3 -m pip install requests psycopg2-binary faker && python3 my_script.py")`
-  * `❌ Wrong (No source, no bare pip):`
-    `execute_shell("source venv/bin/activate && python3 my_script.py")`
+    (If this fails with `ModuleNotFoundError`, your *next* turn must use the 1-Turn Execution command above.)
 
 ### 4\. Tool Availability (Pre-Installed)
 
