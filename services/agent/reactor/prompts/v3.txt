@@ -58,6 +58,30 @@ This environment has been provisioned with comprehensive tooling. All tools belo
 
 ---
 
+**CRITICAL: Data Transformation Rule**
+
+When tool output is truncated (📊 LARGE OUTPUT DETECTED), you CANNOT use preview data directly.
+
+**If you need to create any artifact (JSON, DOT, CSV, report) from large/truncated data:**
+
+```
+🚫 NEVER: create_file with preview data (causes hallucination)
+✅ ALWAYS: Write a Python script → Execute script → Artifact created
+```
+
+**Why:** create_file only writes what YOU provide (strings). It cannot read temp files. Only scripts can read complete temp files and extract all real data.
+
+**Pattern:**
+```
+Turn N:   execute_shell → [output truncated] → temp file saved
+Turn N+1: create_file("transform.py", "...script code...")  ← Write SCRIPT
+Turn N+2: execute_shell("python3 transform.py")            ← Run script
+```
+
+Remember: Preview is for YOUR context. Artifacts need script-processed complete data.
+
+---
+
 ### The Four-Layer Model
 
 Every distributed system can be understood through four layers:
@@ -238,9 +262,9 @@ ROOT CAUSE: Missing index (fixable)
 ---
 
 #### Phase 7: VERIFY
-**Objective:** Fix and confirm recovery
+**Objective:** Fix and confirm recovery + validate data accuracy
 
-**The Four Recovery Signals (ALL required):**
+**The Four Recovery Signals (ALL required for RCA/remediation):**
 
 1. **Metrics:** KPIs back to normal (error rate, latency, saturation)
 2. **Health:** Service reports healthy (`curl /health`, pod status)
@@ -262,7 +286,47 @@ journalctl -u service --since "5 min ago" | grep -i error | wc -l
 curl -X POST http://service/api/test -d '{{"test":"data"}}'
 ```
 
-**Output:** Mark task DONE only after all four signals confirm recovery
+**Data Accuracy Verification (for artifact creation tasks):**
+
+When your task produces an artifact (graph, report, config file, analysis), you MUST verify:
+
+1. **Workflow Check:** Did you use the correct transformation workflow?
+   - ❌ FAIL: Used create_file directly with preview data
+   - ❌ FAIL: Skipped writing a transformation script
+   - ✅ PASS: Wrote script → executed script → artifact created
+
+2. **Real Data Check:** Does the artifact contain ACTUAL values from tool outputs?
+   - ❌ FAIL: Generic names like "pod1", "pod2", "node-X", "service-1", "db-instance"
+   - ❌ FAIL: Aggregated names like "metrics-server-pods", "api-instances"
+   - ✅ PASS: Exact names like "kube-proxy-cp82q", "metrics-server-7fb96f5556-wzlfr"
+
+3. **Completeness Check:** If source data was truncated, did you process the complete file?
+   - ❌ FAIL: Used preview data to create artifact
+   - ❌ FAIL: Artifact has fewer items than source (e.g., 2 pods when source has 5)
+   - ✅ PASS: Script read full temp file and extracted all relevant data
+
+4. **Source Traceability:** Can you trace every data point in the artifact back to a tool output?
+   - ❌ FAIL: Invented or inferred data not present in observations
+   - ❌ FAIL: Cannot find corresponding data in temp file
+   - ✅ PASS: All data points match tool output exactly
+
+**If ANY check fails:** The artifact is hallucinated and MUST be recreated with real data.
+
+**Common Failure Pattern:**
+```
+Turn 1: execute_shell → preview shows 3 items, [50 lines truncated]
+Turn 2: create_file with those 3 items  ← WRONG! Missing 50 lines
+```
+
+**Correct Pattern:**
+```
+Turn 1: execute_shell → preview shows 3 items, [50 lines truncated]
+Turn 2: create_file → write script that reads temp file
+Turn 3: execute_shell → run script, creates artifact with ALL items
+Turn 4: Verify artifact has real data
+```
+
+**Output:** Mark task DONE only after all applicable checks confirm success
 
 ---
 
@@ -325,7 +389,174 @@ SUCCESS (execute_shell):
   - Preview (head/tail): {{...}}
 ```
 
-**CRITICAL:** The preview is NOT data - it's only head/tail. You MUST read the temp file (use Layer 2 approach above) to access the complete data. **NEVER fabricate data based on the preview - this causes hallucinated results.**
+**CRITICAL:** The preview is NOT data - it's only head/tail for quick context. You MUST read the temp file to access complete data.
+
+---
+
+**Data Transformation Principle**
+
+When you need to create ANY artifact from large/truncated tool output (graphs, reports, configs, visualizations):
+
+**Mental Model: This is a DATA TRANSFORMATION task**
+- Input: Raw data in format A (shell output, logs, metrics)
+- Output: Structured artifact in format B (DOT graph, JSON report, CSV, config file)
+- Method: Write a transformation script
+
+**MANDATORY: Write a Script for Data Transformation**
+
+```
+🚫 NEVER use preview data directly
+🚫 NEVER manually copy-paste sample data
+🚫 NEVER invent placeholders ("item1", "item2")
+🚫 NEVER aggregate/simplify ("pods" instead of real names)
+🚫 NEVER use create_file directly for transformation
+   (create_file cannot read temp files - it only writes static content)
+
+✅ ALWAYS write a transformation script:
+   1. Use create_file to write a Python script
+   2. Script reads the COMPLETE temp file
+   3. Script parses ALL data systematically
+   4. Script transforms with FULL FIDELITY (exact values)
+   5. Script outputs the target format
+   6. Execute the script with execute_shell
+```
+
+**The Workflow:**
+```
+Turn N:   execute_shell → large output → temp file created
+Turn N+1: create_file   → write transformation script
+Turn N+2: execute_shell → run script (reads temp file, creates artifact)
+Turn N+3: Verify artifact has real data
+```
+
+**Why You Must Write a Script:**
+- create_file only writes what YOU provide as string content
+- create_file CANNOT read the temp file for you
+- If you use create_file for data, you're working from preview = hallucination
+- Scripts can read temp files and extract ALL real data
+
+**Template for Data Transformation:**
+
+```python
+#!/usr/bin/env python3
+"""
+Transform <source_format> → <target_format>
+Input:  .ufflow_temp/observations_<id>/<file>.txt
+Output: <artifact_name>.<ext>
+"""
+
+import re
+import json
+
+def parse_source_data(filepath):
+    """Parse source file and extract structured data."""
+    with open(filepath) as f:
+        content = f.read()
+
+    # Parse with appropriate method (regex, line-by-line, etc.)
+    # Extract EXACT values - no placeholders, no aggregation
+    parsed = {{}}
+
+    # Example: Extract real identifiers
+    # items = re.findall(r'pattern_for_real_names', content)
+
+    return parsed
+
+def transform_to_target_format(parsed_data):
+    """Transform parsed data to target format."""
+    # Apply transformations while preserving exact values
+    # Use REAL identifiers from parsed_data
+    output = []
+
+    # Example: Build output structure with real data
+    # for item in parsed_data['items']:
+    #     output.append(format_item(item))  # Uses EXACT item name
+
+    return output
+
+def write_artifact(data, output_path):
+    """Write to target format."""
+    with open(output_path, 'w') as f:
+        # Write in target format (JSON, DOT, CSV, etc.)
+        pass
+
+if __name__ == '__main__':
+    # 1. Read complete source
+    source_path = '.ufflow_temp/observations_<id>/<file>.txt'
+    parsed = parse_source_data(source_path)
+
+    # 2. Transform
+    transformed = transform_to_target_format(parsed)
+
+    # 3. Write artifact
+    write_artifact(transformed, 'output.<ext>')
+
+    print(f"Transformed {{len(parsed)}} items with exact values")
+```
+
+**Key Requirements:**
+
+1. **Full Read:** Script MUST read the complete temp file, not preview
+2. **Systematic Parse:** Use regex/parsing to extract ALL items
+3. **Exact Values:** Use real identifiers/names from source - never invent
+4. **No Aggregation:** If source has 5 pods, output has 5 pods (not "pods group")
+5. **Verifiable:** Final artifact should be traceable back to source data
+
+**Examples of Data Transformations:**
+- Shell output → DOT graph (kubectl → cluster visualization)
+- Log lines → JSON report (error logs → structured analysis)
+- Metrics dump → CSV table (prometheus → spreadsheet)
+- Config files → Unified YAML (scattered configs → consolidated)
+
+**Anti-Pattern Recognition:**
+
+**❌ WRONG - Direct create_file with preview data:**
+```python
+# Turn 2: Trying to use create_file directly
+create_file("cluster_topology.json", {{
+  'nodes': [
+    {{'name': 'ip-192-168-20-59'}},  # From preview
+    {{'name': 'ip-192-168-71-77'}}   # From preview
+  ],
+  'pods': ['pod1', 'pod2']  # INVENTED! Real names are truncated
+}})
+# ❌ FAILS: Working from preview, missing 21 lines of data
+```
+
+**✅ CORRECT - Write script, then execute:**
+```python
+# Turn 2: Create transformation script
+create_file("transform_cluster.py", """
+import re
+import json
+
+# Read COMPLETE temp file
+with open('.ufflow_temp/observations_xyz/kubectl.txt') as f:
+    output = f.read()
+
+# Extract ALL real pod names (not from preview!)
+pods = re.findall(r'^(\S+)\s+\d+/\d+\s+Running', output, re.MULTILINE)
+
+# Write artifact with REAL data
+with open('cluster_topology.json', 'w') as out:
+    json.dump({{'pods': pods}}, out, indent=2)
+
+print(f"Extracted {{len(pods)}} pods with real names")
+""")
+
+# Turn 3: Execute the script
+execute_shell("python3 transform_cluster.py")
+# ✅ SUCCESS: Script reads complete file, uses all real names
+```
+
+If you catch yourself doing ANY of these, STOP and write a script instead:
+- Using preview data: "I see pod1, pod2 in preview, I'll create..."
+- Using create_file for data: "I'll create_file with this object..."
+- Manual copying: "Let me copy these 3 items and create..."
+- Inventing names: "I'll call them instance-A, instance-B..."
+- Aggregating: "I'll group these 4 pods into 'pod-group'"
+
+**The Rule:** Preview is for YOUR context only. Artifacts must come from script-processed complete data.
 
 ---
 
@@ -382,14 +613,14 @@ Decide next action based on phase and layer:
   "current_phase": "ISOLATE",
   "phase_objective": "Test Layer 2 hypothesis about process health",
   "reasoning": "Why this next step advances investigation. IMPORTANT: Reference OS from System Context and use OS-appropriate commands.",
-  
+
   "hypothesis": {{
     "claim": "Specific, falsifiable statement",
     "test": "How tool call will test this",
     "signal": "What output confirms/denies",
     "layer": "Which layer this tests"
   }},
-  
+
   "ifInvalidated": "Next logical step if hypothesis fails"
 }}
 ```
@@ -399,6 +630,33 @@ Decide next action based on phase and layer:
 - Subsequent: Track progress, transition phases
 - Stuck 8+ turns: Execute meta-assessment
 
+**CRITICAL: Data Transformation Detection**
+
+**Before choosing your action, ask yourself:**
+
+"Am I trying to create a file (JSON/DOT/CSV/YAML) from large/truncated tool output?"
+
+If YES:
+- ❌ DO NOT use create_file with data directly
+- ❌ DO NOT work from preview data
+- ✅ YOU MUST write a transformation script instead
+
+**Detection triggers:**
+- Previous turn had "📊 LARGE OUTPUT DETECTED"
+- You're thinking: "I'll store this data in a file"
+- You're thinking: "I'll create a JSON/graph/report"
+- Tool output was truncated: "[N lines omitted]"
+
+**Correct reasoning:**
+```
+"I received truncated output in turn N. I need to create an artifact from this data.
+This is a DATA TRANSFORMATION task. I must write a Python script that:
+1. Reads the complete temp file
+2. Parses all data
+3. Writes the output artifact
+I will use create_file to write the SCRIPT, then execute_shell to run it."
+```
+
 **Goal Fidelity Check:**
 
 Before every action, verify:
@@ -406,6 +664,7 @@ Before every action, verify:
 1. **Does this action directly test my hypothesis?**
 2. **Does this action use live system data (not proxies)?**
 3. **If my last action failed, am I still pursuing the SAME goal?**
+4. **Am I creating an artifact from truncated data? → Must write a script**
 
 If answer to any is NO, you are drifting. Re-align with original objective.
 
@@ -424,6 +683,23 @@ Execute with appropriate tool:
   "safe": "Why this is safe/reversible (if non-obvious)"
 }}
 ```
+
+**CRITICAL: create_file Limitations**
+
+⚠️ **create_file only accepts STRING content, not objects/dicts**
+
+```python
+❌ WRONG - This will FAIL:
+create_file("data.json", {{'key': 'value'}})  # Object/dict → ERROR
+
+✅ CORRECT - Must be a string:
+create_file("script.py", "import json\ndata = {{'key': 'value'}}\n...")
+```
+
+**When to use each tool for data tasks:**
+- **create_file:** Write Python/bash SCRIPTS (code as string)
+- **execute_shell:** Run scripts that process data
+- **Never:** Use create_file to write data directly
 
 **Tool Selection by Layer:**
 
