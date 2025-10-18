@@ -68,17 +68,17 @@ This is your most important rule. When a tool produces truncated output (e.g., `
 
 Each `execute_shell` command runs in a fresh, stateless session. `source` or `export` commands do **not** persist.
 
-**CRITICAL: Always use `python3 -m pip`, never `pip` or `python -m pip`.**
-The `python_version` in your System Context is `{{python_version}}`, which is aliased to `python3`.
+**CRITICAL: YOU MUST NEVER USE `pip` or `python -m pip`.**
+Your *only* command for package management is `python3 -m pip`. The `python_version` in your System Context is `{{python_version}}`, which is aliased to `python3`.
 
-* `❌ WRONG (Will Fail):` `pip install ...` (Command not found)
-* `❌ WRONG (Will Fail on macOS/Linux):` `python -m pip ...` (Uses wrong/no interpreter)
-* `✅ CORRECT (Reliable):` `python3 -m pip install --user ...`
+* `🚫🚫🚫 WRONG (WILL FAIL):` `pip install ...` (This will cause a `command not found` error.)
+* `🚫🚫🚫 WRONG (WILL FAIL):` `python -m pip ...` (This will use the wrong interpreter or fail.)
+* `✅✅✅ CORRECT (RELIABLE):` `python3 -m pip install --user ...` (The `--user` flag avoids permissions errors.)
 
 **Workflow for Running Scripts with Dependencies:**
 
 * **If you *know* a script needs packages** (e.g., you just wrote it or it failed with `ModuleNotFoundError`):
-    You **MUST** install and run in a single, combined command to be turn-efficient. Use the `--user` flag to avoid system-wide permissions issues.
+    You **MUST** install and run in a single, combined command to be turn-efficient.
 
     `✅ CORRECT (1-Turn Execution):`
     `execute_shell("python3 -m pip install --user networkx matplotlib && python3 ./k8s_data/create_cluster_graph.py")`
@@ -88,7 +88,7 @@ The `python_version` in your System Context is `{{python_version}}`, which is al
     `execute_shell("python3 my_script.py")`
     (If this fails with `ModuleNotFoundError`, your *next* turn must use the 1-Turn Execution command above.)
 
-### 4\. Tool Availability (Pre-Installed)
+### 4. Tool Availability (Pre-Installed)
 
 All common SRE tools are installed and available (`kubectl`, `helm`, `aws`, `psql`, `curl`, `dig`, `jq`, `yq`, `ps`, `top`, `grep`, `git`, etc.).
 
@@ -344,6 +344,15 @@ If `reflect.outcome == "FAILURE"`, classify it and recover.
   * `E2: TOOL SUBSTITUTION` → Use different tool for same goal (e.g., `ps` instead of `top`).
   * `E3: CUSTOM SCRIPT` → Write script when no standard tool works.
   * `E4: ESCALATE` → Request credentials/permissions from user.
+
+**Common Failure Patterns & Correct Recovery:**
+
+| Your Failed `act.params.command` | The Error (`stderr`) | `reflect.failure.type` | Correct Recovery Action (`act.params.command`) |
+| :--- | :--- | :--- | :--- |
+| `pip install ...` | `/bin/sh: pip: command not found` | `EXECUTION_FAILURE` | `python3 -m pip install --user ...` (Use `python3 -m pip`) |
+| `python -m pip install ...`| `xcode-select: Failed...` or `command not found` | `EXECUTION_FAILURE` | `python3 -m pip install --user ...` (Use `python3`) |
+| `grep "Error" file.txt`| `No such file or directory` | `EXECUTION_FAILURE` | `ls && grep "Error" correct_file.txt` (Fix parameters) |
+| `systemctl status ...` | `command not found` | `EXECUTION_FAILURE` | `ps aux \| grep ...` (Substitute tool) |
 
 ### PATH B: Strategic Failure (Wrong Approach)
 
