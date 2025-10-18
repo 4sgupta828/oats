@@ -168,7 +168,8 @@ class ReActState(BaseModel):
         self.end_time = None
 
 class ParsedLLMResponse(BaseModel):
-    """Structured representation of LLM response in new JSON format."""
+    # NOTE: No docstring - it was causing Anthropic's tool_use API to confuse the schema
+    # and return {"description": "..."} instead of the actual structured fields
     reflect: ReflectSection = Field(..., description="Reflection section")
     strategize: StrategizeSection = Field(..., description="Strategy section")
     state: State = Field(..., description="Updated state")

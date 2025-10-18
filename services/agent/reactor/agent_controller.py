@@ -661,10 +661,57 @@ class AgentController:
         # Get the JSON schema from the Pydantic model
         schema = ParsedLLMResponse.model_json_schema()
 
+        # Anthropic's tool_use API doesn't properly handle $ref in nested schemas
+        # Inline all $ref definitions to avoid the LLM returning strings for nested objects
+        inlined_schema = self._inline_schema_refs(schema)
+
         return {
             "name": "react_response",
-            "schema": schema
+            "schema": inlined_schema
         }
+
+    def _inline_schema_refs(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recursively inline all $ref definitions in a JSON schema.
+        This fixes issues where Anthropic's tool_use API returns strings for nested objects.
+        """
+        import copy
+
+        # Make a deep copy to avoid modifying the original
+        schema = copy.deepcopy(schema)
+
+        # Extract definitions
+        definitions = schema.get('$defs', {})
+
+        def resolve_ref(obj: Any) -> Any:
+            """Recursively resolve $ref pointers."""
+            if isinstance(obj, dict):
+                # If this is a $ref, resolve it
+                if '$ref' in obj:
+                    ref_path = obj['$ref']
+                    if ref_path.startswith('#/$defs/'):
+                        def_name = ref_path.split('/')[-1]
+                        if def_name in definitions:
+                            # Get the definition and resolve any nested refs
+                            resolved = copy.deepcopy(definitions[def_name])
+                            return resolve_ref(resolved)
+                    return obj
+
+                # Recursively resolve all values
+                return {k: resolve_ref(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [resolve_ref(item) for item in obj]
+            else:
+                return obj
+
+        # Resolve all refs in the schema
+        inlined = resolve_ref(schema)
+
+        # Remove $defs since everything is now inlined
+        if '$defs' in inlined:
+            del inlined['$defs']
+
+        return inlined
 
     def _parse_llm_response(self, raw_response: str) -> ParsedLLMResponse:
         """Parse LLM response in new JSON format."""
@@ -704,30 +751,94 @@ class AgentController:
             # Validate and create ParsedLLMResponse
             from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis
 
-            # Handle wrapped response format (if LLM returns {"response": {...}})
-            if "response" in response_data and isinstance(response_data["response"], dict):
-                response_data = response_data["response"]
+            # Handle wrapped response formats (multiple possible wrapper keys)
+            # Check for common wrapper formats the LLM might use
+            wrapper_keys = ["response", "parsed_llm_response", "data", "result"]
+            for wrapper_key in wrapper_keys:
+                if wrapper_key in response_data and isinstance(response_data[wrapper_key], dict):
+                    logger.debug(f"Unwrapping response from '{wrapper_key}' key")
+                    response_data = response_data[wrapper_key]
+                    break
 
-            reflect = ReflectSection(**response_data.get("reflect", {}))
+            # Validate required top-level fields exist
+            required_fields = ["reflect", "strategize", "state", "act"]
+            missing_fields = [field for field in required_fields if field not in response_data]
+            if missing_fields:
+                raise ValueError(f"Missing required fields in response: {missing_fields}. Available keys: {list(response_data.keys())}")
 
+            # Parse reflect section
+            reflect_data = response_data.get("reflect")
+            if not reflect_data or not isinstance(reflect_data, dict):
+                raise ValueError(f"'reflect' field is missing or invalid. Got: {type(reflect_data)}")
+            reflect = ReflectSection(**reflect_data)
+
+            # Parse strategize section with null-safe hypothesis handling
             strategize_data = response_data.get("strategize", {})
-            hypothesis_data = strategize_data.get("hypothesis", {})
-            hypothesis = Hypothesis(**hypothesis_data)
+            if not isinstance(strategize_data, dict):
+                raise ValueError(f"'strategize' field must be a dict. Got: {type(strategize_data)}")
+
+            # Handle hypothesis - can be null when task is complete
+            hypothesis_data = strategize_data.get("hypothesis")
+            if hypothesis_data is None or (isinstance(hypothesis_data, dict) and not hypothesis_data):
+                # Create a default hypothesis for finish actions
+                logger.debug("hypothesis is null or empty, using default")
+                hypothesis = Hypothesis(claim="N/A", test="N/A", signal="N/A")
+            elif isinstance(hypothesis_data, dict):
+                hypothesis = Hypothesis(**hypothesis_data)
+            else:
+                raise ValueError(f"'hypothesis' must be a dict or null. Got: {type(hypothesis_data)}")
+
+            # Handle ifInvalidated - can be null
+            if_invalidated = strategize_data.get("ifInvalidated")
+            if if_invalidated is None:
+                if_invalidated = "N/A"
+
             strategize = StrategizeSection(
                 reasoning=strategize_data.get("reasoning", ""),
                 hypothesis=hypothesis,
-                ifInvalidated=strategize_data.get("ifInvalidated", "")
+                ifInvalidated=if_invalidated
             )
 
-            state = State(**response_data.get("state", {}))
+            # Parse state section
+            state_data = response_data.get("state")
+            if not state_data or not isinstance(state_data, dict):
+                raise ValueError(f"'state' field is missing or invalid. Got: {type(state_data)}")
+            state = State(**state_data)
 
             # Handle case where act might be None (when task is complete)
             act_data = response_data.get("act")
             if act_data is None:
                 # Create a finish action when act is null
+                logger.debug("act is null, creating default finish action")
                 act = ActSection(tool="finish", params={})
-            else:
+            elif isinstance(act_data, str):
+                # Handle case where LLM returns act as a JSON string instead of object
+                logger.warning("act field is a string, parsing as JSON")
+                try:
+                    # Try direct parsing first
+                    act_data = json.loads(act_data)
+                    act = ActSection(**act_data)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse act string as JSON: {e}")
+                    logger.error(f"Problematic act string: {act_data[:500]}")
+
+                    # Try to fix common escape sequence issues
+                    try:
+                        # Replace common malformed escape sequences
+                        fixed_act_data = act_data.replace('\\\n', '\\n')  # Fix triple backslash-n
+                        fixed_act_data = fixed_act_data.replace('\\n', '\n')   # Convert to actual newline
+                        fixed_act_data = fixed_act_data.replace('\\t', '\t')   # Convert to actual tab
+
+                        act_data = json.loads(fixed_act_data)
+                        act = ActSection(**act_data)
+                        logger.info("Successfully parsed act string after fixing escape sequences")
+                    except (json.JSONDecodeError, Exception) as e2:
+                        logger.error(f"Failed to parse act string even after fixing escapes: {e2}")
+                        raise ValueError(f"act field is a malformed JSON string: {e}")
+            elif isinstance(act_data, dict):
                 act = ActSection(**act_data)
+            else:
+                raise ValueError(f"'act' must be a dict, string, or null. Got: {type(act_data)}")
 
             # Check if this is a finish action
             is_finish = act.tool == "finish"
@@ -742,10 +853,29 @@ class AgentController:
             )
 
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+
+            # Log detailed error information
             logger.error(f"Failed to parse LLM response: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Full traceback:\n{error_trace}")
             logger.error(f"Full raw response: {raw_response}")
 
-            # Return a default error response
+            # Try to extract response_data for debugging
+            try:
+                response_data_debug = json.loads(raw_response)
+                logger.error(f"Response data keys: {list(response_data_debug.keys())}")
+                if "reflect" in response_data_debug:
+                    logger.error(f"reflect field type: {type(response_data_debug['reflect'])}, value: {str(response_data_debug['reflect'])[:200]}")
+                if "strategize" in response_data_debug:
+                    logger.error(f"strategize field type: {type(response_data_debug['strategize'])}, value: {str(response_data_debug['strategize'])[:200]}")
+                if "act" in response_data_debug:
+                    logger.error(f"act field type: {type(response_data_debug['act'])}, value: {str(response_data_debug['act'])[:200]}")
+            except Exception as debug_err:
+                logger.error(f"Could not debug response_data: {debug_err}")
+
+            # Return a default error response - this allows the agent to continue
             from reactor.models import ReflectSection, StrategizeSection, State, ActSection, Hypothesis
 
             return ParsedLLMResponse(
@@ -753,15 +883,15 @@ class AgentController:
                     turn=1,
                     outcome="FAILURE",
                     hypothesisResult="N/A",
-                    insight=f"Failed to parse response: {str(e)}"
+                    insight=f"Failed to parse response: {str(e)[:200]}"
                 ),
                 strategize=StrategizeSection(
-                    reasoning="Error in parsing",
+                    reasoning="Error in parsing LLM response - will retry",
                     hypothesis=Hypothesis(claim="N/A", test="N/A", signal="N/A"),
-                    ifInvalidated="Retry"
+                    ifInvalidated="Retry with clearer prompt"
                 ),
                 state=State(goal="unknown"),
-                act=ActSection(tool="error", params={"error": f"Parse error: {e}"}),
+                act=ActSection(tool="error", params={"error": f"Parse error: {str(e)[:500]}"}),
                 is_finish=False,
                 raw_response=raw_response
             )
