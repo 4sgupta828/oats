@@ -1,11 +1,12 @@
 # Requirements for RCA system
-# Optional but recommended for enhanced functionality
 
-# For changepoint detection (future enhancement)
-# ruptures>=1.1.7
+# Core dependencies
+networkx>=2.8  # For dependency graph analysis
 
-# For dependency graph analysis
-networkx>=2.8
+# Statistical analysis
+ruptures>=1.1.7  # For changepoint detection in metrics
+scipy>=1.9.0  # Required by ruptures
 
-# For log template mining (future enhancement)
-# drain3>=0.9.11
+# Log analysis
+drain3>=0.9.11  # For log template mining
+cachetools>=5.0.0  # Required by drain3

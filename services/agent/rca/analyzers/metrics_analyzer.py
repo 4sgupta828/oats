@@ -4,11 +4,21 @@ from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 from collections import defaultdict
 import statistics
+import numpy as np
 
 from rca.backends.base import TelemetryBackend, MetricDataPoint
 from core.logging_config import get_logger
 
 logger = get_logger('metrics_analyzer')
+
+# Try to import ruptures for advanced changepoint detection
+try:
+    import ruptures as rpt
+    HAS_RUPTURES = True
+    logger.info("Ruptures library available - using advanced changepoint detection")
+except ImportError:
+    HAS_RUPTURES = False
+    logger.info("Ruptures library not available - using heuristic changepoint detection")
 
 
 @dataclass
@@ -182,10 +192,10 @@ class MetricsAnalyzer:
         baseline_metrics: List[MetricDataPoint],
         incident_metrics: List[MetricDataPoint]
     ) -> str:
-        """Detect anomaly pattern using simple heuristics
+        """Detect anomaly pattern using ruptures changepoint detection or heuristics
 
-        For full changepoint detection, we would use ruptures library,
-        but for now use simple heuristics based on time characteristics.
+        Uses ruptures library if available for accurate changepoint detection,
+        otherwise falls back to heuristic-based pattern detection.
         """
         if not incident_metrics:
             return "NORMAL"
@@ -198,12 +208,85 @@ class MetricsAnalyzer:
 
         # Calculate values
         incident_values = [m.value for m in incident_metrics]
-        first_half = incident_values[:len(incident_values)//2]
-        second_half = incident_values[len(incident_values)//2:]
 
         # Short duration (<30s) = SPIKE
         if duration < 30:
             return "SPIKE"
+
+        # Use ruptures if available
+        if HAS_RUPTURES and len(incident_values) >= 10:
+            return self._detect_pattern_ruptures(baseline_metrics, incident_metrics)
+        else:
+            return self._detect_pattern_heuristic(incident_values)
+
+    def _detect_pattern_ruptures(
+        self,
+        baseline_metrics: List[MetricDataPoint],
+        incident_metrics: List[MetricDataPoint]
+    ) -> str:
+        """Detect pattern using ruptures changepoint detection library"""
+        try:
+            # Combine baseline and incident for better detection
+            all_metrics = sorted(baseline_metrics + incident_metrics, key=lambda m: m.timestamp)
+            signal = np.array([m.value for m in all_metrics])
+
+            # Normalize signal for better detection
+            signal_mean = np.mean(signal)
+            signal_std = np.std(signal)
+            if signal_std > 0:
+                signal = (signal - signal_mean) / signal_std
+
+            # Use Pelt algorithm with RBF kernel (detects mean shifts)
+            algo = rpt.Pelt(model="rbf", min_size=3, jump=1)
+            algo.fit(signal)
+
+            # Detect changepoints with penalty tuning
+            # Lower penalty = more sensitive to changes
+            changepoints = algo.predict(pen=10)
+
+            # Analyze changepoint pattern
+            n_changepoints = len(changepoints) - 1  # Last point is always end of signal
+
+            baseline_len = len(baseline_metrics)
+            incident_len = len(incident_metrics)
+
+            if n_changepoints == 0:
+                # No changepoints detected in combined signal
+                return "SUSTAINED_INCREASE"
+
+            elif n_changepoints == 1:
+                # Single changepoint - likely STEP_CHANGE
+                cp_idx = changepoints[0]
+                # Check if changepoint is near baseline/incident boundary
+                if abs(cp_idx - baseline_len) < 5:  # Within 5 samples of boundary
+                    return "STEP_CHANGE"
+                else:
+                    return "SUSTAINED_INCREASE"
+
+            elif n_changepoints == 2:
+                # Two changepoints - could be SPIKE or SUSTAINED_INCREASE
+                cp1, cp2 = changepoints[0], changepoints[1]
+                # If both in incident window and close together = SPIKE
+                if cp1 >= baseline_len and cp2 >= baseline_len and (cp2 - cp1) < 10:
+                    return "SPIKE"
+                else:
+                    return "SUSTAINED_INCREASE"
+
+            else:  # n_changepoints > 2
+                # Multiple changepoints = GRADUAL_DRIFT
+                return "GRADUAL_DRIFT"
+
+        except Exception as e:
+            logger.debug(f"Ruptures changepoint detection failed: {e}, falling back to heuristics")
+            return self._detect_pattern_heuristic([m.value for m in incident_metrics])
+
+    def _detect_pattern_heuristic(self, incident_values: List[float]) -> str:
+        """Fallback heuristic-based pattern detection"""
+        if len(incident_values) < 2:
+            return "NORMAL"
+
+        first_half = incident_values[:len(incident_values)//2]
+        second_half = incident_values[len(incident_values)//2:]
 
         # Check if values are stable in second half (STEP_CHANGE)
         if len(second_half) > 2:

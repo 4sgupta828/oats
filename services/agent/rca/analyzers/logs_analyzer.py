@@ -11,6 +11,16 @@ from core.logging_config import get_logger
 
 logger = get_logger('logs_analyzer')
 
+# Try to import Drain3 for production-grade template mining
+try:
+    from drain3 import TemplateMiner
+    from drain3.template_miner_config import TemplateMinerConfig
+    HAS_DRAIN3 = True
+    logger.info("Drain3 library available - using production-grade template mining")
+except ImportError:
+    HAS_DRAIN3 = False
+    logger.info("Drain3 library not available - using heuristic template mining")
+
 
 @dataclass
 class LogTemplate:
@@ -33,6 +43,38 @@ class LogsAnalyzer:
             backend: Telemetry backend for querying logs
         """
         self.backend = backend
+
+        # Initialize Drain3 if available
+        if HAS_DRAIN3:
+            self._init_drain3()
+        else:
+            self.template_miner = None
+
+    def _init_drain3(self):
+        """Initialize Drain3 template miner with optimal configuration"""
+        try:
+            config = TemplateMinerConfig()
+            # Tune parameters for cloud infrastructure logs
+            config.load({
+                "drain": {
+                    "sim_th": 0.4,  # Similarity threshold (0-1, lower = more strict)
+                    "depth": 4,  # Depth of prefix tree
+                    "max_children": 100,  # Max children per node
+                    "max_clusters": 1024,  # Max unique templates
+                },
+                "masking": [
+                    # Common patterns to mask
+                    {"regex_pattern": r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "mask_with": "<IP>"},
+                    {"regex_pattern": r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "mask_with": "<UUID>"},
+                    {"regex_pattern": r"\b[0-9a-fA-F]{32,}\b", "mask_with": "<ID>"},
+                    {"regex_pattern": r"\b\d+\b", "mask_with": "<NUM>"},
+                ]
+            })
+            self.template_miner = TemplateMiner(config=config)
+            logger.info("Drain3 template miner initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Drain3: {e}, falling back to heuristics")
+            self.template_miner = None
 
     def compare_logs(
         self,
@@ -120,10 +162,72 @@ class LogsAnalyzer:
         }
 
     def _extract_templates(self, logs: List[LogEntry]) -> Dict[str, LogTemplate]:
-        """Extract log templates using simple pattern matching
+        """Extract log templates using Drain3 or heuristics
 
-        This is a simplified version. For production, use Drain3 or similar algorithms.
+        Uses Drain3 if available for production-grade template mining,
+        otherwise falls back to simple pattern matching.
         """
+        if HAS_DRAIN3 and self.template_miner is not None:
+            return self._extract_templates_drain3(logs)
+        else:
+            return self._extract_templates_heuristic(logs)
+
+    def _extract_templates_drain3(self, logs: List[LogEntry]) -> Dict[str, LogTemplate]:
+        """Extract templates using Drain3 algorithm"""
+        templates = {}
+        cluster_examples = {}
+        cluster_first_seen = {}
+        cluster_severities = {}
+        cluster_counts = defaultdict(int)
+
+        # Reset template miner for each analysis
+        if self.template_miner is not None:
+            self._init_drain3()  # Re-initialize to clear state
+
+        for log in logs:
+            try:
+                # Add log to Drain3
+                result = self.template_miner.add_log_message(log.message)
+
+                if result is not None:
+                    cluster_id = str(result["cluster_id"])
+
+                    # Track first occurrence
+                    if cluster_id not in cluster_first_seen:
+                        cluster_first_seen[cluster_id] = log.timestamp
+                        cluster_examples[cluster_id] = log.message
+                        cluster_severities[cluster_id] = log.level
+
+                    # Update highest severity
+                    if log.level == "ERROR" or log.level == "FATAL":
+                        cluster_severities[cluster_id] = log.level
+
+                    cluster_counts[cluster_id] += 1
+
+            except Exception as e:
+                logger.debug(f"Failed to process log with Drain3: {e}")
+                continue
+
+        # Convert Drain3 clusters to LogTemplates
+        if self.template_miner is not None:
+            for cluster_id, count in cluster_counts.items():
+                cluster = self.template_miner.drain.clusters.get(int(cluster_id))
+                if cluster is not None:
+                    template_str = " ".join(cluster.log_template_tokens)
+
+                    templates[cluster_id] = LogTemplate(
+                        template_id=cluster_id,
+                        template=template_str,
+                        frequency=count,
+                        first_seen=cluster_first_seen.get(cluster_id, 0.0),
+                        severity=cluster_severities.get(cluster_id, "INFO"),
+                        example_message=cluster_examples.get(cluster_id, "")
+                    )
+
+        return templates
+
+    def _extract_templates_heuristic(self, logs: List[LogEntry]) -> Dict[str, LogTemplate]:
+        """Fallback heuristic template extraction"""
         templates = {}
         template_examples = {}
         template_first_seen = {}
