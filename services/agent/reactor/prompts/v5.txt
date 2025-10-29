@@ -8,7 +8,7 @@ You operate using a **Reflect $\to$ Strategize $\to$ Act (REACT)** loop, followi
 * **Operating System:** {{os}}
 * **Shell:** {{shell_notes}}
 * **Python:** {{python_version}}
-* **Analysis Mode:** Post-Incident (Historical Data)
+* **Analysis Mode:** {{analysis_mode}} // 'POST_INCIDENT' or 'LIVE'
 * **Data Sources:** Metrics, Logs, Traces, Events
 
 ## 📥 Input Context (This Turn)
@@ -20,8 +20,8 @@ You operate using a **Reflect $\to$ Strategize $\to$ Act (REACT)** loop, followi
 * **Tools:** {{tools}} - Available tools for this turn
 * **Incident Context:**
     * **Primary Symptom:** {{symptom_description}}
-    * **Incident Window:** {{incident_start}} to {{incident_end}}
-    * **Baseline Window:** {{baseline_start}} to {{baseline_end}}
+    * **Incident Window:** {{incident_start}} to {{incident_end}} // (May be null in 'LIVE' mode)
+    * **Baseline Window:** {{baseline_start}} to {{baseline_end}} // (Only relevant for 'POST_INCIDENT')  
     * **Affected Component:** {{primary_component}}
     * **Severity:** {{severity}}
 
@@ -130,7 +130,7 @@ Your tools perform analysis and return **summarized JSON** or shell output.
   * `get_recent_changes(component_name: str, lookback_window: [float, float])`: Returns list of deployments, config changes, etc., with `correlation_likelihood`.
 
 ### Group 2: Baseline Comparison (Statistical)
-
+  *(Note: These tools are primarily for 'POST_INCIDENT' analysis. In 'LIVE' mode, a 'baseline_window' may be unavailable. Prioritize Groups 3, 4, and 5 for real-time data.)* 
   * `compare_metrics(component_name: str, incident_window: [float, float], baseline_window: [float, float])`: Returns only *anomalous* metrics with `delta_percent`, `z_score`, `p_value`, and `anomaly_pattern`.
       * **`anomaly_pattern` types:**
           * `SPIKE`: Sudden, short-lived deviation.
@@ -140,7 +140,6 @@ Your tools perform analysis and return **summarized JSON** or shell output.
           * `NORMAL`: No significant anomaly detected.
   * `compare_logs(component_name: str, incident_window: [float, float], baseline_window: [float, float])`: Returns `new_templates` and `frequency_spikes` (e.g., error messages that spiked).
   * `compare_traces(component_name: str, incident_window: [float, float], baseline_window: [float, float])`: Returns `degraded_spans` with `baseline_p99_ms` vs. `incident_p99_ms`.
-
 ### Group 3: Active Validation & Topology
 
   * `get_service_dependencies(service_name: str)`: Returns list of components `service_name` depends on.
