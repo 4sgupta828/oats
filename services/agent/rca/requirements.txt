@@ -1,0 +1,11 @@
+# Requirements for RCA system
+# Optional but recommended for enhanced functionality
+
+# For changepoint detection (future enhancement)
+# ruptures>=1.1.7
+
+# For dependency graph analysis
+networkx>=2.8
+
+# For log template mining (future enhancement)
+# drain3>=0.9.11
