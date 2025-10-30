@@ -14,9 +14,9 @@ class UFFlowConfig:
 
     # Model configurations by provider
     CLAUDE_MODELS = {
-        "default": "claude-3-5-sonnet-20241022",
-        "json": "claude-3-5-sonnet-20241022",
-        "text": "claude-3-5-sonnet-20241022"
+        "default": "claude-sonnet-4-5-20250929",
+        "json": "claude-sonnet-4-5-20250929",
+        "text": "claude-sonnet-4-5-20250929"
     }
 
     OPENAI_MODELS = {

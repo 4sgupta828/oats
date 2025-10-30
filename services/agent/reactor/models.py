@@ -144,6 +144,7 @@ class ReActState(BaseModel):
     transcript: List[TranscriptEntry] = Field(default_factory=list, description="History of all turns")
     turn_count: int = Field(default=0, description="Current turn number")
     max_turns: int = Field(default=10, description="Maximum allowed turns")
+    is_complete: bool = Field(default=False, description="Whether the goal has been completed")
     completion_reason: Optional[str] = Field(None, description="Reason for pause (finish/max_turns/user_action)")
     total_cost: float = Field(default=0.0, description="Cumulative cost of all actions")
     start_time: datetime = Field(default_factory=datetime.now)
