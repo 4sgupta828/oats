@@ -14,18 +14,20 @@ class Hypothesis(BaseModel):
 
 class DiagnosticMetadata(BaseModel):
     """Diagnostic metadata for SRE troubleshooting."""
-    investigation_phase: Literal["TRIAGE", "ORIENT", "CORRELATE", "HYPOTHESIZE", "ISOLATE", "IDENTIFY_ROOT_CAUSE", "VERIFY"] = Field(..., description="Current investigation phase")
+    # V6 prompt phases: SITUATIONAL_AWARENESS | HYPOTHESIS_GENERATION | EVIDENCE_GATHERING | DEEP_VALIDATION | CAUSAL_CONFIRMATION | SYNTHESIS
+    # V4 prompt phases: TRIAGE | ORIENT | CORRELATE | HYPOTHESIZE | ISOLATE | IDENTIFY_ROOT_CAUSE | VERIFY
+    investigation_phase: Literal["TRIAGE", "SITUATIONAL_AWARENESS", "HYPOTHESIS_GENERATION", "EVIDENCE_GATHERING", "DEEP_VALIDATION", "CAUSAL_CONFIRMATION", "SYNTHESIS", "ORIENT", "CORRELATE", "HYPOTHESIZE", "ISOLATE", "IDENTIFY_ROOT_CAUSE", "VERIFY"] = Field(..., description="Current investigation phase")
     layer_focus: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Current layer under investigation")
-    signal_quality: Literal["STRONG", "MEDIUM", "WEAK", "ABSENT"] = Field(..., description="Quality of evidence from last action")
+    signal_quality: Literal["STRONG", "MEDIUM", "WEAK", "ABSENT", "UNKNOWN"] = Field(..., description="Quality of evidence from last action")
     causality_level: Literal["SYMPTOM", "PROXIMATE_CAUSE", "ROOT_CAUSE"] = Field(..., description="Level of causality identified")
     confidence: Dict[str, Literal["HIGH", "MEDIUM", "LOW"]] = Field(..., description="Confidence levels for problem_definition, root_cause_identified, fix_will_work")
 
 class FailureMetadata(BaseModel):
     """Metadata for failure recovery."""
-    type: Literal["EXECUTION_FAILURE", "STRATEGIC_FAILURE"] = Field(..., description="Type of failure")
-    category: str = Field(..., description="Specific error category")
-    recovery_level: str = Field(..., description="Recovery level (E1-E4 or S0-S4)")
-    recovery_plan: str = Field(..., description="What to do next")
+    type: Optional[Literal["EXECUTION_FAILURE", "STRATEGIC_FAILURE"]] = Field(None, description="Type of failure")
+    category: Optional[str] = Field(None, description="Specific error category")
+    recovery_level: Optional[str] = Field(None, description="Recovery level (E1-E4 or S0-S4)")
+    recovery_plan: Optional[str] = Field(None, description="What to do next")
 
 class ReflectSection(BaseModel):
     """Reflection on the outcome of the last action."""
@@ -46,7 +48,9 @@ class Task(BaseModel):
     """A sub-task in the overall goal."""
     id: int = Field(..., description="Task identifier")
     desc: str = Field(..., description="Clear, verifiable sub-task description")
-    status: Literal["active", "done", "blocked"] = Field(..., description="Current status of the task")
+    # V6 uses: active | done | pending | blocked
+    # V4 uses: active | done | blocked
+    status: Literal["active", "done", "pending", "blocked"] = Field(..., description="Current status of the task")
 
 class ActiveTask(BaseModel):
     """Currently active task with its metadata."""

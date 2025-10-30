@@ -753,12 +753,20 @@ class AgentController:
 
             # Handle wrapped response formats (multiple possible wrapper keys)
             # Check for common wrapper formats the LLM might use
-            wrapper_keys = ["response", "parsed_llm_response", "data", "result"]
+            wrapper_keys = ["response", "parsed_llm_response", "data", "result", "raw_response"]
             for wrapper_key in wrapper_keys:
                 if wrapper_key in response_data and isinstance(response_data[wrapper_key], dict):
                     logger.debug(f"Unwrapping response from '{wrapper_key}' key")
                     response_data = response_data[wrapper_key]
                     break
+                # Handle case where wrapper_key contains a JSON string that needs parsing
+                if wrapper_key in response_data and isinstance(response_data[wrapper_key], str):
+                    try:
+                        logger.debug(f"Unwrapping and parsing JSON string from '{wrapper_key}' key")
+                        response_data = json.loads(response_data[wrapper_key])
+                        break
+                    except json.JSONDecodeError:
+                        pass
 
             # Validate required top-level fields exist
             required_fields = ["reflect", "strategize", "state", "act"]
