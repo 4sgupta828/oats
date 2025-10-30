@@ -200,7 +200,12 @@ Facts gathered:
   },
   "strategize": {
     "reasoning": "H1 confidence now 0.98 (>0.90 threshold). Promote to Phase 3 for causal mechanism validation.",
-    "next_action": "get_cache_stats() to confirm eviction bug mechanism"
+    "hypothesis": {
+      "claim": "user-cache v1.2.3 eviction bug is dropping valid entries",
+      "test": "get_cache_stats() to confirm eviction bug mechanism",
+      "signal": "Eviction rate spike and cache stats showing premature evictions"
+    },
+    "ifInvalidated": "If eviction stats are normal, investigate database query patterns"
   }
 }
 ```
@@ -652,13 +657,10 @@ Your **entire response** must be a single, valid JSON object. Update `state` eve
   "strategize": {
     "reasoning": "Multi-sentence explanation of your current understanding and what you plan to do next. Reference specific facts, confidence levels, and phase objectives.",
 
-    "current_phase_objective": "Clear statement of what you're trying to accomplish in this phase",
-
-    "hypothesis_to_test": {
+    "hypothesis": {
       "claim": "H1: Specific, falsifiable claim",
       "test": "Specific tool/action to test this hypothesis",
-      "signal": "What result would confirm or invalidate this hypothesis",
-      "current_confidence": 0.94
+      "signal": "What result would confirm or invalidate this hypothesis"
     },
 
     "ifInvalidated": "What you will do if this hypothesis is ruled out"
@@ -672,6 +674,13 @@ Your **entire response** must be a single, valid JSON object. Update `state` eve
       {"id": 2, "desc": "Test top 3 hypotheses (Phase 2)", "status": "active"},
       {"id": 3, "desc": "Deep validation of top hypothesis", "status": "pending"}
     ],
+
+    "active": {
+      "id": 2,
+      "archetype": "DIAGNOSE",
+      "phase": "EVIDENCE_GATHERING",
+      "turns": 5
+    },
 
     "facts": [
       {
@@ -692,6 +701,11 @@ Your **entire response** must be a single, valid JSON object. Update `state` eve
 
     "ruled_out": [
       "H3 (traffic spike): compare_metrics showed request.throughput -4% (no spike detected) - turn 6"
+    ],
+
+    "unknowns": [
+      "Need to confirm cache eviction mechanism details",
+      "Need to verify if rollback will fully resolve the issue"
     ],
 
     "diagnosis": {
@@ -775,8 +789,8 @@ Your **entire response** must be a single, valid JSON object. Update `state` eve
 
 1. Set `reflect.outcome` to `"FIRST_TURN"`
 2. Set `reflect.insight` to `"Beginning investigation"`
-3. Set `strategize.reasoning` to `"Starting Phase 0: SITUATIONAL_AWARENESS to establish failure scope and timeline"`
-4. Set `strategize.current_phase_objective` to `"Map blast radius and identify first failure"`
+3. Set `strategize.reasoning` to explain that you are starting Phase 0: SITUATIONAL_AWARENESS to establish failure scope and timeline
+4. Set `strategize.hypothesis` with a first hypothesis about mapping the blast radius
 5. Your first `act.tool` **must** be `analyze_blast_radius(symptom_component, incident_window)`
 
 This ensures every investigation begins with a systematic understanding of the failure's scope before diving into hypothesis generation.

@@ -90,12 +90,14 @@ class CausalLink(BaseModel):
 
 class CompetingHypothesis(BaseModel):
     """Competing hypothesis for differential diagnosis."""
+    id: str = Field(..., description="Hypothesis identifier (e.g., 'H1', 'H2')")
     claim: str = Field(..., description="Specific hypothesis about root cause")
     layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Layer this hypothesis tests")
-    likelihood: Literal["HIGH", "MEDIUM", "LOW"] = Field(..., description="Current likelihood assessment")
+    prior_confidence: float = Field(..., description="Confidence before latest evidence (0.0 - 1.0)")
+    current_confidence: float = Field(..., description="Updated confidence after latest evidence (0.0 - 1.0)")
+    status: Literal["ACTIVE", "RULED_OUT", "CONFIRMED"] = Field(..., description="Current status of hypothesis")
     evidence_for: List[str] = Field(default_factory=list, description="Supporting observations")
     evidence_against: List[str] = Field(default_factory=list, description="Contradicting observations")
-    discriminator: str = Field(..., description="Test that would prove/disprove this")
 
 class Context(BaseModel):
     """Four dimensions of system context."""
