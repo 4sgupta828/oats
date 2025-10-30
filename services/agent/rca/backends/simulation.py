@@ -150,10 +150,14 @@ class SimulationBackend(TelemetryBackend):
                         summary = metric.get('summary', {})
                         value = summary.get('sum', 0.0)
 
+                    # Add metric name to labels for grouping (use __name__ convention from Prometheus)
+                    labels_with_name = labels.copy()
+                    labels_with_name['__name__'] = metric_name
+
                     results.append(MetricDataPoint(
                         timestamp=sim_time,
                         value=float(value) if value is not None else 0.0,
-                        labels=labels
+                        labels=labels_with_name
                     ))
 
                 except (json.JSONDecodeError, KeyError) as e:

@@ -90,25 +90,77 @@ class MetricsAnalyzer:
 
         # Analyze each metric
         for metric_name in incident_by_metric.keys():
-            if metric_name not in baseline_by_metric:
-                logger.debug(f"Skipping {metric_name} - no baseline data")
-                continue
-
-            baseline_values = [m.value for m in baseline_by_metric[metric_name]]
+            # Get baseline and incident values (baseline might be empty for new error types)
+            baseline_values = [m.value for m in baseline_by_metric.get(metric_name, [])]
             incident_values = [m.value for m in incident_by_metric[metric_name]]
 
-            # Calculate baseline statistics
+            # Calculate baseline statistics (will be zeros if no baseline data)
             baseline_stats = self._calculate_stats(baseline_values)
 
-            if baseline_stats.std == 0:
-                # No variation in baseline, skip
-                continue
+            # Check if this is a counter-type metric (all values are the same, typically 1)
+            # For counters, compare aggregated sums instead of individual values
+            is_counter_metric = (baseline_stats.std == 0 or
+                                (baseline_stats.std < 0.01 * abs(baseline_stats.mean)) and
+                                baseline_stats.mean <= 1.0)
 
-            # Calculate incident statistics
-            incident_stats = self._calculate_stats(incident_values)
 
-            # Calculate z-score for incident mean
-            z_score = (incident_stats.mean - baseline_stats.mean) / baseline_stats.std
+            if is_counter_metric:
+                # For counter metrics, compare the SUM (total events) in each window
+                baseline_sum = sum(baseline_values)
+                incident_sum = sum(incident_values)
+
+                # Handle new errors that didn't exist in baseline
+                if baseline_sum == 0:
+                    # If there are incident events but no baseline, this is a new error type
+                    # Assign very high z-score to flag as critical anomaly
+                    if incident_sum > 0:
+                        z_score = 10.0  # Arbitrarily high z-score for new error types
+                        baseline_mean_rate = 0
+                        baseline_std_rate = 1.0
+                    else:
+                        # Both zero, skip
+                        logger.debug(f"  SKIPPED: both baseline and incident are zero")
+                        continue
+                else:
+                    # Use Poisson approximation for z-score
+                    # For count data, variance ≈ mean (Poisson distribution)
+                    baseline_mean_rate = baseline_sum
+                    baseline_std_rate = max(1.0, baseline_sum ** 0.5)  # sqrt(count) for Poisson
+
+                    z_score = (incident_sum - baseline_mean_rate) / baseline_std_rate
+
+                # Store aggregated values for reporting
+                baseline_stats = MetricStats(
+                    mean=baseline_sum,
+                    std=baseline_std_rate,
+                    min=baseline_sum,
+                    max=baseline_sum,
+                    p50=baseline_sum,
+                    p95=baseline_sum,
+                    p99=baseline_sum,
+                    count=len(baseline_values)
+                )
+                incident_stats = MetricStats(
+                    mean=incident_sum,
+                    std=0,
+                    min=incident_sum,
+                    max=incident_sum,
+                    p50=incident_sum,
+                    p95=incident_sum,
+                    p99=incident_sum,
+                    count=len(incident_values)
+                )
+            else:
+                # For gauge metrics, compare means
+                if baseline_stats.std == 0:
+                    # No variation in baseline, skip
+                    continue
+
+                # Calculate incident statistics
+                incident_stats = self._calculate_stats(incident_values)
+
+                # Calculate z-score for incident mean
+                z_score = (incident_stats.mean - baseline_stats.mean) / baseline_stats.std
 
             # Only flag significant anomalies (|z| > 3.0)
             if abs(z_score) > 3.0:
@@ -120,7 +172,7 @@ class MetricsAnalyzer:
 
                 # Detect pattern
                 pattern = self._detect_pattern(
-                    baseline_by_metric[metric_name],
+                    baseline_by_metric.get(metric_name, []),
                     incident_by_metric[metric_name]
                 )
 
