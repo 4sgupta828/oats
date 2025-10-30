@@ -70,7 +70,7 @@ class Fact(BaseModel):
 class Symptom(BaseModel):
     """User-facing observable failure."""
     description: str = Field(..., description="User-facing failure description")
-    layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Layer where symptom appears")
+    layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC", "UNKNOWN"] = Field(..., description="Layer where symptom appears")
     scope: Optional[str] = Field(None, description="Scope of impact (e.g., '15% of requests')")
     started: Optional[str] = Field(None, description="When symptom started (ISO 8601)")
 
