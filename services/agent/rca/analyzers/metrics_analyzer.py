@@ -179,12 +179,18 @@ class MetricsAnalyzer:
                 # Determine severity
                 severity = self._determine_severity(abs(z_score))
 
-                # Get first incident timestamp
+                # Get first incident timestamp and component from metric labels
                 first_incident_time = min(m.timestamp for m in incident_by_metric[metric_name])
+
+                # Extract component from metric labels (use first metric's component)
+                first_metric = incident_by_metric[metric_name][0]
+                component_name = first_metric.labels.get('component.id',
+                                first_metric.labels.get('component',
+                                first_metric.labels.get('service', component)))
 
                 anomalies.append(Anomaly(
                     metric_name=metric_name,
-                    component=component,
+                    component=component_name,
                     timestamp=first_incident_time,
                     value=incident_stats.mean,
                     baseline_mean=baseline_stats.mean,
@@ -300,7 +306,6 @@ class MetricsAnalyzer:
             n_changepoints = len(changepoints) - 1  # Last point is always end of signal
 
             baseline_len = len(baseline_metrics)
-            incident_len = len(incident_metrics)
 
             if n_changepoints == 0:
                 # No changepoints detected in combined signal
