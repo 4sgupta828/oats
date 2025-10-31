@@ -71,7 +71,7 @@ class UFFlowConfig:
     
     # ReAct Configuration
     DEFAULT_MAX_TURNS = 15  # Increased for complex infra troubleshooting
-    REACT_PROMPT_VERSION = "v6"  # SRE/Infrastructure Co-pilot prompt
+    REACT_PROMPT_VERSION = "v7"  # SRE/Infrastructure Co-pilot prompt
 
     # Prompt Mode Configuration
     # "single" - Use single monolithic prompt file (v6.txt, v7.txt)
