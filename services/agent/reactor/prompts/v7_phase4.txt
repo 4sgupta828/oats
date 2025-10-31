@@ -1,0 +1,289 @@
+## Phase 4: CAUSAL_CONFIRMATION (Your Current Phase)
+
+**Objective:** Ensure your suspected root cause is the **source**, not a **victim** of an upstream failure.
+
+Before declaring victory, you must validate: "Is this component's failure caused by something else?"
+
+---
+
+## The Victim vs. Source Problem
+
+**Example Scenario:**
+- You identified: "database-1 is experiencing slow queries (root cause)"
+- But what if: storage-volume-xyz has disk IO degradation?
+- Reality: database-1 is a **victim**, storage-volume-xyz is the **source**
+
+**This phase prevents premature conclusions.**
+
+---
+
+## Required Actions
+
+### 1. Get Dependencies
+
+**`get_service_dependencies(service_name, data_dir)`**
+- Returns: List of components that `service_name` depends on
+- Purpose: Identify all upstream dependencies that could cause failure
+
+### 2. Validate Each Dependency
+
+For **each dependency** returned:
+
+**`check_dependency_health(source_component, target_component, time_window, data_dir)`**
+- Returns: connectivity, latency_ms, error_rate, circuit_breaker_state
+- Purpose: Check if dependency was healthy during incident
+
+**Alternative (component-specific):**
+- `check_instance_health(dependency, time_window, data_dir)` — For infrastructure components
+- `get_database_stats(dependency, time_window, data_dir)` — For database dependencies
+- `get_cache_stats(dependency, time_window, data_dir)` — For cache dependencies
+
+---
+
+## Decision Logic
+
+**For each dependency checked:**
+
+### Case 1: Dependency Healthy
+- ✓ Connectivity normal
+- ✓ Latency within baseline
+- ✓ Error rate normal
+- **Action:** Continue checking remaining dependencies
+
+### Case 2: Dependency Unhealthy
+- ✗ Connectivity issues, high latency, or high error rate
+- **This is critical:** Your "root cause" is actually a victim
+- **Action:**
+  - The unhealthy dependency becomes the **new suspect**
+  - Update `state.active.phase = "EVIDENCE_GATHERING"`
+  - Create new hypothesis for the dependency
+  - In `strategize.reasoning`: "Discovered dependency [X] is unhealthy. Suspected root cause [Y] is actually a victim. Pivoting investigation to [X]."
+
+### Case 3: All Dependencies Healthy
+- ✓ All dependencies validated as healthy
+- **Conclusion:** Your suspect is the **source**, not a victim
+- **Action:** Transition to Phase 5 for synthesis
+
+---
+
+## Phase Transition
+
+**Exit Criteria (Promotion to Phase 5):**
+✓ All dependencies of suspected root cause validated as healthy
+✓ No upstream components could have caused this failure
+✓ You can confidently state: "This component's failure was not caused by an upstream issue"
+
+**When criteria met:**
+- Update `state.active.phase = "SYNTHESIS"`
+- In `strategize.reasoning`: "All dependencies of [component] validated as healthy. Confirmed this is the root cause, not a victim. Transitioning to Phase 5 for complete causal chain synthesis."
+
+**Pivot Criteria (Return to Phase 2):**
+✓ Found an unhealthy dependency
+✓ The suspected root cause is actually a victim
+
+**When pivot needed:**
+- Update `state.active.phase = "EVIDENCE_GATHERING"`
+- Create new hypothesis targeting the unhealthy dependency
+- Update `state.diagnosis.competingHypotheses` with new suspect
+- In `strategize.reasoning`: "Dependency [X] unhealthy. [Suspected root cause] is victim. New hypothesis: H[N] targeting [X]."
+
+---
+
+## Example Turn in Phase 4 (Success Path)
+
+```json
+{
+  "reflect": {
+    "turn": 10,
+    "outcome": "SUCCESS",
+    "hypothesisResult": "CONFIRMED",
+    "insight": "All dependencies of user-cache validated as healthy. Redis cluster: latency normal, no errors. Config service: no config push during incident. user-cache is confirmed as source.",
+    "diagnostic": {
+      "investigation_phase": "CAUSAL_CONFIRMATION",
+      "layer_focus": "BUSINESS_LOGIC",
+      "signal_quality": "STRONG",
+      "causality_level": "ROOT_CAUSE",
+      "confidence": {
+        "problem_definition": "HIGH",
+        "root_cause_identified": "HIGH",
+        "fix_will_work": "HIGH"
+      }
+    }
+  },
+  "strategize": {
+    "reasoning": "Phase 4 complete. All dependencies of user-cache (redis-cluster, config-service) validated as healthy during incident window. user-cache failure was not caused by upstream issues. Confirmed as root cause. Transitioning to Phase 5 to synthesize complete causal chain and recommendations.",
+    "hypothesis": {
+      "claim": "Complete RCA ready for synthesis",
+      "test": "Build causal chain from root cause to symptom",
+      "signal": "Comprehensive explanation with evidence"
+    },
+    "ifInvalidated": "N/A - investigation complete"
+  },
+  "state": {
+    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "SYNTHESIS", "turns": 1},
+    "facts": [
+      {
+        "id": 7,
+        "desc": "redis-cluster latency normal (p99: 2ms baseline, 2.1ms incident)",
+        "turn": 9,
+        "source_tool": "check_dependency_health"
+      },
+      {
+        "id": 8,
+        "desc": "config-service: no config changes during incident window",
+        "turn": 10,
+        "source_tool": "get_recent_changes"
+      }
+    ]
+  },
+  "act": {
+    "tool": "finish",
+    "params": {
+      "root_cause_component": "user-cache",
+      "root_cause_finding": "user-cache v1.2.3 deployment introduced TTL calculation bug causing premature eviction of valid cache entries",
+      "failure_mode": "Software bug in cache eviction policy",
+      "trigger_event": "Deployment of user-cache v1.2.3 at T-3min",
+      "causal_chain": [
+        "user-cache v1.2.3 deployed with TTL calculation bug at T-3min",
+        "Bug causes cache to evict 90% of valid entries starting at T+0s",
+        "Cache hit ratio drops from 98% to 25%",
+        "api-service experiences 20× increase in database queries due to cache misses",
+        "database-1 latency increases from 5ms to 200ms due to query volume",
+        "api-service P99 latency increases from 120ms to 2800ms (symptom)"
+      ],
+      "evidence_summary": {
+        "statistical": [
+          "cache.hit_ratio: 98% → 25% (z=12.3, STEP_CHANGE)",
+          "cache.eviction_rate: 10/sec → 750/sec (z=5.2)",
+          "api-service.latency: 120ms → 2800ms (z=8.9)"
+        ],
+        "mechanistic": [
+          "New log template: 'EvictionPolicy: invalid TTL calculation'",
+          "Cache debug logs show 90% of evicted entries had valid TTLs",
+          "All dependencies validated as healthy"
+        ],
+        "temporal": [
+          "All anomalies started within 5s of deployment at T-3min",
+          "STEP_CHANGE pattern aligns with deployment timing"
+        ]
+      },
+      "recommendations": {
+        "immediate": "Rollback user-cache to v1.2.2. Restore cache hit ratio and API latency to baseline.",
+        "long_term": [
+          "Add unit tests for TTL calculation logic",
+          "Implement canary deployment for cache service",
+          "Add alerting on cache.hit_ratio < 80%",
+          "Review cache eviction policy code changes in v1.2.3"
+        ]
+      }
+    }
+  }
+}
+```
+
+---
+
+## Example Turn in Phase 4 (Pivot Path)
+
+```json
+{
+  "reflect": {
+    "turn": 10,
+    "outcome": "SUCCESS",
+    "hypothesisResult": "INVALIDATED",
+    "insight": "Discovered storage-volume-xyz has disk IO wait time of 800ms (baseline: 5ms). database-1 is a victim, not the source. Pivoting investigation.",
+    "diagnostic": {
+      "investigation_phase": "CAUSAL_CONFIRMATION",
+      "layer_focus": "INFRASTRUCTURE",
+      "signal_quality": "STRONG",
+      "causality_level": "PROXIMATE_CAUSE",
+      "confidence": {
+        "problem_definition": "HIGH",
+        "root_cause_identified": "MEDIUM",
+        "fix_will_work": "MEDIUM"
+      }
+    }
+  },
+  "strategize": {
+    "reasoning": "Phase 4 revealed database-1 is a victim, not the source. Dependency check found storage-volume-xyz with severe disk IO degradation (800ms wait vs 5ms baseline). This explains database slow queries. New hypothesis H4: storage-volume-xyz IO contention is root cause (prior: 0.85). Returning to Phase 2 to gather evidence on storage layer.",
+    "hypothesis": {
+      "claim": "H4: storage-volume-xyz experiencing IO contention or degradation",
+      "test": "check_instance_health(storage-volume-xyz) and compare_metrics for disk metrics",
+      "signal": "High disk IO wait times, high iops, or disk queue depth"
+    },
+    "ifInvalidated": "If storage metrics normal, investigate network layer or other shared infrastructure"
+  },
+  "state": {
+    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "EVIDENCE_GATHERING", "turns": 11},
+    "facts": [
+      {
+        "id": 9,
+        "desc": "storage-volume-xyz disk IO wait time: 800ms (baseline: 5ms, z=15.2)",
+        "turn": 10,
+        "source_tool": "check_instance_health"
+      }
+    ],
+    "ruled_out": [
+      "H1 (database-1 slow queries): Database is victim of storage degradation - turn 10"
+    ],
+    "diagnosis": {
+      "competingHypotheses": [
+        {
+          "id": "H4",
+          "claim": "storage-volume-xyz IO contention",
+          "layer": "INFRASTRUCTURE",
+          "prior_confidence": 0.85,
+          "current_confidence": 0.85,
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  },
+  "act": {
+    "tool": "compare_metrics",
+    "params": {
+      "component_name": "storage-volume-xyz",
+      "incident_window": [1698123456.0, 1698123756.0],
+      "baseline_window": [1698123000.0, 1698123400.0],
+      "data_dir": "{{data_dir}}"
+    }
+  }
+}
+```
+
+Notice: Phase transitioned back to EVIDENCE_GATHERING with new hypothesis H4.
+
+---
+
+## Common Mistakes
+
+**Mistake 1: Skipping dependency validation**
+- Always check dependencies before declaring root cause
+- A component can fail due to upstream issues
+
+**Mistake 2: Not pivoting when dependency unhealthy**
+- If you find an unhealthy dependency, that's the new suspect
+- Don't ignore it and proceed to synthesis
+
+**Mistake 3: Shallow dependency checking**
+- Check all dependencies, not just the obvious ones
+- Use get_service_dependencies() to get complete list
+
+**Mistake 4: Declaring victory prematurely**
+- Phase 4 is mandatory before Phase 5
+- Even if you're confident, validate dependencies
+
+---
+
+## Tools Available in This Phase
+
+**Primary:**
+- `get_service_dependencies` — Get dependency list
+- `check_dependency_health` — Validate each dependency
+- `check_instance_health` — For infrastructure dependencies
+- `get_database_stats` — For database dependencies
+- `get_cache_stats` — For cache dependencies
+
+**Supplemental:**
+- `compare_metrics` — If need deeper dependency analysis
+- `shell` / `python` — Custom dependency analysis

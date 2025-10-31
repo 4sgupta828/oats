@@ -28,6 +28,7 @@ class ReActPromptBuilder:
     def __init__(self):
         self.system_context = self._get_system_context()
         self.prompt_version = UFFlowConfig.get_prompt_version()
+        self.prompt_mode = UFFlowConfig.get_prompt_mode()  # "single" or "phased"
         self.system_prompt = self._build_system_prompt()
         # Initialize tokenizer for accurate context management
         if TIKTOKEN_AVAILABLE:
@@ -301,21 +302,72 @@ class ReActPromptBuilder:
 • Example: select-string "pattern" -path "*.txt"
 • For complex tasks, prefer Python scripts"""
 
-    def _load_prompt_template(self) -> str:
-        """Load prompt template from versioned file."""
+    def _load_prompt_template(self, phase: str = None) -> str:
+        """Load prompt template from versioned file.
+
+        Args:
+            phase: For phased mode, the specific phase to load (e.g., "SITUATIONAL_AWARENESS")
+                  For single mode, this parameter is ignored.
+
+        Returns:
+            Prompt template content
+        """
         prompt_dir = os.path.join(os.path.dirname(__file__), 'prompts')
-        prompt_file = os.path.join(prompt_dir, f'{self.prompt_version}.txt')
 
-        if not os.path.exists(prompt_file):
-            raise FileNotFoundError(f"Prompt version '{self.prompt_version}' not found at {prompt_file}")
+        if self.prompt_mode == "phased":
+            # Load base prompt + phase-specific prompt
+            if phase is None:
+                phase = "SITUATIONAL_AWARENESS"  # Default to Phase 0
 
-        with open(prompt_file, 'r', encoding='utf-8') as f:
-            return f.read()
+            # Load base prompt
+            base_file = os.path.join(prompt_dir, f'{self.prompt_version}_base.txt')
+            if not os.path.exists(base_file):
+                raise FileNotFoundError(f"Phased base prompt not found at {base_file}")
 
-    def _build_system_prompt(self) -> str:
-        """Build the core system prompt from versioned template file."""
+            with open(base_file, 'r', encoding='utf-8') as f:
+                base_content = f.read()
+
+            # Load phase-specific prompt
+            phase_map = {
+                "SITUATIONAL_AWARENESS": "phase0",
+                "HYPOTHESIS_GENERATION": "phase1",
+                "EVIDENCE_GATHERING": "phase2",
+                "DEEP_VALIDATION": "phase3",
+                "CAUSAL_CONFIRMATION": "phase4",
+                "SYNTHESIS": "phase5"
+            }
+
+            phase_suffix = phase_map.get(phase, "phase0")
+            phase_file = os.path.join(prompt_dir, f'{self.prompt_version}_{phase_suffix}.txt')
+
+            if not os.path.exists(phase_file):
+                logger.warning(f"Phase-specific prompt not found at {phase_file}, using base only")
+                return base_content
+
+            with open(phase_file, 'r', encoding='utf-8') as f:
+                phase_content = f.read()
+
+            # Combine base + phase-specific
+            return f"{base_content}\n\n---\n\n{phase_content}"
+
+        else:  # single mode
+            # Load single monolithic prompt
+            prompt_file = os.path.join(prompt_dir, f'{self.prompt_version}.txt')
+
+            if not os.path.exists(prompt_file):
+                raise FileNotFoundError(f"Prompt version '{self.prompt_version}' not found at {prompt_file}")
+
+            with open(prompt_file, 'r', encoding='utf-8') as f:
+                return f.read()
+
+    def _build_system_prompt(self, phase: str = None) -> str:
+        """Build the core system prompt from versioned template file.
+
+        Args:
+            phase: For phased mode, the investigation phase (for dynamic loading)
+        """
         # Load the template
-        template = self._load_prompt_template()
+        template = self._load_prompt_template(phase)
 
         # Split template into system prompt and turn-specific parts
         # The system prompt ends before "## Input Context (This Turn)"
@@ -380,9 +432,29 @@ class ReActPromptBuilder:
         # Get workspace information
         workspace_security = get_workspace_security()
 
+        # Determine current phase for phased mode
+        current_phase = None
+        if self.prompt_mode == "phased" and state.state and state.state.active:
+            current_phase = state.state.active.phase
+            logger.info(f"Building phased prompt for phase: {current_phase}")
+
+            # Rebuild system prompt with phase-specific content
+            phase_system_prompt = self._build_system_prompt(phase=current_phase)
+
+            # Replace template variables in phase-specific prompt
+            phase_system_prompt = phase_system_prompt.format(
+                os=self.system_context['os'],
+                shell_notes=self.system_context['shell_notes'],
+                python_version=self.system_context['python_version'],
+                current_phase=current_phase
+            )
+        else:
+            # Use default system prompt (already built in __init__)
+            phase_system_prompt = self.system_prompt
+
         # Build base prompt without history
         base_prompt_parts = [
-            self.system_prompt,
+            phase_system_prompt,
             "",
             "AVAILABLE TOOLS:",
             self._format_tool_descriptions(available_tools),

@@ -1,0 +1,263 @@
+## Phase 5: SYNTHESIS (Your Current Phase)
+
+**Objective:** Construct the complete causal chain and submit final RCA report.
+
+You arrive here with validated root cause. Now synthesize everything into comprehensive report.
+
+---
+
+## Required Deliverables
+
+Your `finish()` call must include all of the following:
+
+### 1. Root Cause Component
+- **What:** The specific component where the failure originated
+- Example: `"user-cache"`
+
+### 2. Root Cause Finding
+- **What:** Detailed explanation of the specific bug, misconfiguration, or condition
+- Example: `"user-cache v1.2.3 deployment introduced TTL calculation bug causing premature eviction of valid cache entries"`
+
+### 3. Failure Mode
+- **What:** Classification of the failure type
+- Examples: `"Software bug in cache eviction policy"`, `"Resource exhaustion (disk space)"`, `"Configuration error (timeout too low)"`, `"Infrastructure failure (network partition)"`
+
+### 4. Trigger Event
+- **What:** The event that initiated the failure
+- Examples:
+  - `"Deployment of user-cache v1.2.3 at T-3min"`
+  - `"Traffic spike from marketing campaign at T+0s"`
+  - `"Scheduled cron job at midnight"`
+  - `"Gradual disk space exhaustion over 3 days"`
+
+### 5. Causal Chain
+- **What:** Step-by-step sequence from root cause → symptom
+- **Format:** Array of strings, each describing one link in the chain
+- **Example:**
+```json
+[
+  "[T-3min] user-cache v1.2.3 deployed with TTL calculation bug (TRIGGER)",
+  "[T+0s] Bug causes cache to evict 90% of valid entries (ROOT CAUSE)",
+  "[T+0s] Cache hit ratio drops from 98% to 25% (PROXIMATE EFFECT)",
+  "[T+0s] api-service experiences 20× increase in database queries (CASCADE)",
+  "[T+0s] database-1 latency increases from 5ms to 200ms (CASCADE)",
+  "[T+0s] api-service P99 latency increases from 120ms to 2800ms (SYMPTOM)"
+]
+```
+
+### 6. Evidence Summary
+- **What:** All supporting facts with statistical significance
+- **Format:** Organized by evidence type
+- **Example:**
+```json
+{
+  "statistical": [
+    "cache.hit_ratio: 98% → 25% (z=12.3, p<0.001, STEP_CHANGE)",
+    "cache.eviction_rate: 10/sec → 750/sec (z=5.2, p<0.001)",
+    "api-service.p99_latency: 120ms → 2800ms (z=8.9, p<0.001)"
+  ],
+  "mechanistic": [
+    "New log template: 'EvictionPolicy: invalid TTL calculation' (100 occurrences)",
+    "Cache debug logs show 90% of evicted entries had valid TTLs",
+    "All dependencies (redis-cluster, config-service) validated as healthy"
+  ],
+  "temporal": [
+    "All anomalies started within 5 seconds of deployment at T-3min",
+    "STEP_CHANGE pattern in metrics aligns with deployment timing",
+    "First component to fail: user-cache at T+0s"
+  ]
+}
+```
+
+### 7. Hypothesis Evolution (Optional but Recommended)
+- **What:** How your thinking evolved during investigation
+- **Example:**
+```json
+{
+  "initial_hypotheses": [
+    "H1: user-cache eviction bug (prior: 0.65) → CONFIRMED (posterior: 0.94)",
+    "H2: database pool exhaustion (prior: 0.20) → RULED_OUT (posterior: 0.03)",
+    "H3: traffic spike (prior: 0.10) → RULED_OUT (posterior: 0.02)"
+  ],
+  "key_pivots": [
+    "Turn 6: H1 confidence exceeded 0.90 threshold, promoted to deep validation",
+    "Turn 10: Phase 4 confirmed all dependencies healthy, validated H1 as root cause"
+  ]
+}
+```
+
+### 8. Recommendations
+- **What:** Immediate mitigation and long-term prevention
+- **Format:**
+```json
+{
+  "immediate": "Rollback user-cache to v1.2.2 to restore cache hit ratio and API latency to baseline. ETA: 5 minutes.",
+  "long_term": [
+    "Add unit tests for TTL calculation logic in cache eviction policy",
+    "Implement canary deployment strategy for user-cache service",
+    "Add alerting: cache.hit_ratio < 80% triggers page",
+    "Add alerting: cache.eviction_rate > 100/sec triggers warning",
+    "Conduct code review of cache eviction policy changes in v1.2.3",
+    "Add integration test: verify cache behavior under various TTL scenarios"
+  ]
+}
+```
+
+---
+
+## The finish() Tool
+
+**Tool:** `finish`
+
+**Parameters (all required):**
+- `root_cause_component` (string)
+- `root_cause_finding` (string)
+- `failure_mode` (string)
+- `trigger_event` (string)
+- `causal_chain` (array of strings)
+- `evidence_summary` (object with statistical, mechanistic, temporal)
+- `hypothesis_evolution` (object, optional)
+- `recommendations` (object with immediate and long_term)
+
+---
+
+## Quality Checklist
+
+Before calling `finish()`, verify:
+
+✓ **Root cause is specific** (not vague like "cache had problems")
+✓ **Causal chain is complete** (from root cause all the way to observed symptom)
+✓ **Evidence is quantitative** (includes z-scores, p-values, percentages)
+✓ **Temporal correlation established** (timing of events makes sense)
+✓ **Dependencies validated** (Phase 4 completed)
+✓ **Mechanism explained** (not just "what" but "how")
+✓ **Recommendations are actionable** (specific, not generic)
+
+---
+
+## Example Complete finish() Call
+
+```json
+{
+  "act": {
+    "tool": "finish",
+    "params": {
+      "root_cause_component": "user-cache",
+
+      "root_cause_finding": "user-cache v1.2.3 deployment introduced a TTL (Time-To-Live) calculation bug in the cache eviction policy. The bug caused the eviction algorithm to incorrectly calculate TTL for cache entries, resulting in premature eviction of 90% of valid cached data. This led to a cascade of failures affecting downstream services.",
+
+      "failure_mode": "Software bug in cache eviction policy (TTL calculation logic error)",
+
+      "trigger_event": "Deployment of user-cache service version v1.2.3 at 2025-10-30T12:34:21Z (T-3min relative to symptom onset)",
+
+      "causal_chain": [
+        "[T-3min] user-cache v1.2.3 deployed with TTL calculation bug in eviction policy (TRIGGER)",
+        "[T+0s] Bug activates, begins evicting valid cache entries with incorrectly calculated TTL values (ROOT CAUSE)",
+        "[T+0s] Cache hit ratio collapses from 98% to 25% as valid entries are prematurely evicted (PROXIMATE EFFECT)",
+        "[T+0s] api-service experiences cache miss rate increase from 2% to 75% (CASCADE - LAYER: INTEGRATION)",
+        "[T+0s] api-service generates 20× increase in database queries to compensate for cache misses (CASCADE - LAYER: INTEGRATION)",
+        "[T+0s] database-1 query latency increases from 5ms to 200ms due to unexpected query volume (CASCADE - LAYER: INTEGRATION)",
+        "[T+0s] api-service P99 latency increases from 120ms to 2800ms as database latency propagates (SYMPTOM - LAYER: INTEGRATION)"
+      ],
+
+      "evidence_summary": {
+        "statistical": [
+          "cache.hit_ratio: baseline 98%, incident 25% (delta: -74.5%, z-score: 12.3, p<0.001, pattern: STEP_CHANGE)",
+          "cache.eviction_rate: baseline 10/sec, incident 750/sec (delta: +7400%, z-score: 5.2, p<0.001, pattern: SUSTAINED_INCREASE)",
+          "api-service.p99_latency: baseline 120ms, incident 2800ms (delta: +2233%, z-score: 8.9, p<0.001, pattern: STEP_CHANGE)",
+          "database-1.query_latency_p99: baseline 5ms, incident 200ms (delta: +3900%, z-score: 6.7, p<0.001)",
+          "api-service.db_query_rate: baseline 50/sec, incident 1000/sec (delta: +1900%, z-score: 7.1, p<0.001)"
+        ],
+        "mechanistic": [
+          "New error log template introduced at T+0s: 'EvictionPolicy: invalid TTL calculation for key={key}' (observed 847 times during incident)",
+          "Cache debug logs parsed: 90% of evicted entries (763 out of 847) had valid TTLs that should not have triggered eviction",
+          "get_cache_stats() confirmed total_evictions spiked from ~600/min to ~45,000/min (75× baseline)",
+          "Phase 4 dependency validation: redis-cluster latency normal (p99: 2ms baseline, 2.1ms incident), config-service had no config changes during incident window",
+          "Code diff analysis: v1.2.3 introduced changes to TTL calculation method in EvictionPolicy.java line 127"
+        ],
+        "temporal": [
+          "Deployment timestamp: 2025-10-30T12:34:21Z (T-3min)",
+          "First anomaly detected: user-cache metrics at 2025-10-30T12:37:21Z (T+0s)",
+          "All metric anomalies (cache.hit_ratio, cache.eviction_rate) exhibited STEP_CHANGE pattern within 5 seconds of T+0s",
+          "Cascade propagation: user-cache (T+0s) → api-service DB queries (T+0s) → database-1 latency (T+1s) → api-service P99 (T+1s)",
+          "Timeline analysis confirmed user-cache as first component to fail (likely origin)"
+        ]
+      },
+
+      "hypothesis_evolution": {
+        "initial_hypotheses": [
+          "H1: user-cache v1.2.3 eviction bug (prior: 0.65) → Phase 2 evidence raised to 0.94 → Phase 3 mechanism validated → Phase 4 confirmed as root cause",
+          "H2: database-1 connection pool exhaustion (prior: 0.20) → Ruled out in Phase 2 (get_database_stats showed 15/100 connections used, posterior: 0.03)",
+          "H3: Traffic spike overwhelming api-service (prior: 0.10) → Ruled out in Phase 2 (compare_metrics showed throughput -4%, no spike, posterior: 0.02)"
+        ],
+        "key_pivots": [
+          "Turn 1-3: Phase 0 situational awareness identified user-cache as first failure and deployment at T-3min",
+          "Turn 4: Phase 1 generated 3 hypotheses, H1 prioritized due to change event + temporal causality",
+          "Turn 5-6: Phase 2 evidence gathering, H1 confidence exceeded 0.90 threshold (z-scores > 4, STEP_CHANGE pattern)",
+          "Turn 7-8: Phase 3 deep validation confirmed causal mechanism via cache stats and log analysis",
+          "Turn 9-10: Phase 4 validated all dependencies healthy, confirmed user-cache as source not victim"
+        ]
+      },
+
+      "recommendations": {
+        "immediate": "Execute rollback of user-cache service to v1.2.2 immediately. This will restore cache eviction behavior to previous stable state, restoring cache hit ratio to 98% and eliminating cascade effects on api-service and database-1. Expected recovery time: 5 minutes for deployment + 2 minutes for cache warm-up = 7 minutes total.",
+
+        "long_term": [
+          "Code Review: Conduct thorough review of TTL calculation changes in user-cache v1.2.3, specifically EvictionPolicy.java line 127 and related methods",
+          "Testing: Add unit tests for TTL calculation edge cases (zero TTL, negative TTL, TTL overflow scenarios)",
+          "Testing: Add integration tests that validate cache eviction behavior under load with various TTL configurations",
+          "Deployment: Implement canary deployment strategy for user-cache service (5% → 25% → 50% → 100% over 30 minutes with automated rollback)",
+          "Alerting: Add alert: cache.hit_ratio < 80% for 1 minute → page on-call SRE",
+          "Alerting: Add alert: cache.eviction_rate > 100/sec for 1 minute → warning to team Slack channel",
+          "Monitoring: Add dashboard panel tracking cache.eviction_rate with deployment annotations",
+          "Post-Incident: Schedule post-mortem meeting to discuss why TTL bug was not caught in testing"
+        ]
+      }
+    }
+  }
+}
+```
+
+---
+
+## Common Mistakes
+
+**Mistake 1: Vague root cause**
+- Bad: "Cache had issues"
+- Good: "user-cache v1.2.3 TTL calculation bug causing premature eviction"
+
+**Mistake 2: Incomplete causal chain**
+- Bad: "Cache failed → API slow" (missing intermediate steps)
+- Good: "Cache failed → High cache misses → Increased DB queries → DB latency → API latency"
+
+**Mistake 3: Missing quantitative evidence**
+- Bad: "Cache hit ratio dropped significantly"
+- Good: "Cache hit ratio: 98% → 25% (z=12.3, p<0.001)"
+
+**Mistake 4: Generic recommendations**
+- Bad: "Fix the cache"
+- Good: "Rollback to v1.2.2 immediately. Add unit tests for TTL calculation. Implement canary deployment."
+
+**Mistake 5: Not calling finish()**
+- This is the final phase. You must call `finish()` tool to submit RCA.
+- Don't just provide analysis in `strategize.reasoning` - that's not sufficient.
+
+---
+
+## After Calling finish()
+
+Once you call `finish()`, the investigation is complete. The tool will:
+1. Validate all required fields are present
+2. Generate final RCA report
+3. End the investigation session
+
+**No further turns after finish() is called.**
+
+---
+
+## Phase Transition
+
+**Exit Criteria:**
+✓ Called `finish()` with complete RCA report
+
+**This is the terminal phase - no further transitions.**

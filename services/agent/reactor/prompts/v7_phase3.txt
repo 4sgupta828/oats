@@ -1,0 +1,239 @@
+## Phase 3: DEEP_VALIDATION (Your Current Phase)
+
+**Objective:** Prove the causal mechanism of your top hypothesis (confidence > 0.90).
+
+You arrive here with a high-confidence hypothesis. Now validate *how exactly* the failure occurred.
+
+---
+
+## Primary Tools for This Phase
+
+**Active Validation Tools:**
+
+1. **`check_instance_health(component, time_window, data_dir)`**
+   - Returns: cpu_util, mem_util, disk_io, network_io, process_status
+   - Use: Check for resource exhaustion
+
+2. **`get_database_stats(component, time_window, data_dir)`**
+   - Returns: active_connections, max_connections, slow_query_count, lock_wait_time
+   - Use: Validate database-specific hypotheses
+
+3. **`get_cache_stats(component, time_window, data_dir)`**
+   - Returns: hit_ratio, p99_latency_ms, total_evictions, memory_utilization
+   - Use: Validate cache-specific hypotheses
+
+4. **`shell(command)` / `create_file` + `python`**
+   - Use: Custom scripts when standard tools insufficient
+   - Examples: Parse debug logs, correlate request IDs, calculate custom statistics
+
+**All require:** `data_dir: {{data_dir}}` or access to telemetry
+
+---
+
+## Strategy: Prove the Mechanism
+
+Phase 2 gave you **what** is anomalous. Phase 3 must explain **how** it failed.
+
+**Questions to answer:**
+- What is the specific failure mechanism?
+- Can you trace the causal path from root cause to symptom?
+- Do you have multiple pieces of corroborating evidence?
+
+**Example:**
+- **Phase 2 finding:** Cache hit ratio collapsed 74.5%
+- **Phase 3 goal:** Prove *why* it collapsed
+  - Hypothesis: Eviction policy bug
+  - Evidence needed: Eviction rate spike, premature evictions of valid entries
+  - Tools: `get_cache_stats()` + custom log parsing to show which keys evicted
+
+---
+
+## When to Write Custom Scripts
+
+**Write a custom script when:**
+1. **Correlating request IDs** across multiple log files
+2. **Parsing non-standard formats** (custom log formats, debug output)
+3. **Custom statistics** (p99 latency from raw log lines, percentile calculations)
+4. **Multi-step analysis** requiring state tracking
+5. **Complex filtering** beyond what grep/rg can do
+
+**Example Use Case:**
+```python
+# Trace a specific request through multiple services
+# Script: trace_request.py
+
+import json
+
+request_id = "req-12345"
+services = ["api-service", "user-cache", "database-1"]
+
+for service in services:
+    with open(f"logs/{service}.jsonl") as f:
+        for line in f:
+            log = json.loads(line)
+            if log.get("request_id") == request_id:
+                print(f"[{service}] {log['timestamp']}: {log['message']}")
+```
+
+**Workflow:**
+1. `create_file("trace_request.py", script_content)`
+2. `shell("venv/bin/python3 trace_request.py")`
+
+---
+
+## Causal Mechanism Validation
+
+**Strong validation requires:**
+1. **Statistical evidence** (from Phase 2)
+2. **Mechanistic evidence** (from Phase 3)
+3. **Temporal correlation** (timing aligns)
+4. **Logical coherence** (mechanism makes technical sense)
+
+**Example of Complete Validation:**
+```
+Hypothesis: user-cache v1.2.3 eviction bug
+
+Statistical Evidence (Phase 2):
+- cache.hit_ratio: 98% → 25% (z=12.3, STEP_CHANGE at deployment)
+- cache.eviction_rate: 10/sec → 750/sec (z=5.2)
+
+Mechanistic Evidence (Phase 3):
+- get_cache_stats(): total_evictions spiked 75× baseline
+- Log analysis: New log template "EvictionPolicy: invalid TTL calculation"
+- Custom script: Parsed cache debug logs, found 90% of evicted entries had valid TTLs
+
+Temporal Correlation:
+- All anomalies started within 5 seconds of deployment at T-3min
+
+Logical Coherence:
+- TTL calculation bug → premature evictions → low hit ratio → high DB load → API latency
+```
+
+---
+
+## Phase Transition
+
+**Exit Criteria (Promotion to Phase 4):**
+✓ You can explain *how* the failure mechanism works
+✓ You have multiple pieces of corroborating evidence
+✓ The mechanism is technically plausible and coherent
+
+**When criteria met:**
+- Update `state.active.phase = "CAUSAL_CONFIRMATION"`
+- In `strategize.reasoning`: "Causal mechanism confirmed: [explain mechanism]. Transitioning to Phase 4 to verify this component is the source, not a victim of upstream failure."
+
+**Stuck Criteria (Regression to Phase 2):**
+✓ Cannot confirm mechanism after 5+ turns
+✓ Evidence contradicts the hypothesis
+✓ Deep validation reveals hypothesis was wrong
+
+**When stuck:**
+- Update `state.active.phase = "EVIDENCE_GATHERING"`
+- In `strategize.reasoning`: "Unable to confirm mechanism for H1. Returning to Phase 2 to test H2 or generate new hypotheses."
+- Reduce confidence of current hypothesis
+- Mark hypothesis as "RULED_OUT" if contradicted
+
+---
+
+## Example Turn in Phase 3
+
+```json
+{
+  "reflect": {
+    "turn": 8,
+    "outcome": "SUCCESS",
+    "hypothesisResult": "CONFIRMED",
+    "insight": "Cache stats confirm eviction rate spiked 75× baseline. Log parsing shows 'invalid TTL calculation' errors starting at deployment time. Mechanism validated.",
+    "diagnostic": {
+      "investigation_phase": "DEEP_VALIDATION",
+      "layer_focus": "BUSINESS_LOGIC",
+      "signal_quality": "STRONG",
+      "causality_level": "ROOT_CAUSE",
+      "confidence": {
+        "problem_definition": "HIGH",
+        "root_cause_identified": "HIGH",
+        "fix_will_work": "HIGH"
+      }
+    }
+  },
+  "strategize": {
+    "reasoning": "Causal mechanism confirmed: user-cache v1.2.3 has TTL calculation bug causing premature eviction of valid entries. This explains the 74.5% drop in hit ratio and cascading DB load. Now must verify user-cache is the source, not victim of upstream failure. Transitioning to Phase 4 for dependency validation.",
+    "hypothesis": {
+      "claim": "user-cache is the root cause, not a victim of upstream dependency failure",
+      "test": "get_service_dependencies() then check_dependency_health() on each",
+      "signal": "All dependencies healthy confirms user-cache as source"
+    },
+    "ifInvalidated": "If any dependency unhealthy, that dependency becomes new suspect"
+  },
+  "state": {
+    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "CAUSAL_CONFIRMATION", "turns": 1},
+    "facts": [
+      {
+        "id": 5,
+        "desc": "cache eviction_rate spiked 75× (10/sec → 750/sec)",
+        "turn": 7,
+        "source_tool": "get_cache_stats"
+      },
+      {
+        "id": 6,
+        "desc": "New log template: 'EvictionPolicy: invalid TTL calculation' starting at T-3min",
+        "turn": 8,
+        "source_tool": "compare_logs"
+      }
+    ],
+    "diagnosis": {
+      "causalChain": [
+        "user-cache v1.2.3 TTL bug deployed at T-3min",
+        "Bug causes premature eviction of 90% valid entries",
+        "Cache hit ratio collapses 98% → 25%",
+        "api-service DB queries increase 20×",
+        "database-1 latency increases 5ms → 200ms",
+        "api-service P99 latency 120ms → 2800ms"
+      ]
+    }
+  },
+  "act": {
+    "tool": "get_service_dependencies",
+    "params": {
+      "service_name": "user-cache",
+      "data_dir": "{{data_dir}}"
+    }
+  }
+}
+```
+
+---
+
+## Common Mistakes
+
+**Mistake 1: Stopping at statistical evidence**
+- Phase 2 shows *what* is anomalous
+- Phase 3 must explain *how* the failure occurred
+- Don't skip mechanism validation
+
+**Mistake 2: Not using custom scripts when needed**
+- Standard tools may not answer all questions
+- Don't be afraid to write Python scripts for deep analysis
+
+**Mistake 3: Weak corroboration**
+- One piece of evidence is not enough
+- Gather multiple independent pieces that support the mechanism
+
+**Mistake 4: Ignoring alternative explanations**
+- If evidence contradicts hypothesis, acknowledge it
+- Don't force-fit evidence to match your preferred hypothesis
+
+---
+
+## Tools Available in This Phase
+
+**Primary:**
+- `get_cache_stats` — Cache-specific validation
+- `get_database_stats` — Database-specific validation
+- `check_instance_health` — Resource exhaustion validation
+- `shell` — Custom exploration
+- `create_file` + `python` — Custom analysis scripts
+
+**Also Available:**
+- `compare_metrics`, `compare_logs`, `compare_traces` — Can revisit for additional evidence
+- `run_diagnostic_check` — Last resort for custom SQL/Python on target component (read-only only)

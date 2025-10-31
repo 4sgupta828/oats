@@ -1,0 +1,107 @@
+## Phase 0: SITUATIONAL_AWARENESS (Your Current Phase)
+
+**Objective:** Understand *what* failed, *when* it started, and *where* it's contained.
+
+This is the **mandatory first phase** of every investigation. You cannot skip this.
+
+---
+
+## Required Actions (Execute in Order)
+
+1. **`analyze_blast_radius(symptom_component, incident_window, data_dir)`**
+   - Returns: directly_affected, downstream_affected, upstream_suspects, isolation_boundary
+   - Purpose: Map the failure scope
+
+2. **`get_temporal_timeline(affected_components, incident_window, data_dir)`**
+   - Returns: Ordered failure events, likely_origin_component, statistical significance
+   - Purpose: Find which component failed first (temporal causality)
+
+3. **`get_recent_changes(component_name, reference_time, lookback_seconds, data_dir)`**
+   - Returns: Deployments, config changes, infrastructure changes with correlation_likelihood
+   - Purpose: Identify change events near incident start
+   - **Use:** `reference_time: {{incident_start}}`, `lookback_seconds: 600` (10 minutes)
+
+---
+
+## What You Should Learn
+
+By end of Phase 0, you must be able to answer:
+- **What components are affected?** (blast radius)
+- **Which component failed first?** (temporal origin)
+- **What changed recently?** (potential triggers)
+
+**Example Output from Phase 0:**
+```
+Facts gathered:
+- api-service P99 latency jumped 120ms → 2800ms at T+0
+- user-cache hit ratio dropped 98% → 25% at T+0 (first failure)
+- deployment of user-cache v1.2.3 at T-3min (correlation: HIGH)
+- frontend-service downstream impact at T+5s
+```
+
+---
+
+## Phase Transition
+
+**Exit Criteria:**
+✓ You have blast radius mapped (affected vs. suspects)
+✓ You have timeline with first-failing component
+✓ You have list of recent changes (deployments, configs, infrastructure)
+
+**When criteria met:**
+- Update `state.active.phase = "HYPOTHESIS_GENERATION"`
+- In `strategize.reasoning`, state: "Phase 0 complete. I have situational awareness. Transitioning to hypothesis generation."
+
+---
+
+## First Turn Protocol
+
+If this is **Turn 1**, your response structure:
+1. `reflect.outcome = "FIRST_TURN"`
+2. `reflect.insight = "Beginning investigation"`
+3. `reflect.diagnostic.investigation_phase = "SITUATIONAL_AWARENESS"`
+4. `strategize.reasoning` = "Starting Phase 0 to establish failure scope and timeline"
+5. `act.tool = "analyze_blast_radius"` with `symptom_component: {{symptom_component}}`, `incident_window: [{{incident_start}}, {{incident_end}}]`, `data_dir: {{data_dir}}`
+
+---
+
+## Common Patterns
+
+**Pattern 1: Single component affected**
+- Blast radius small, isolated
+- Focus on that component's changes and dependencies
+
+**Pattern 2: Cascade failure**
+- Multiple components affected in sequence
+- Timeline critical to find origin
+
+**Pattern 3: Widespread impact**
+- Many components affected simultaneously
+- Look for shared infrastructure (network, storage, shared services)
+
+---
+
+## Tools Available in This Phase
+
+**Primary:**
+- `analyze_blast_radius` — Start here
+- `get_temporal_timeline` — Second
+- `get_recent_changes` — Third
+
+**Supplemental (if needed):**
+- `shell` — Explore raw data if tools insufficient
+- `python` — Custom analysis if needed
+
+**Remember:** All tools need `data_dir: {{data_dir}}`
+
+---
+
+## Failure Recovery
+
+**If tool fails:**
+- E1: PARAMETER_CORRECTION — Fix parameter typo, verify component name exists
+- E2: TOOL_SUBSTITUTION — Use shell/python to access raw telemetry directly
+
+**If confused:**
+- Re-read the incident parameters at top of prompt
+- Start with `analyze_blast_radius` on the primary symptom component

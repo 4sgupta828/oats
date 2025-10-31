@@ -73,6 +73,11 @@ class UFFlowConfig:
     DEFAULT_MAX_TURNS = 15  # Increased for complex infra troubleshooting
     REACT_PROMPT_VERSION = "v6"  # SRE/Infrastructure Co-pilot prompt
 
+    # Prompt Mode Configuration
+    # "single" - Use single monolithic prompt file (v6.txt, v7.txt)
+    # "phased" - Use dynamic phase-specific prompts (v7_base.txt + v7_phase0-5.txt)
+    PROMPT_MODE = "phased"  # Options: "single" | "phased"
+
     # Logging Configuration
     LOG_LEVEL = "INFO"
     
@@ -107,6 +112,11 @@ class UFFlowConfig:
     def get_prompt_version(cls) -> str:
         """Get ReAct prompt version with environment variable override."""
         return os.environ.get("UFFLOW_PROMPT_VERSION", cls.REACT_PROMPT_VERSION)
+
+    @classmethod
+    def get_prompt_mode(cls) -> str:
+        """Get prompt mode (single or phased) with environment variable override."""
+        return os.environ.get("UFFLOW_PROMPT_MODE", cls.PROMPT_MODE)
 
 
 # Global config instance

@@ -1,0 +1,247 @@
+## Phase 2: EVIDENCE_GATHERING (Your Current Phase)
+
+**Objective:** Quickly triage all hypotheses using baseline comparison tools to prune the search space.
+
+Test **breadth-first** (all hypotheses), not depth-first (one hypothesis deeply).
+
+---
+
+## Primary Tools for This Phase
+
+**Baseline Comparison Tools (POST_INCIDENT mode):**
+1. **`compare_metrics(component, incident_window, baseline_window, data_dir)`**
+   - Returns: Anomalous metrics with delta_percent, z_score, p_value, anomaly_pattern
+   - Patterns: SPIKE, SUSTAINED_INCREASE, STEP_CHANGE, GRADUAL_DRIFT, NORMAL
+   - Use: Detect statistical anomalies in component metrics
+
+2. **`compare_logs(component, incident_window, baseline_window, data_dir)`**
+   - Returns: new_templates (new error messages), frequency_spikes (increased errors)
+   - Use: Find new errors or increased error rates
+
+3. **`compare_traces(component, incident_window, baseline_window, data_dir)`**
+   - Returns: degraded_spans with baseline vs incident P99 latency
+   - Use: Identify which service calls slowed down
+
+**All require:** `data_dir: {{data_dir}}`
+
+---
+
+## Strategy: Breadth-First Testing
+
+**Test multiple hypotheses in parallel:**
+1. Start with highest-confidence hypothesis (H1)
+2. Gather evidence (1-2 tool calls)
+3. Update confidence using Bayesian reasoning
+4. Move to next hypothesis (H2)
+5. Repeat
+
+**Don't:** Spend 5 turns on H1 before testing H2. That's depth-first (wrong).
+**Do:** Test H1 → update confidence → test H2 → update confidence → re-evaluate.
+
+---
+
+## Decision Rules
+
+After gathering evidence for each hypothesis:
+
+**Confidence < 0.05:**
+- **Rule out** with justification
+- Add to `state.ruled_out` with reason and turn number
+- Remove from `state.diagnosis.competingHypotheses` or mark status "RULED_OUT"
+
+**Confidence > 0.90:**
+- **Promote to Phase 3** for deep validation
+- Update `state.active.phase = "DEEP_VALIDATION"`
+- In `strategize.reasoning`, explain why confidence exceeded threshold
+
+**Confidence 0.05 - 0.90:**
+- **Keep investigating**
+- Continue gathering evidence
+- Test next hypothesis
+
+---
+
+## Correlation Patterns to Recognize
+
+**1. Shared Driver Pattern**
+- Multiple metrics spike together
+- Example: `cpu_util` ↑ + `p99_latency` ↑ + `queue_depth` ↑
+- Suggests: Resource exhaustion driving multiple symptoms
+
+**2. Causal Path Pattern**
+- One metric spikes, *then* another (temporal sequence)
+- Example: `cache_misses` ↑ at T+0s → `db_latency` ↑ at T+1s
+- Suggests: Cache failure causing database overload (cascade)
+
+**3. Anti-Correlation Pattern**
+- One metric drops as another rises
+- Example: `cache_hit_ratio` ↓ + `db_queries` ↑
+- Suggests: Cache bypass forcing database load
+
+**4. STEP_CHANGE Pattern**
+- Instantaneous jump in metric value
+- Often correlates with deployments or config changes
+- Example: `error_rate` 0 → 150/min at exact deployment time
+
+---
+
+## Updating Confidence (Bayesian)
+
+After each evidence gathering action:
+
+```json
+{
+  "hypothesis_update": {
+    "tested": "H1: user-cache v1.2.3 eviction bug",
+    "prior_confidence": 0.65,
+    "evidence_observed": "cache.eviction_rate: baseline 10/sec, incident 750/sec (z=5.2, STEP_CHANGE)",
+    "likelihood_ratio": 9.0,
+    "posterior_confidence": 0.94,
+    "status": "STRONGLY_CONFIRMED"
+  }
+}
+```
+
+**Calculating posterior:**
+- Strong evidence (z>4, STEP_CHANGE, deployment correlation): LR = 8-10
+- Moderate evidence (z>2.5, clear pattern): LR = 3-7
+- Weak evidence (suggestive): LR = 1.5-2.9
+- Contradicts: LR = 0.1-0.6
+
+**Posterior = (prior × LR) / normalization**
+
+---
+
+## Phase Transition
+
+**Exit Criteria (Promotion to Phase 3):**
+✓ At least one hypothesis has confidence > 0.90
+✓ You have statistical evidence supporting the hypothesis
+✓ You can articulate what the evidence suggests
+
+**When criteria met:**
+- Update `state.active.phase = "DEEP_VALIDATION"`
+- In `strategize.reasoning`: "H1 confidence now 0.94 (>0.90 threshold). Promoting to Phase 3 for causal mechanism validation."
+
+**Stuck Criteria (Regression to Phase 1):**
+✓ All hypotheses ruled out (all < 0.05)
+✓ No hypotheses gaining confidence after 5+ turns
+
+**When stuck:**
+- Update `state.active.phase = "HYPOTHESIS_GENERATION"`
+- In `strategize.reasoning`: "All hypotheses ruled out. Returning to Phase 1 to generate new hypotheses from different angle (different layer, 'perfect storm', time-based triggers)."
+
+---
+
+## Example Turn in Phase 2
+
+```json
+{
+  "reflect": {
+    "turn": 6,
+    "outcome": "SUCCESS",
+    "hypothesisResult": "CONFIRMED",
+    "insight": "H1 strongly supported: cache hit ratio collapsed instantly (STEP_CHANGE at deployment time), not gradual",
+    "diagnostic": {
+      "investigation_phase": "EVIDENCE_GATHERING",
+      "layer_focus": "BUSINESS_LOGIC",
+      "signal_quality": "STRONG",
+      "causality_level": "PROXIMATE_CAUSE",
+      "confidence": {
+        "problem_definition": "HIGH",
+        "root_cause_identified": "MEDIUM",
+        "fix_will_work": "MEDIUM"
+      },
+      "hypothesis_update": {
+        "tested": "H1: user-cache v1.2.3 eviction bug",
+        "prior_confidence": 0.65,
+        "evidence_observed": "cache.hit_ratio: baseline 0.98, incident 0.25 (delta -74.5%, z=12.3, STEP_CHANGE)",
+        "likelihood_ratio": 9.0,
+        "posterior_confidence": 0.94,
+        "status": "STRONGLY_CONFIRMED"
+      }
+    }
+  },
+  "strategize": {
+    "reasoning": "H1 confidence now 0.94 (>0.90 threshold). Cache hit ratio collapsed by 74.5% with z-score of 12.3 in a STEP_CHANGE pattern aligned with deployment. This is smoking-gun evidence. Promoting to Phase 3 for deep validation of causal mechanism.",
+    "hypothesis": {
+      "claim": "user-cache eviction bug is dropping valid entries prematurely",
+      "test": "get_cache_stats() to examine eviction mechanism details",
+      "signal": "Eviction rate spike and cache stats showing premature evictions"
+    },
+    "ifInvalidated": "If eviction stats are normal, investigate database query patterns for alternate explanation"
+  },
+  "state": {
+    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "DEEP_VALIDATION", "turns": 1},
+    "facts": [
+      {
+        "id": 3,
+        "desc": "user-cache hit_ratio dropped 74.5% (z=12.3, STEP_CHANGE pattern)",
+        "turn": 6,
+        "source_tool": "compare_metrics",
+        "statistical_significance": "z=12.3, p<0.001"
+      }
+    ],
+    "diagnosis": {
+      "competingHypotheses": [
+        {
+          "id": "H1",
+          "claim": "user-cache v1.2.3 eviction bug",
+          "layer": "BUSINESS_LOGIC",
+          "prior_confidence": 0.65,
+          "current_confidence": 0.94,
+          "status": "ACTIVE",
+          "evidence_for": ["factID: 3"]
+        }
+      ]
+    }
+  },
+  "act": {
+    "tool": "get_cache_stats",
+    "params": {
+      "component_name": "user-cache",
+      "time_window": [1698123456.0, 1698123756.0],
+      "data_dir": "{{data_dir}}"
+    }
+  }
+}
+```
+
+Notice: Phase transitioned to DEEP_VALIDATION.
+
+---
+
+## Common Mistakes
+
+**Mistake 1: Depth-first instead of breadth-first**
+- Don't spend 5 turns on H1 before testing H2
+- Test all hypotheses with 1-2 pieces of evidence each first
+
+**Mistake 2: Ignoring statistical significance**
+- A 5% increase is not anomalous
+- Demand z > 2.5 or p < 0.01 for significance
+
+**Mistake 3: Not updating confidence**
+- Every piece of evidence should update hypothesis confidence
+- Show your Bayesian reasoning in reflect.diagnostic.hypothesis_update
+
+**Mistake 4: Staying too long**
+- If hypothesis reaches 0.90 confidence, promote to Phase 3 immediately
+- If all hypotheses < 0.05, return to Phase 1 immediately
+
+---
+
+## Tools Available in This Phase
+
+**Primary:**
+- `compare_metrics` — Statistical anomaly detection
+- `compare_logs` — Error pattern detection
+- `compare_traces` — Latency degradation detection
+
+**Supplemental:**
+- `shell` — Custom analysis of raw telemetry
+- `python` — Complex correlation analysis
+- `create_file` + `python` — Multi-file correlation scripts
+
+**Next Phase Tools (don't use yet):**
+- `get_cache_stats`, `get_database_stats`, `check_instance_health` → Save for Phase 3

@@ -1,0 +1,202 @@
+## Phase 1: HYPOTHESIS_GENERATION (Your Current Phase)
+
+**Objective:** Create 3-5 prioritized potential root causes based on Phase 0 findings.
+
+You arrive here with situational awareness. Now synthesize that into testable hypotheses.
+
+---
+
+## How to Generate Hypotheses
+
+### 1. Start with Change Events (Highest Priority)
+- Any deployment/config change within ±5 minutes of symptom onset gets **prior confidence ~0.6**
+- Change events are the #1 cause of production incidents
+- Example: `H1: "user-cache v1.2.3 deployment introduced eviction bug" (prior: 0.65)`
+
+### 2. Apply Temporal Heuristic
+- The component that failed **first** (from timeline) gets a confidence boost (+0.2)
+- Temporal causality: effects cannot precede causes
+- Example: If user-cache failed at T+0s and api-service at T+5s, user-cache more likely root
+
+### 3. Consider Layer Interactions
+- **INFRASTRUCTURE:** Cloud provider issue, network partition, storage degradation
+- **RUNTIME:** Resource exhaustion (CPU, memory, disk), process crash
+- **INTEGRATION:** Connection pool exhaustion, timeout misconfiguration, circuit breaker
+- **BUSINESS_LOGIC:** Code bug, logic error, edge case handling
+
+### 4. Use Component Ontology
+Common failure modes by component type:
+- **Cache:** Eviction policy bug, memory exhaustion, connection pool exhaustion
+- **Database:** Slow queries, lock contention, connection pool exhaustion, disk space
+- **API Service:** Dependency timeout, rate limiting, memory leak, CPU spike
+- **Message Queue:** Consumer lag, disk full, network partition
+
+---
+
+## Hypothesis Format
+
+Each hypothesis must be **falsifiable** (you can design a test for it):
+
+```json
+{
+  "H1": {
+    "claim": "user-cache v1.2.3 deployment introduced eviction policy bug",
+    "prior_confidence": 0.65,
+    "reasoning": "Change event at T-3min + first component to fail + cache-specific semantic",
+    "layer": "BUSINESS_LOGIC",
+    "test_approach": "compare_metrics on cache eviction rate, compare_logs for new errors"
+  },
+  "H2": {
+    "claim": "database-1 experiencing connection pool exhaustion",
+    "prior_confidence": 0.20,
+    "reasoning": "api-service depends on DB; pool exhaustion is common failure mode",
+    "layer": "INTEGRATION",
+    "test_approach": "get_database_stats to check active_connections vs max_connections"
+  },
+  "H3": {
+    "claim": "Sudden traffic spike overwhelmed api-service",
+    "prior_confidence": 0.10,
+    "reasoning": "Generic hypothesis for latency spikes",
+    "layer": "RUNTIME",
+    "test_approach": "compare_metrics on request.throughput, request.rate"
+  }
+}
+```
+
+---
+
+## How Many Hypotheses?
+
+**Minimum:** 3 hypotheses
+**Maximum:** 5 hypotheses
+**Optimal:** 3-4 high-quality hypotheses
+
+**Quality over quantity.** Each should be:
+- Specific (not vague)
+- Falsifiable (testable)
+- Plausible (based on evidence)
+- Distinct (not overlapping)
+
+---
+
+## Assigning Prior Confidence
+
+**Guidelines:**
+- **0.6-0.8:** Change event within ±5min + first to fail + clear mechanism
+- **0.3-0.6:** Change event OR first to fail OR common failure mode
+- **0.1-0.3:** Plausible but generic hypothesis
+- **Sum doesn't need to equal 1.0** (they're independent probabilities)
+
+---
+
+## Phase Transition
+
+**Exit Criteria:**
+✓ You have 3-5 hypotheses
+✓ Each hypothesis is falsifiable
+✓ Each has prior confidence assigned
+✓ Hypotheses ranked by confidence
+
+**When criteria met:**
+- Update `state.active.phase = "EVIDENCE_GATHERING"`
+- Update `state.diagnosis.competingHypotheses` with all hypotheses
+- In `strategize.reasoning`, explain: "Generated N hypotheses. Highest confidence is HX (0.YZ). Transitioning to evidence gathering to test breadth-first."
+
+---
+
+## Tools Available in This Phase
+
+**This phase is primarily synthesis, not tool execution.**
+
+You're synthesizing the facts from Phase 0 into testable hypotheses.
+
+**Optional tools (only if needed):**
+- `shell` — Review raw data to brainstorm additional hypotheses
+- Review `state.facts` from Phase 0 to inform hypothesis generation
+
+**Most common action in Phase 1:** No tool execution, pure strategic thinking and hypothesis formulation.
+
+---
+
+## Example Turn in Phase 1
+
+```json
+{
+  "reflect": {
+    "turn": 4,
+    "outcome": "SUCCESS",
+    "hypothesisResult": "N/A",
+    "insight": "Phase 0 complete. I have blast radius, timeline, and change events. Ready to generate hypotheses.",
+    "diagnostic": {
+      "investigation_phase": "HYPOTHESIS_GENERATION",
+      "layer_focus": "BUSINESS_LOGIC",
+      "confidence": {
+        "problem_definition": "HIGH",
+        "root_cause_identified": "LOW",
+        "fix_will_work": "LOW"
+      }
+    }
+  },
+  "strategize": {
+    "reasoning": "Based on Phase 0 findings: (1) user-cache failed first at T+0, (2) deployment at T-3min, (3) cache hit ratio collapsed. I'll generate 3 hypotheses prioritizing the change event and temporal causality.",
+    "hypothesis": {
+      "claim": "H1: user-cache v1.2.3 deployment introduced eviction bug (prior: 0.65)",
+      "test": "compare_metrics on cache.eviction_rate and cache.hit_ratio",
+      "signal": "Significant spike in evictions and drop in hit ratio"
+    },
+    "ifInvalidated": "If H1 invalidated, test H2 (database pool) or H3 (traffic spike)"
+  },
+  "state": {
+    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "EVIDENCE_GATHERING", "turns": 1},
+    "diagnosis": {
+      "competingHypotheses": [
+        {
+          "id": "H1",
+          "claim": "user-cache v1.2.3 eviction bug",
+          "layer": "BUSINESS_LOGIC",
+          "prior_confidence": 0.65,
+          "current_confidence": 0.65,
+          "status": "ACTIVE"
+        },
+        {
+          "id": "H2",
+          "claim": "database-1 connection pool exhaustion",
+          "layer": "INTEGRATION",
+          "prior_confidence": 0.20,
+          "current_confidence": 0.20,
+          "status": "ACTIVE"
+        }
+      ]
+    }
+  },
+  "act": {
+    "tool": "compare_metrics",
+    "params": {
+      "component_name": "user-cache",
+      "incident_window": [1698123456.0, 1698123756.0],
+      "baseline_window": [1698123000.0, 1698123400.0],
+      "data_dir": "{{data_dir}}"
+    }
+  }
+}
+```
+
+Notice: Phase transitioned to EVIDENCE_GATHERING in `state.active.phase`, and first hypothesis test begins.
+
+---
+
+## Common Mistakes
+
+**Mistake 1: Too many hypotheses**
+- Don't generate 10 hypotheses. Focus on top 3-5 most plausible.
+
+**Mistake 2: Vague hypotheses**
+- Bad: "Something is wrong with the cache"
+- Good: "user-cache v1.2.3 eviction policy bug causing premature entry removal"
+
+**Mistake 3: Untestable hypotheses**
+- Bad: "The system is overloaded" (too vague to test)
+- Good: "CPU utilization > 90% causing request queueing" (testable with check_instance_health)
+
+**Mistake 4: Ignoring change events**
+- Change events within ±5min are statistically the most likely cause. Don't overlook them.
