@@ -110,3 +110,5 @@ infra/base/secrets.local.yaml
 # Kubernetes config with sensitive data
 kubeconfig
 *.kubeconfig
+
+output
