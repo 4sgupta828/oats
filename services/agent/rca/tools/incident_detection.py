@@ -17,7 +17,7 @@ from pydantic import Field
 from core.sdk import uf, UfInput
 from core.logging_config import get_logger
 from rca.backends.simulation import SimulationBackend
-from rca.analyzers.metrics_analyzer_v2 import MetricsAnalyzerV2
+from rca.analyzers.metrics_analyzer_v2 import MetricsAnalyzerV2, AnalyzerConfig
 
 logger = get_logger('incident_detection')
 

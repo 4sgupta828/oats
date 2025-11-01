@@ -30,6 +30,15 @@ except ImportError:
     HAS_RUPTURES = False
     logger.warning("Ruptures library not available - using heuristic changepoint detection")
 
+# Try to import scipy for advanced statistical tests
+try:
+    from scipy import stats as scipy_stats
+    HAS_SCIPY = True
+    logger.info("SciPy library available - using advanced statistical tests")
+except ImportError:
+    HAS_SCIPY = False
+    logger.warning("SciPy library not available - using basic statistical tests")
+
 
 class AnomalyDirection(str, Enum):
     """Direction of anomaly"""
@@ -69,6 +78,8 @@ class RawAnomaly:
     z_score: float
     direction: AnomalyDirection
     severity: str  # HIGH, MEDIUM, LOW
+    confidence: float = 1.0  # 0-1 confidence score
+    detection_method: str = "z_score"  # z_score, mad, iqr, percentile
 
 
 @dataclass
@@ -99,6 +110,7 @@ class BaselineWindow:
     quality: str  # good, fair, poor, insufficient
     samples: int
     detection_method: str
+    stability_score: float = 0.0  # 0-1 score indicating baseline stability
 
 
 @dataclass
@@ -126,6 +138,13 @@ class MetricProfile:
     p99: float
     count: int
     distribution_type: str = "normal"  # normal, log_normal, unknown
+    # Additional robust statistics
+    mad: float = 0.0  # Median Absolute Deviation
+    iqr: float = 0.0  # Inter-Quartile Range
+    p25: float = 0.0  # 25th percentile
+    p75: float = 0.0  # 75th percentile
+    p01: float = 0.0  # 1st percentile
+    coefficient_of_variation: float = 0.0  # std/mean
 
     def is_counter(self) -> bool:
         """Check if this is a counter metric"""
@@ -134,6 +153,10 @@ class MetricProfile:
     def is_skewed(self) -> bool:
         """Check if metric is skewed (non-normal distribution)"""
         return self.distribution_type in ["log_normal", "unknown"]
+
+    def is_noisy(self) -> bool:
+        """Check if metric has high variability"""
+        return self.coefficient_of_variation > 0.5
 
 
 @dataclass
@@ -184,6 +207,18 @@ class AnalyzerConfig:
     # Statistical detection
     use_percentile_for_skewed: bool = True  # Use p99 instead of z-score for skewed metrics
     skew_threshold: float = 1.0  # If abs(skewness) > threshold, consider skewed
+    use_mad_for_skewed: bool = True  # Use MAD (Median Absolute Deviation) for skewed metrics
+    use_adaptive_thresholds: bool = True  # Calculate thresholds based on metric characteristics
+    min_confidence_threshold: float = 0.5  # Minimum confidence to report anomaly
+
+    # Baseline validation
+    validate_baseline_stability: bool = True  # Validate baseline is stable
+    min_baseline_stability: float = 0.6  # Minimum stability score (0-1)
+
+    # False positive reduction
+    filter_boundary_anomalies: bool = True  # Filter anomalies near data boundaries
+    boundary_buffer: float = 30.0  # Seconds to ignore near boundaries
+    min_baseline_samples: int = 10  # Minimum samples required for baseline
 
 
 class MetricsAnalyzerV2:
@@ -224,6 +259,206 @@ class MetricsAnalyzerV2:
                 "medium": 3.5,
                 "low": 4.0
             }.get(self.sensitivity, 3.5)
+
+    def _calculate_mad(self, values: List[float], median: float) -> float:
+        """Calculate Median Absolute Deviation (MAD)"""
+        if not values:
+            return 0.0
+        absolute_deviations = [abs(v - median) for v in values]
+        return statistics.median(absolute_deviations)
+
+    def _calculate_adaptive_threshold(self, profile: MetricProfile) -> float:
+        """Calculate adaptive threshold based on metric characteristics"""
+        if not self.config.use_adaptive_thresholds:
+            return self.z_threshold
+
+        base_threshold = self.z_threshold
+
+        # Adjust for metric type
+        metric_name_lower = profile.metric_name.lower()
+        if 'error' in metric_name_lower:
+            # Strict for errors
+            return base_threshold - 1.0
+
+        # Adjust for signal-to-noise ratio
+        if profile.mean != 0:
+            snr = abs(profile.mean) / (profile.std + 1e-10)
+            if snr < 2:  # Noisy metric
+                base_threshold += 0.5
+
+        # Adjust for sample size
+        if profile.count < 30:
+            # Less confidence, higher threshold
+            base_threshold += 0.5
+
+        # Adjust for variability (coefficient of variation)
+        if profile.is_noisy():
+            base_threshold += 0.5
+
+        return base_threshold
+
+    def _validate_baseline_stability(self, metrics: List[MetricDataPoint]) -> float:
+        """
+        Validate baseline stability using statistical tests.
+        Returns stability score 0-1 (higher is more stable).
+        """
+        if not self.config.validate_baseline_stability:
+            return 1.0
+
+        if len(metrics) < 10:
+            return 0.5  # Insufficient data
+
+        values = [m.value for m in metrics]
+        stability_score = 1.0
+
+        if HAS_SCIPY:
+            try:
+                # Mann-Kendall test for trend detection
+                n = len(values)
+                s = 0
+                for i in range(n-1):
+                    for j in range(i+1, n):
+                        s += np.sign(values[j] - values[i])
+
+                # Calculate variance
+                var_s = n * (n - 1) * (2 * n + 5) / 18
+                if var_s > 0:
+                    if s > 0:
+                        z_mk = (s - 1) / np.sqrt(var_s)
+                    elif s < 0:
+                        z_mk = (s + 1) / np.sqrt(var_s)
+                    else:
+                        z_mk = 0
+
+                    # Convert to stability (no trend = high stability)
+                    trend_stability = max(0, 1 - abs(z_mk) / 3.0)
+                    stability_score *= trend_stability
+
+                # Levene's test for variance stability
+                mid_point = len(values) // 2
+                if mid_point > 2:
+                    statistic, p_value = scipy_stats.levene(values[:mid_point], values[mid_point:])
+                    # High p-value = stable variance
+                    variance_stability = min(1.0, p_value)
+                    stability_score *= variance_stability
+
+            except Exception as e:
+                logger.debug(f"Baseline stability validation failed: {e}")
+                return 0.7  # Default moderate stability
+        else:
+            # Simple heuristic: check if CV is reasonable
+            mean = statistics.mean(values)
+            std = statistics.stdev(values) if len(values) > 1 else 0
+            if mean != 0:
+                cv = std / abs(mean)
+                stability_score = max(0, 1 - min(1, cv))
+
+        return stability_score
+
+    def _calculate_confidence(
+        self,
+        value: float,
+        profile: MetricProfile,
+        detection_method: str
+    ) -> float:
+        """
+        Calculate confidence score 0-1 for an anomaly detection.
+        Higher confidence = more likely to be a true anomaly.
+        """
+        confidence = 1.0
+
+        # Reduce confidence for small sample sizes
+        if profile.count < 30:
+            confidence *= min(1.0, profile.count / 30.0)
+
+        # Reduce confidence for noisy metrics
+        if profile.is_noisy():
+            confidence *= 0.8
+
+        # Boost confidence for error metrics
+        if 'error' in profile.metric_name.lower():
+            confidence *= 1.2
+            confidence = min(1.0, confidence)
+
+        # Adjust based on detection method
+        if detection_method == "mad":
+            # MAD is more robust, boost confidence
+            confidence *= 1.1
+            confidence = min(1.0, confidence)
+
+        return confidence
+
+    def _calculate_severity_multidimensional(
+        self,
+        anomaly_value: float,
+        profile: MetricProfile,
+        z_score: float,
+        direction: AnomalyDirection
+    ) -> Tuple[str, Dict[str, float]]:
+        """
+        Calculate multi-dimensional severity score.
+        Returns (severity_level, severity_breakdown)
+        """
+        severity_scores = {}
+
+        # Statistical severity (0-1)
+        abs_z = abs(z_score)
+        severity_scores['statistical'] = min(1.0, abs_z / 10.0)
+
+        # Business impact (0-1)
+        metric_name_lower = profile.metric_name.lower()
+        if 'error' in metric_name_lower:
+            base_impact = 1.0
+        elif 'latency' in metric_name_lower or 'duration' in metric_name_lower:
+            base_impact = 0.8
+        elif 'p99' in metric_name_lower or 'p95' in metric_name_lower:
+            base_impact = 0.9
+        elif any(x in metric_name_lower for x in ['cpu', 'memory', 'disk']):
+            base_impact = 0.5
+        else:
+            base_impact = 0.3
+
+        # Scale by magnitude
+        if profile.mean != 0:
+            magnitude_factor = min(2.0, abs(anomaly_value - profile.mean) / abs(profile.mean))
+            severity_scores['business_impact'] = base_impact * magnitude_factor
+        else:
+            severity_scores['business_impact'] = base_impact
+
+        # Direction impact
+        if direction == AnomalyDirection.INCREASE and 'error' in metric_name_lower:
+            severity_scores['business_impact'] *= 1.5
+        elif direction == AnomalyDirection.DECREASE and 'latency' in metric_name_lower:
+            severity_scores['business_impact'] *= 0.5  # Latency decrease is good
+
+        severity_scores['business_impact'] = min(1.0, severity_scores['business_impact'])
+
+        # Magnitude severity (how far from baseline)
+        if profile.mean != 0:
+            magnitude = abs(anomaly_value - profile.mean) / abs(profile.mean)
+            severity_scores['magnitude'] = min(1.0, magnitude / 2.0)
+        else:
+            severity_scores['magnitude'] = 1.0 if anomaly_value > 0 else 0.0
+
+        # Weighted composite score
+        weights = {
+            'statistical': 0.3,
+            'business_impact': 0.5,
+            'magnitude': 0.2
+        }
+
+        composite = sum(severity_scores[k] * weights[k] for k in severity_scores)
+        severity_scores['composite'] = composite
+
+        # Determine level
+        if composite > 0.7:
+            level = "HIGH"
+        elif composite > 0.4:
+            level = "MEDIUM"
+        else:
+            level = "LOW"
+
+        return level, severity_scores
 
     def detect_incident_and_baseline(self) -> Dict[str, Any]:
         """
@@ -398,10 +633,29 @@ class MetricsAnalyzerV2:
         baseline_end = first_changepoint
         baseline_duration = baseline_end - baseline_start
 
+        # Validate baseline stability
+        stability_score = 0.0
+        if self.config.validate_baseline_stability:
+            # Sample some metrics to check stability
+            sample_metrics = []
+            for component in components[:min(3, len(components))]:
+                try:
+                    metrics = self.backend.query_metrics(component, "*", (baseline_start, baseline_end))
+                    if metrics:
+                        sample_metrics.extend(metrics[:100])  # Sample up to 100 points
+                except Exception:
+                    continue
+
+            if sample_metrics:
+                stability_score = self._validate_baseline_stability(sample_metrics)
+                logger.info(f"Baseline stability score: {stability_score:.2f}")
+
         # Validate baseline quality
         if baseline_duration < self.config.min_baseline_duration:
             quality = "insufficient"
-        elif baseline_duration < 120:
+        elif stability_score < self.config.min_baseline_stability:
+            quality = "poor"
+        elif baseline_duration < 120 or stability_score < 0.8:
             quality = "fair"
         else:
             quality = "good"
@@ -412,7 +666,8 @@ class MetricsAnalyzerV2:
             duration=baseline_duration,
             quality=quality,
             samples=int(baseline_duration / 10),  # Estimate
-            detection_method="ruptures_pelt" if HAS_RUPTURES else "heuristic"
+            detection_method="ruptures_pelt" if HAS_RUPTURES else "heuristic",
+            stability_score=stability_score
         )
 
     def _find_changepoints(self, metrics: List[MetricDataPoint]) -> List[float]:
@@ -558,6 +813,13 @@ class MetricsAnalyzerV2:
                     raw_anomalies.append(anomaly)
 
         logger.info(f"Detected {len(raw_anomalies)} raw anomalies")
+
+        # Apply false positive reduction filters
+        if self.config.filter_boundary_anomalies:
+            filtered_anomalies = self._filter_false_positives(raw_anomalies, baseline_window.start_time, max_time)
+            logger.info(f"After filtering: {len(filtered_anomalies)} anomalies (removed {len(raw_anomalies) - len(filtered_anomalies)} false positives)")
+            return filtered_anomalies
+
         return raw_anomalies
 
     def _build_baseline_profiles(
@@ -596,6 +858,19 @@ class MetricsAnalyzerV2:
                 mean = statistics.mean(values)
                 std = statistics.stdev(values) if count > 1 else 0.0
 
+                # Calculate percentiles
+                p01 = self._percentile(sorted_values, 0.01)
+                p25 = self._percentile(sorted_values, 0.25)
+                p50 = self._percentile(sorted_values, 0.5)
+                p75 = self._percentile(sorted_values, 0.75)
+                p95 = self._percentile(sorted_values, 0.95)
+                p99 = self._percentile(sorted_values, 0.99)
+
+                # Calculate robust statistics
+                mad = self._calculate_mad(values, p50)
+                iqr = p75 - p25
+                cv = (std / abs(mean)) if mean != 0 else 0.0
+
                 # Detect distribution type (for latency/duration metrics)
                 distribution_type = "normal"
                 if metric_type == "GAUGE" and count > 10:
@@ -603,9 +878,8 @@ class MetricsAnalyzerV2:
                     if 'duration' in first_metric.labels.get('__name__', '').lower() or \
                        'latency' in first_metric.labels.get('__name__', '').lower():
                         # Calculate skewness: (mean - median) / std
-                        median = self._percentile(sorted_values, 0.5)
                         if std > 0:
-                            skewness = (mean - median) / std
+                            skewness = (mean - p50) / std
                             if abs(skewness) > self.config.skew_threshold:
                                 distribution_type = "log_normal" if skewness > 0 else "unknown"
 
@@ -618,11 +892,17 @@ class MetricsAnalyzerV2:
                     std=std,
                     min_val=min(values),
                     max_val=max(values),
-                    p50=self._percentile(sorted_values, 0.5),
-                    p95=self._percentile(sorted_values, 0.95),
-                    p99=self._percentile(sorted_values, 0.99),
+                    p50=p50,
+                    p95=p95,
+                    p99=p99,
                     count=count,
-                    distribution_type=distribution_type
+                    distribution_type=distribution_type,
+                    mad=mad,
+                    iqr=iqr,
+                    p25=p25,
+                    p75=p75,
+                    p01=p01,
+                    coefficient_of_variation=cv
                 )
 
                 profiles[metric_key] = profile
@@ -724,86 +1004,162 @@ class MetricsAnalyzerV2:
                 )
         else:
             # For gauges, use different detection based on distribution
-            if profile.std == 0:
+            if profile.std == 0 and profile.mad == 0:
                 return None
 
             incident_values = [m.value for m in metrics]
             incident_mean = statistics.mean(incident_values)
+            incident_median = statistics.median(incident_values)
 
-            # For skewed distributions, use percentile-based detection
-            if self.config.use_percentile_for_skewed and profile.is_skewed():
+            # Choose detection method based on distribution
+            detection_method = "z_score"
+            z_score = 0.0
+            direction = None
+            threshold = self._calculate_adaptive_threshold(profile)
+
+            # For skewed distributions, use MAD (Median Absolute Deviation)
+            if self.config.use_mad_for_skewed and profile.is_skewed() and profile.mad > 0:
+                # Use MAD-based z-score (modified z-score)
+                # Modified z-score = 0.6745 * (value - median) / MAD
+                modified_z = 0.6745 * (incident_median - profile.p50) / (profile.mad + 1e-10)
+                z_score = modified_z
+                detection_method = "mad"
+
+                # MAD is more robust, so we can use it directly
+                if abs(modified_z) >= threshold:
+                    direction = AnomalyDirection.INCREASE if modified_z > 0 else AnomalyDirection.DECREASE
+
+            # For skewed distributions, also try IQR method
+            elif profile.is_skewed() and profile.iqr > 0:
+                # Use IQR-based outlier detection
+                # Upper bound: Q3 + 1.5 * IQR
+                # Lower bound: Q1 - 1.5 * IQR
+                upper_bound = profile.p75 + 1.5 * profile.iqr
+                lower_bound = profile.p25 - 1.5 * profile.iqr
+
+                if incident_median > upper_bound:
+                    # Calculate effective z-score for reporting
+                    z_score = (incident_median - profile.p50) / (profile.iqr / 1.35)  # IQR ≈ 1.35σ
+                    direction = AnomalyDirection.INCREASE
+                    detection_method = "iqr"
+                elif incident_median < lower_bound:
+                    z_score = (incident_median - profile.p50) / (profile.iqr / 1.35)
+                    direction = AnomalyDirection.DECREASE
+                    detection_method = "iqr"
+
+            # For percentile-based detection (existing logic)
+            elif self.config.use_percentile_for_skewed and profile.is_skewed():
                 # Compare against p99 for upper anomalies, p01 for lower
                 incident_max = max(incident_values)
                 incident_min = min(incident_values)
 
                 # Check for upper anomaly (value > p99)
-                if incident_max > profile.p99:
-                    # Calculate "effective z-score" for reporting
+                if incident_max > profile.p99 * 1.5:  # 50% above p99
                     z_score = (incident_mean - profile.mean) / profile.std if profile.std > 0 else 0
-                    # But use stricter threshold since we're using p99
-                    if incident_max > profile.p99 * 1.5:  # 50% above p99
-                        return RawAnomaly(
-                            metric_key=profile.metric_key,
-                            component=profile.component,
-                            metric_name=profile.metric_name,
-                            timestamp=timestamp,
-                            value=incident_mean,
-                            baseline_mean=profile.mean,
-                            baseline_std=profile.std,
-                            z_score=z_score,
-                            direction=AnomalyDirection.INCREASE,
-                            severity="HIGH" if incident_max > profile.p99 * 2 else "MEDIUM"
-                        )
+                    direction = AnomalyDirection.INCREASE
+                    detection_method = "percentile"
 
-                # Check for lower anomaly (value < p01 approximation)
-                p01_approx = profile.p50 - (profile.p99 - profile.p50)  # Rough p01
-                if incident_min < p01_approx:
+                # Check for lower anomaly (value < p01)
+                elif incident_min < profile.p01 * 0.5 and profile.p01 > 0:
                     z_score = (incident_mean - profile.mean) / profile.std if profile.std > 0 else 0
-                    if incident_min < p01_approx * 0.5:  # 50% below p01
-                        return RawAnomaly(
-                            metric_key=profile.metric_key,
-                            component=profile.component,
-                            metric_name=profile.metric_name,
-                            timestamp=timestamp,
-                            value=incident_mean,
-                            baseline_mean=profile.mean,
-                            baseline_std=profile.std,
-                            z_score=z_score,
-                            direction=AnomalyDirection.DECREASE,
-                            severity="MEDIUM"
-                        )
+                    direction = AnomalyDirection.DECREASE
+                    detection_method = "percentile"
+
             else:
                 # Normal distribution - use z-score
-                z_score = (incident_mean - profile.mean) / profile.std
+                if profile.std > 0:
+                    z_score = (incident_mean - profile.mean) / profile.std
 
-                # Check threshold
-                if abs(z_score) >= self.z_threshold:
-                    direction = AnomalyDirection.INCREASE if z_score > 0 else AnomalyDirection.DECREASE
-                    severity = self._calculate_severity(abs(z_score))
+                    # Check threshold
+                    if abs(z_score) >= threshold:
+                        direction = AnomalyDirection.INCREASE if z_score > 0 else AnomalyDirection.DECREASE
+                        detection_method = "z_score"
 
-                    return RawAnomaly(
-                        metric_key=profile.metric_key,
-                        component=profile.component,
-                        metric_name=profile.metric_name,
-                        timestamp=timestamp,
-                        value=incident_mean,
-                        baseline_mean=profile.mean,
-                        baseline_std=profile.std,
-                        z_score=z_score,
-                        direction=direction,
-                        severity=severity
-                    )
+            # If anomaly detected, create RawAnomaly with enhanced metadata
+            if direction is not None:
+                # Calculate multi-dimensional severity
+                severity, severity_breakdown = self._calculate_severity_multidimensional(
+                    incident_mean,
+                    profile,
+                    z_score,
+                    direction
+                )
+
+                # Calculate confidence
+                confidence = self._calculate_confidence(
+                    incident_mean,
+                    profile,
+                    detection_method
+                )
+
+                # Filter by minimum confidence threshold
+                if confidence < self.config.min_confidence_threshold:
+                    logger.debug(f"Filtering anomaly with low confidence: {confidence:.2f} < {self.config.min_confidence_threshold}")
+                    return None
+
+                return RawAnomaly(
+                    metric_key=profile.metric_key,
+                    component=profile.component,
+                    metric_name=profile.metric_name,
+                    timestamp=timestamp,
+                    value=incident_mean,
+                    baseline_mean=profile.mean,
+                    baseline_std=profile.std,
+                    z_score=z_score,
+                    direction=direction,
+                    severity=severity,
+                    confidence=confidence,
+                    detection_method=detection_method
+                )
 
         return None
 
     def _calculate_severity(self, abs_z_score: float) -> str:
-        """Calculate severity from absolute z-score"""
+        """Calculate severity from absolute z-score (legacy method)"""
         if abs_z_score > 5.0:
             return "HIGH"
         elif abs_z_score > 3.5:
             return "MEDIUM"
         else:
             return "LOW"
+
+    def _filter_false_positives(
+        self,
+        anomalies: List[RawAnomaly],
+        min_time: float,
+        max_time: float
+    ) -> List[RawAnomaly]:
+        """
+        Apply heuristics to reduce false positives.
+        Filters out anomalies that are likely noise or artifacts.
+        """
+        filtered = []
+
+        for anomaly in anomalies:
+            # Skip if too close to data boundaries
+            if self.config.filter_boundary_anomalies:
+                if anomaly.timestamp < min_time + self.config.boundary_buffer:
+                    logger.debug(f"Filtering boundary anomaly at start: {anomaly.metric_name}")
+                    continue
+                if anomaly.timestamp > max_time - self.config.boundary_buffer:
+                    logger.debug(f"Filtering boundary anomaly at end: {anomaly.metric_name}")
+                    continue
+
+            # Skip if confidence is too low (already checked in detection, but double-check)
+            if anomaly.confidence < self.config.min_confidence_threshold:
+                logger.debug(f"Filtering low confidence anomaly: {anomaly.metric_name} (confidence={anomaly.confidence:.2f})")
+                continue
+
+            # Skip known noisy metrics (patterns that are typically false positives)
+            metric_name_lower = anomaly.metric_name.lower()
+            if any(pattern in metric_name_lower for pattern in ['_tmp_', '_debug_', '_test_']):
+                logger.debug(f"Filtering noisy metric: {anomaly.metric_name}")
+                continue
+
+            # All filters passed
+            filtered.append(anomaly)
+
+        return filtered
 
     def _percentile(self, sorted_values: List[float], p: float) -> float:
         """Calculate percentile"""
@@ -1124,6 +1480,10 @@ class MetricsAnalyzerV2:
         # Build anomaly summaries
         anomaly_summaries = []
         for cluster in sorted(anomaly_clusters, key=lambda c: c.start_time):
+            # Get detection methods and confidence from anomalies in cluster
+            detection_methods = list(set(a.detection_method for a in cluster.anomalies))
+            avg_confidence = statistics.mean(a.confidence for a in cluster.anomalies) if cluster.anomalies else 1.0
+
             anomaly_summaries.append({
                 "cluster_id": cluster.cluster_id,
                 "component": cluster.component,
@@ -1136,7 +1496,10 @@ class MetricsAnalyzerV2:
                 "pattern": cluster.pattern.value,
                 "severity": cluster.severity,
                 "duration": round(cluster.duration, 1),
-                "relationship": cluster.relationship.value
+                "relationship": cluster.relationship.value,
+                "confidence": round(avg_confidence, 2),
+                "detection_methods": detection_methods,
+                "anomaly_count": len(cluster.anomalies)
             })
 
         # Build symptom description
@@ -1155,7 +1518,8 @@ class MetricsAnalyzerV2:
                 "duration": baseline_window.duration,
                 "quality": baseline_window.quality,
                 "samples": baseline_window.samples,
-                "detection_method": baseline_window.detection_method
+                "detection_method": baseline_window.detection_method,
+                "stability_score": round(baseline_window.stability_score, 2)
             },
             "incident_window": {
                 "start_time": incident_window.start_time,
