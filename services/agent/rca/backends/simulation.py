@@ -30,14 +30,21 @@ class SimulationBackend(TelemetryBackend):
         self.logs_file = self.data_dir / "logs.jsonl"
         self.traces_file = self.data_dir / "traces.jsonl"
         self.infra_context_file = self.data_dir / "infra_context.json"
+        self.topology_file = self.data_dir / "topology.json"
         self.metadata_file = self.data_dir / "metadata.json"
 
         # Validate files exist
         if not self.data_dir.exists():
             raise ValueError(f"Data directory does not exist: {data_dir}")
 
-        # Load context files
-        self.infra_context = self._load_json(self.infra_context_file) if self.infra_context_file.exists() else {}
+        # Load context files - support both infra_context.json and topology.json
+        if self.infra_context_file.exists():
+            self.infra_context = self._load_json(self.infra_context_file)
+        elif self.topology_file.exists():
+            self.infra_context = self._load_json(self.topology_file)
+        else:
+            self.infra_context = {}
+
         self.metadata = self._load_json(self.metadata_file) if self.metadata_file.exists() else {}
 
         # Build indexes for fast querying
@@ -71,14 +78,20 @@ class SimulationBackend(TelemetryBackend):
                         metric = json.loads(line.strip())
                         # Extract component from labels
                         labels = metric.get('labels', {})
-                        component = labels.get('component', labels.get('service', 'unknown'))
+                        component = labels.get('component', labels.get('component.id', labels.get('service', 'unknown')))
 
-                        # Track time range
+                        # Track time range - support both 'ts' (nanoseconds) and 'timestamp' (seconds)
                         ts = metric.get('ts', 0)
                         if ts > 0:
                             sim_time = ts / 1e9  # Convert nanoseconds to seconds
                             self.min_time = min(self.min_time, sim_time)
                             self.max_time = max(self.max_time, sim_time)
+                        else:
+                            # Try 'timestamp' field (already in seconds)
+                            timestamp = metric.get('timestamp', 0)
+                            if timestamp > 0:
+                                self.min_time = min(self.min_time, timestamp)
+                                self.max_time = max(self.max_time, timestamp)
 
                         # Index by component
                         self.component_metrics[component].append(line_num)
@@ -122,9 +135,12 @@ class SimulationBackend(TelemetryBackend):
                 try:
                     metric = json.loads(line.strip())
 
-                    # Convert timestamp from nanoseconds to simulation seconds
+                    # Convert timestamp - support both 'ts' (nanoseconds) and 'timestamp' (seconds)
                     ts_ns = metric.get('ts', 0)
-                    sim_time = ts_ns / 1e9
+                    if ts_ns > 0:
+                        sim_time = ts_ns / 1e9
+                    else:
+                        sim_time = metric.get('timestamp', 0)
 
                     # Filter by time range
                     if sim_time < start_time or sim_time > end_time:
@@ -132,14 +148,14 @@ class SimulationBackend(TelemetryBackend):
 
                     # Extract component from labels
                     labels = metric.get('labels', {})
-                    metric_component = labels.get('component', labels.get('service', 'unknown'))
+                    metric_component = labels.get('component', labels.get('component.id', labels.get('service', 'unknown')))
 
                     # Filter by component
                     if component and metric_component != component:
                         continue
 
-                    # Filter by metric name pattern
-                    metric_name = metric.get('name', '')
+                    # Filter by metric name pattern - try both 'name' and '__name__' from labels
+                    metric_name = metric.get('name', labels.get('__name__', ''))
                     if not self._matches_pattern(metric_name, metric_pattern):
                         continue
 

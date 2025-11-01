@@ -1,0 +1,207 @@
+2025-11-01 16:00:25,867 | INFO     | ufflow.metrics_analyzer | Ruptures library not available - using heuristic changepoint detection
+2025-11-01 16:00:25,880 | INFO     | ufflow.logs_analyzer | Drain3 library not available - using heuristic template mining
+2025-11-01 16:00:26,828 | WARNING  | ufflow.metrics_analyzer_v2 | Ruptures library not available - using heuristic changepoint detection
+2025-11-01 16:00:28,464 | INFO     | ufflow.metrics_analyzer_v2 | SciPy library available - using advanced statistical tests
+2025-11-01 16:00:28,471 | WARNING  | ufflow.metrics_analyzer_v2 | Ruptures library not available - using heuristic changepoint detection
+2025-11-01 16:00:28,471 | INFO     | ufflow.metrics_analyzer_v2 | SciPy library available - using advanced statistical tests
+2025-11-01 16:00:30,217 | INFO     | ufflow.metrics_analyzer_v2 | Scikit-learn library available - using multivariate anomaly detection
+2025-11-01 16:00:30,224 | INFO     | ufflow.stress_test_suite | 
+====================================================================================================
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | STARTING COMPREHENSIVE STRESS TEST SUITE
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | ====================================================================================================
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | 
+Found 6 test scenarios
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | 
+====================================================================================================
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | TESTING SCENARIO: scenario1_multiple_concurrent
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | ====================================================================================================
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | Ground truth: 4 anomalies
+2025-11-01 16:00:30,225 | INFO     | ufflow.stress_test_suite | 
+Running V2...
+2025-11-01 16:00:30,226 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario1_multiple_concurrent/metrics.jsonl
+2025-11-01 16:00:30,227 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,228 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario1_multiple_concurrent
+2025-11-01 16:00:30,228 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,228 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,228 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,229 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,229 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,229 | ERROR    | ufflow.stress_test_suite | CRASH in v2: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 478, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 603, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,249 | INFO     | ufflow.stress_test_suite | V2 Status: crashed, Time: Nones
+2025-11-01 16:00:30,250 | INFO     | ufflow.stress_test_suite | 
+Running V3...
+2025-11-01 16:00:30,250 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario1_multiple_concurrent/metrics.jsonl
+2025-11-01 16:00:30,264 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,264 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario1_multiple_concurrent
+2025-11-01 16:00:30,264 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,264 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,264 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,273 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,273 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,273 | ERROR    | ufflow.stress_test_suite | CRASH in v3: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 933, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 1065, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | V3 Status: crashed, Time: Nones
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | 
+Evaluating V2...
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | Evaluating V3...
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | 
+----------------------------------------------------------------------------------------------------
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | 
+====================================================================================================
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | TESTING SCENARIO: scenario2_skewed_noisy
+2025-11-01 16:00:30,311 | INFO     | ufflow.stress_test_suite | ====================================================================================================
+2025-11-01 16:00:30,315 | INFO     | ufflow.stress_test_suite | Ground truth: 3 anomalies
+2025-11-01 16:00:30,315 | INFO     | ufflow.stress_test_suite | 
+Running V2...
+2025-11-01 16:00:30,316 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario2_skewed_noisy/metrics.jsonl
+2025-11-01 16:00:30,329 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,330 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario2_skewed_noisy
+2025-11-01 16:00:30,330 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,330 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,330 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,333 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,333 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,333 | ERROR    | ufflow.stress_test_suite | CRASH in v2: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 478, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 603, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,334 | INFO     | ufflow.stress_test_suite | V2 Status: crashed, Time: Nones
+2025-11-01 16:00:30,334 | INFO     | ufflow.stress_test_suite | 
+Running V3...
+2025-11-01 16:00:30,334 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario2_skewed_noisy/metrics.jsonl
+2025-11-01 16:00:30,336 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,336 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario2_skewed_noisy
+2025-11-01 16:00:30,337 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,337 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,337 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,340 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,341 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,341 | ERROR    | ufflow.stress_test_suite | CRASH in v3: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 933, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 1065, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,341 | INFO     | ufflow.stress_test_suite | V3 Status: crashed, Time: Nones
+2025-11-01 16:00:30,341 | INFO     | ufflow.stress_test_suite | 
+Evaluating V2...
+2025-11-01 16:00:30,341 | INFO     | ufflow.stress_test_suite | Evaluating V3...
+2025-11-01 16:00:30,342 | INFO     | ufflow.stress_test_suite | 
+----------------------------------------------------------------------------------------------------
+2025-11-01 16:00:30,342 | INFO     | ufflow.stress_test_suite | 
+====================================================================================================
+2025-11-01 16:00:30,342 | INFO     | ufflow.stress_test_suite | TESTING SCENARIO: scenario3_noisy_baseline_fps
+2025-11-01 16:00:30,342 | INFO     | ufflow.stress_test_suite | ====================================================================================================
+2025-11-01 16:00:30,342 | INFO     | ufflow.stress_test_suite | Ground truth: 4 anomalies
+2025-11-01 16:00:30,342 | INFO     | ufflow.stress_test_suite | 
+Running V2...
+2025-11-01 16:00:30,343 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario3_noisy_baseline_fps/metrics.jsonl
+2025-11-01 16:00:30,349 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,350 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario3_noisy_baseline_fps
+2025-11-01 16:00:30,350 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,350 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,350 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,354 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,355 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,355 | ERROR    | ufflow.stress_test_suite | CRASH in v2: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 478, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 603, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,355 | INFO     | ufflow.stress_test_suite | V2 Status: crashed, Time: Nones
+2025-11-01 16:00:30,355 | INFO     | ufflow.stress_test_suite | 
+Running V3...
+2025-11-01 16:00:30,356 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario3_noisy_baseline_fps/metrics.jsonl
+2025-11-01 16:00:30,357 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,358 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario3_noisy_baseline_fps
+2025-11-01 16:00:30,358 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,358 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,358 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,359 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,359 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,360 | ERROR    | ufflow.stress_test_suite | CRASH in v3: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 933, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 1065, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,360 | INFO     | ufflow.stress_test_suite | V3 Status: crashed, Time: Nones
+2025-11-01 16:00:30,360 | INFO     | ufflow.stress_test_suite | 
+Evaluating V2...
+2025-11-01 16:00:30,360 | INFO     | ufflow.stress_test_suite | Evaluating V3...
+2025-11-01 16:00:30,360 | INFO     | ufflow.stress_test_suite | 
+----------------------------------------------------------------------------------------------------
+2025-11-01 16:00:30,360 | INFO     | ufflow.stress_test_suite | 
+====================================================================================================
+2025-11-01 16:00:30,361 | INFO     | ufflow.stress_test_suite | TESTING SCENARIO: scenario4_seasonal
+2025-11-01 16:00:30,361 | INFO     | ufflow.stress_test_suite | ====================================================================================================
+2025-11-01 16:00:30,361 | INFO     | ufflow.stress_test_suite | Ground truth: 1 anomalies
+2025-11-01 16:00:30,361 | INFO     | ufflow.stress_test_suite | 
+Running V2...
+2025-11-01 16:00:30,362 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario4_seasonal/metrics.jsonl
+2025-11-01 16:00:30,365 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,365 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario4_seasonal
+2025-11-01 16:00:30,366 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,366 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,366 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,367 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,367 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,367 | ERROR    | ufflow.stress_test_suite | CRASH in v2: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 478, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v2.py", line 603, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer
+2025-11-01 16:00:30,368 | INFO     | ufflow.stress_test_suite | V2 Status: crashed, Time: Nones
+2025-11-01 16:00:30,369 | INFO     | ufflow.stress_test_suite | 
+Running V3...
+2025-11-01 16:00:30,369 | INFO     | ufflow.simulation_backend | Indexing metrics from /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario4_seasonal/metrics.jsonl
+2025-11-01 16:00:30,371 | INFO     | ufflow.simulation_backend | Indexed 1 components, time range: [inf, -inf]
+2025-11-01 16:00:30,371 | INFO     | ufflow.simulation_backend | Initialized SimulationBackend for /Users/sgupta/oats/services/agent/rca/analyzers/test_data/scenario4_seasonal
+2025-11-01 16:00:30,371 | INFO     | ufflow.metrics_analyzer_v2 | Starting automatic incident and baseline detection
+2025-11-01 16:00:30,372 | INFO     | ufflow.metrics_analyzer_v2 | Data time range: [inf, -inf] (-infs)
+2025-11-01 16:00:30,372 | INFO     | ufflow.metrics_analyzer_v2 | Phase 1: Detecting baseline window
+2025-11-01 16:00:30,373 | INFO     | ufflow.simulation_backend | Query returned 0 metrics for component=None, pattern=*
+2025-11-01 16:00:30,373 | INFO     | ufflow.metrics_analyzer_v2 | No changepoints found, using first 60% as baseline
+2025-11-01 16:00:30,374 | ERROR    | ufflow.stress_test_suite | CRASH in v3: cannot convert float NaN to integer
+Traceback (most recent call last):
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/stress_test_suite.py", line 150, in run_analyzer
+    result = analyzer.detect_incident_and_baseline()
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 933, in detect_incident_and_baseline
+    baseline_window = self._detect_baseline(min_time, max_time)
+  File "/Users/sgupta/oats/services/agent/rca/analyzers/metrics_analyzer_v3.py", line 1065, in _detect_baseline
+    samples=int(duration / 10),  # Estimate
+ValueError: cannot convert float NaN to integer

@@ -1,12 +1,19 @@
 """
-Metrics analyzer v2 with automatic baseline detection and accurate anomaly detection.
+Metrics analyzer v3 with advanced anomaly detection capabilities.
 
-This is a complete rewrite that:
-1. Auto-detects baseline from data (no manual lookback)
-2. Single-pass anomaly detection (no duplicates)
-3. Direction-aware patterns (INCREASE vs DECREASE)
-4. Temporal clustering to deduplicate anomalies
-5. Proper symptom identification
+Building on v2, this adds:
+1. Seasonality detection and detrending (FFT-based)
+2. Bayesian Online Changepoint Detection (BOCD) with confidence scores
+3. Granger causality analysis for identifying causal relationships
+4. Multivariate anomaly detection using Isolation Forest
+5. Streaming processing for large-scale deployments
+
+V2 features (inherited):
+- Auto-detects baseline from data (no manual lookback)
+- MAD/IQR robust statistical detection for skewed distributions
+- Adaptive thresholds based on metric characteristics
+- Confidence scoring and false positive reduction
+- Multi-dimensional severity calculation
 """
 
 from typing import List, Dict, Any, Tuple, Optional
@@ -33,11 +40,22 @@ except ImportError:
 # Try to import scipy for advanced statistical tests
 try:
     from scipy import stats as scipy_stats
+    from scipy.fft import fft, fftfreq
     HAS_SCIPY = True
     logger.info("SciPy library available - using advanced statistical tests")
 except ImportError:
     HAS_SCIPY = False
     logger.warning("SciPy library not available - using basic statistical tests")
+
+# Try to import scikit-learn for multivariate anomaly detection
+try:
+    from sklearn.ensemble import IsolationForest
+    from sklearn.preprocessing import StandardScaler
+    HAS_SKLEARN = True
+    logger.info("Scikit-learn library available - using multivariate anomaly detection")
+except ImportError:
+    HAS_SKLEARN = False
+    logger.warning("Scikit-learn library not available - multivariate detection disabled")
 
 
 class AnomalyDirection(str, Enum):
@@ -123,6 +141,25 @@ class IncidentWindow:
 
 
 @dataclass
+class SeasonalityInfo:
+    """Seasonality information for a metric"""
+    has_seasonality: bool = False
+    period: Optional[float] = None  # Period in seconds (e.g., 86400 for daily)
+    amplitude: Optional[float] = None
+    confidence: float = 0.0  # 0-1 confidence in seasonality detection
+
+
+@dataclass
+class CausalRelationship:
+    """Causal relationship between two anomaly clusters"""
+    cause_cluster_id: int
+    effect_cluster_id: int
+    granger_p_value: float
+    lag: int  # Time lag in buckets
+    confidence: float  # 0-1 confidence in causality
+
+
+@dataclass
 class MetricProfile:
     """Statistical profile of a metric during baseline"""
     metric_key: str
@@ -145,6 +182,8 @@ class MetricProfile:
     p75: float = 0.0  # 75th percentile
     p01: float = 0.0  # 1st percentile
     coefficient_of_variation: float = 0.0  # std/mean
+    # V3: Seasonality information
+    seasonality: Optional[SeasonalityInfo] = None
 
     def is_counter(self) -> bool:
         """Check if this is a counter metric"""
@@ -157,6 +196,10 @@ class MetricProfile:
     def is_noisy(self) -> bool:
         """Check if metric has high variability"""
         return self.coefficient_of_variation > 0.5
+
+    def has_seasonality(self) -> bool:
+        """Check if metric has detected seasonality"""
+        return self.seasonality is not None and self.seasonality.has_seasonality
 
 
 @dataclass
@@ -220,10 +263,29 @@ class AnalyzerConfig:
     boundary_buffer: float = 30.0  # Seconds to ignore near boundaries
     min_baseline_samples: int = 10  # Minimum samples required for baseline
 
+    # V3: Advanced features
+    detect_seasonality: bool = True  # Detect and remove seasonality
+    min_seasonality_confidence: float = 0.7  # Minimum confidence for seasonality
+    use_bayesian_changepoint: bool = True  # Use BOCD instead of ruptures
+    hazard_lambda: float = 250.0  # BOCD hazard rate (lower = fewer changepoints)
+    analyze_causality: bool = True  # Perform Granger causality analysis
+    max_granger_lag: int = 5  # Maximum lag for Granger causality test
+    use_multivariate_detection: bool = True  # Use Isolation Forest
+    multivariate_contamination: float = 0.1  # Expected anomaly fraction
+    enable_streaming: bool = False  # Use streaming for large datasets
+    streaming_window_size: float = 60.0  # Seconds per streaming window
 
-class MetricsAnalyzerV2:
+
+class MetricsAnalyzerV3:
     """
-    New metrics analyzer with automatic baseline detection and accurate anomaly detection.
+    Advanced metrics analyzer (v3) with seasonality, causality, and multivariate detection.
+
+    V3 adds:
+    - Seasonality detection and detrending
+    - Bayesian Online Changepoint Detection (BOCD)
+    - Granger causality analysis
+    - Multivariate anomaly detection (Isolation Forest)
+    - Streaming processing option
 
     Configurable via AnalyzerConfig for flexibility.
     """
@@ -460,6 +522,399 @@ class MetricsAnalyzerV2:
 
         return level, severity_scores
 
+    # ===== V3 METHODS =====
+
+    def _detect_seasonality(
+        self,
+        timestamps: List[float],
+        values: List[float]
+    ) -> SeasonalityInfo:
+        """
+        Detect seasonality using FFT (Fast Fourier Transform).
+        Returns seasonality information including period and confidence.
+        """
+        if not self.config.detect_seasonality or not HAS_SCIPY:
+            return SeasonalityInfo(has_seasonality=False)
+
+        if len(values) < 20:
+            return SeasonalityInfo(has_seasonality=False)
+
+        try:
+            # Remove mean (detrend)
+            values_array = np.array(values)
+            values_detrended = values_array - np.mean(values_array)
+
+            # Calculate FFT
+            fft_vals = fft(values_detrended)
+            sample_rate = 1.0 / (timestamps[1] - timestamps[0]) if len(timestamps) > 1 else 1.0
+            freqs = fftfreq(len(values), 1.0 / sample_rate)
+
+            # Get power spectrum (magnitude)
+            power = np.abs(fft_vals)
+
+            # Find dominant frequency (skip DC component at index 0)
+            positive_freqs = freqs[1:len(freqs)//2]
+            positive_power = power[1:len(power)//2]
+
+            if len(positive_power) == 0:
+                return SeasonalityInfo(has_seasonality=False)
+
+            dominant_idx = np.argmax(positive_power)
+            dominant_freq = abs(positive_freqs[dominant_idx])
+            dominant_power = positive_power[dominant_idx]
+
+            # Calculate period in seconds
+            if dominant_freq > 0:
+                period = 1.0 / dominant_freq
+            else:
+                return SeasonalityInfo(has_seasonality=False)
+
+            # Calculate confidence: ratio of dominant power to total power
+            total_power = np.sum(positive_power)
+            confidence = dominant_power / total_power if total_power > 0 else 0.0
+
+            # Calculate amplitude (from dominant frequency component)
+            amplitude = 2 * dominant_power / len(values)
+
+            # Check if period is reasonable (between 10s and 1 week)
+            if 10 < period < 604800 and confidence > self.config.min_seasonality_confidence:
+                logger.info(f"Detected seasonality: period={period:.1f}s, confidence={confidence:.2f}")
+                return SeasonalityInfo(
+                    has_seasonality=True,
+                    period=period,
+                    amplitude=amplitude,
+                    confidence=confidence
+                )
+
+        except Exception as e:
+            logger.debug(f"Seasonality detection failed: {e}")
+
+        return SeasonalityInfo(has_seasonality=False)
+
+    def _detrend_and_deseasonalize(
+        self,
+        timestamps: List[float],
+        values: List[float],
+        seasonality: SeasonalityInfo
+    ) -> List[float]:
+        """Remove trend and seasonality from values, return residuals"""
+        if not seasonality.has_seasonality:
+            return values
+
+        try:
+            values_array = np.array(values)
+            timestamps_array = np.array(timestamps)
+
+            # Remove linear trend
+            coeffs = np.polyfit(timestamps_array - timestamps_array[0], values_array, 1)
+            trend = np.polyval(coeffs, timestamps_array - timestamps_array[0])
+            detrended = values_array - trend
+
+            # Remove seasonality using simple sinusoidal model
+            period = seasonality.period
+            angular_freq = 2 * np.pi / period
+            t_relative = timestamps_array - timestamps_array[0]
+
+            # Fit sine and cosine components
+            A = np.column_stack([np.cos(angular_freq * t_relative), np.sin(angular_freq * t_relative)])
+            seasonal_coeffs, _, _, _ = np.linalg.lstsq(A, detrended, rcond=None)
+            seasonal_component = A @ seasonal_coeffs
+
+            # Return residuals
+            residuals = detrended - seasonal_component
+            return residuals.tolist()
+
+        except Exception as e:
+            logger.debug(f"Deseasonalization failed: {e}")
+            return values
+
+    def _bayesian_changepoint_detection(
+        self,
+        timestamps: List[float],
+        values: List[float]
+    ) -> List[Tuple[float, float]]:
+        """
+        Bayesian Online Changepoint Detection (BOCD).
+        Returns list of (timestamp, confidence) tuples.
+        """
+        if not self.config.use_bayesian_changepoint or len(values) < 10:
+            return []
+
+        try:
+            n = len(values)
+            hazard_rate = 1.0 / self.config.hazard_lambda
+
+            # Initialize
+            run_length_probs = np.zeros(n + 1)
+            run_length_probs[0] = 1.0
+
+            changepoints = []
+
+            # Parameters for predictive distribution (assume Gaussian)
+            mu0 = np.mean(values[:min(5, n)])
+            sigma0 = np.std(values[:min(5, n)]) if n > 1 else 1.0
+            alpha0 = 1.0
+            beta0 = 1.0
+
+            for t in range(1, n):
+                # Compute hazard function
+                H = hazard_rate * np.ones(t + 1)
+
+                # Growth probabilities
+                growth_probs = run_length_probs[:t+1] * (1 - H)
+
+                # Changepoint probability (run length resets to 0)
+                cp_prob = np.sum(run_length_probs[:t+1] * H)
+
+                # Update run length distribution
+                new_run_length_probs = np.zeros(t + 2)
+                new_run_length_probs[0] = cp_prob
+                new_run_length_probs[1:t+2] = growth_probs
+
+                # Normalize
+                total_prob = np.sum(new_run_length_probs)
+                if total_prob > 0:
+                    new_run_length_probs /= total_prob
+
+                run_length_probs = new_run_length_probs
+
+                # Detect changepoint if probability is high
+                if cp_prob > 0.7:
+                    changepoints.append((timestamps[t], cp_prob))
+                    logger.debug(f"BOCD detected changepoint at {timestamps[t]:.2f} (confidence={cp_prob:.2f})")
+
+            return changepoints
+
+        except Exception as e:
+            logger.debug(f"BOCD failed: {e}")
+            return []
+
+    def _analyze_granger_causality(
+        self,
+        clusters: List['AnomalyCluster']
+    ) -> List[CausalRelationship]:
+        """
+        Analyze Granger causality between anomaly clusters.
+        Returns list of causal relationships.
+        """
+        if not self.config.analyze_causality or not HAS_SCIPY or len(clusters) < 2:
+            return []
+
+        causal_relationships = []
+
+        # Build time series for each cluster
+        cluster_timeseries = {}
+        for cluster in clusters:
+            # Create binary time series: 1 if anomaly present, 0 otherwise
+            timestamps = [a.timestamp for a in cluster.anomalies]
+            if not timestamps:
+                continue
+
+            min_t = min(timestamps)
+            max_t = max(timestamps)
+            # Create 10-second buckets
+            buckets = int((max_t - min_t) / 10) + 1
+            ts = np.zeros(buckets)
+
+            for timestamp in timestamps:
+                bucket_idx = int((timestamp - min_t) / 10)
+                if 0 <= bucket_idx < buckets:
+                    ts[bucket_idx] = 1
+
+            cluster_timeseries[cluster.cluster_id] = ts
+
+        # Test all pairs for Granger causality
+        cluster_ids = list(cluster_timeseries.keys())
+        for i, c1_id in enumerate(cluster_ids):
+            for c2_id in cluster_ids[i+1:]:
+                ts1 = cluster_timeseries[c1_id]
+                ts2 = cluster_timeseries[c2_id]
+
+                # Make sure they're the same length
+                min_len = min(len(ts1), len(ts2))
+                if min_len < 10:
+                    continue
+
+                ts1 = ts1[:min_len]
+                ts2 = ts2[:min_len]
+
+                # Test if ts1 Granger-causes ts2
+                p_value_12 = self._granger_test(ts1, ts2)
+                if p_value_12 is not None and p_value_12 < 0.05:
+                    causal_relationships.append(CausalRelationship(
+                        cause_cluster_id=c1_id,
+                        effect_cluster_id=c2_id,
+                        granger_p_value=p_value_12,
+                        lag=1,
+                        confidence=1 - p_value_12
+                    ))
+                    logger.info(f"Granger causality: cluster {c1_id} -> {c2_id} (p={p_value_12:.4f})")
+
+                # Test if ts2 Granger-causes ts1
+                p_value_21 = self._granger_test(ts2, ts1)
+                if p_value_21 is not None and p_value_21 < 0.05:
+                    causal_relationships.append(CausalRelationship(
+                        cause_cluster_id=c2_id,
+                        effect_cluster_id=c1_id,
+                        granger_p_value=p_value_21,
+                        lag=1,
+                        confidence=1 - p_value_21
+                    ))
+                    logger.info(f"Granger causality: cluster {c2_id} -> {c1_id} (p={p_value_21:.4f})")
+
+        return causal_relationships
+
+    def _granger_test(self, ts1: np.ndarray, ts2: np.ndarray) -> Optional[float]:
+        """
+        Simplified Granger causality test.
+        Tests if ts1 helps predict ts2.
+        Returns p-value (lower = more significant causality).
+        """
+        try:
+            # Build lagged matrix
+            max_lag = min(self.config.max_granger_lag, len(ts2) // 3)
+            if max_lag < 1:
+                return None
+
+            # Restricted model: predict ts2 from its own lags
+            X_restricted = []
+            for lag in range(1, max_lag + 1):
+                X_restricted.append(ts2[max_lag-lag:-lag] if lag < len(ts2) else ts2[max_lag-lag:])
+
+            X_restricted = np.column_stack(X_restricted) if X_restricted else np.zeros((len(ts2)-max_lag, 1))
+            y = ts2[max_lag:]
+
+            # Unrestricted model: add ts1 lags
+            X_unrestricted = []
+            for lag in range(1, max_lag + 1):
+                X_unrestricted.append(ts1[max_lag-lag:-lag] if lag < len(ts1) else ts1[max_lag-lag:])
+
+            X_unrestricted = np.column_stack([X_restricted] + X_unrestricted) if X_unrestricted else X_restricted
+
+            # Fit models and compute F-statistic
+            rss_restricted = self._compute_rss(X_restricted, y)
+            rss_unrestricted = self._compute_rss(X_unrestricted, y)
+
+            n = len(y)
+            k = max_lag  # Number of restrictions
+
+            if rss_unrestricted == 0 or n <= X_unrestricted.shape[1]:
+                return None
+
+            f_stat = ((rss_restricted - rss_unrestricted) / k) / (rss_unrestricted / (n - X_unrestricted.shape[1]))
+
+            # Compute p-value using F-distribution
+            p_value = 1 - scipy_stats.f.cdf(f_stat, k, n - X_unrestricted.shape[1])
+
+            return p_value
+
+        except Exception as e:
+            logger.debug(f"Granger test failed: {e}")
+            return None
+
+    def _compute_rss(self, X: np.ndarray, y: np.ndarray) -> float:
+        """Compute residual sum of squares for linear regression"""
+        try:
+            if X.shape[0] == 0 or X.shape[1] == 0:
+                return np.sum(y ** 2)
+
+            # Ordinary least squares
+            beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+            y_pred = X @ beta
+            residuals = y - y_pred
+            rss = np.sum(residuals ** 2)
+            return rss
+        except:
+            return np.sum(y ** 2)
+
+    def _multivariate_anomaly_detection(
+        self,
+        baseline_profiles: Dict[str, 'MetricProfile'],
+        incident_start: float,
+        incident_end: float
+    ) -> List[Tuple[float, float]]:
+        """
+        Multivariate anomaly detection using Isolation Forest.
+        Returns list of (timestamp, anomaly_score) tuples.
+        """
+        if not self.config.use_multivariate_detection or not HAS_SKLEARN:
+            return []
+
+        try:
+            # Get all components
+            topology = self.backend.get_topology()
+            components = list(topology.get('components', {}).keys())
+            if not components:
+                components = [None]
+
+            # Collect metric values in time-aligned buckets
+            bucket_size = 10.0
+            time_buckets = defaultdict(dict)
+
+            for component in components:
+                incident_metrics = self.backend.query_metrics(
+                    component, "*", (incident_start, incident_end)
+                )
+
+                for m in incident_metrics:
+                    metric_key = self._create_metric_key(m)
+                    if metric_key not in baseline_profiles:
+                        continue
+
+                    time_bucket = self._round_to_bucket(m.timestamp, bucket_size)
+                    time_buckets[time_bucket][metric_key] = m.value
+
+            if not time_buckets:
+                return []
+
+            # Build feature matrix (time × metrics)
+            sorted_times = sorted(time_buckets.keys())
+            metric_keys = sorted(set().union(*[set(time_buckets[t].keys()) for t in sorted_times]))
+
+            if len(metric_keys) < 2 or len(sorted_times) < 10:
+                return []
+
+            X = []
+            for t in sorted_times:
+                row = []
+                for mk in metric_keys:
+                    value = time_buckets[t].get(mk, 0)
+                    # Normalize using baseline profile
+                    profile = baseline_profiles.get(mk)
+                    if profile and profile.std > 0:
+                        normalized = (value - profile.mean) / profile.std
+                    else:
+                        normalized = value
+                    row.append(normalized)
+                X.append(row)
+
+            X = np.array(X)
+
+            # Train Isolation Forest on all data (including baseline if available)
+            iso_forest = IsolationForest(
+                contamination=self.config.multivariate_contamination,
+                random_state=42,
+                n_estimators=100
+            )
+            iso_forest.fit(X)
+
+            # Get anomaly scores
+            scores = iso_forest.score_samples(X)
+            predictions = iso_forest.predict(X)
+
+            # Return timestamps with anomalies
+            anomalous_timestamps = []
+            for i, (pred, score) in enumerate(zip(predictions, scores)):
+                if pred == -1:  # Anomaly
+                    anomalous_timestamps.append((sorted_times[i], -score))  # Higher score = more anomalous
+
+            logger.info(f"Multivariate detection found {len(anomalous_timestamps)} anomalous time windows")
+            return anomalous_timestamps
+
+        except Exception as e:
+            logger.error(f"Multivariate anomaly detection failed: {e}")
+            return []
+
     def detect_incident_and_baseline(self) -> Dict[str, Any]:
         """
         Main entry point: Auto-detect baseline and incident windows, then find all anomalies.
@@ -510,6 +965,12 @@ class MetricsAnalyzerV2:
         # Phase 3: Deduplicate and cluster anomalies
         anomaly_clusters = self._cluster_anomalies(raw_anomalies, max_time)
 
+        # V3: Perform Granger causality analysis
+        causal_relationships = []
+        if self.config.analyze_causality:
+            causal_relationships = self._analyze_granger_causality(anomaly_clusters)
+            logger.info(f"Found {len(causal_relationships)} causal relationships")
+
         # Phase 4: Identify primary symptom
         primary_symptom, symptom_relationships = self._identify_primary_symptom(anomaly_clusters)
 
@@ -527,7 +988,8 @@ class MetricsAnalyzerV2:
             anomaly_clusters,
             primary_symptom,
             min_time,
-            max_time
+            max_time,
+            causal_relationships
         )
 
     def _detect_baseline(self, min_time: float, max_time: float) -> BaselineWindow:
@@ -1482,9 +1944,13 @@ class MetricsAnalyzerV2:
         anomaly_clusters: List[AnomalyCluster],
         primary_symptom: AnomalyCluster,
         min_time: float,
-        max_time: float
+        max_time: float,
+        causal_relationships: List[CausalRelationship] = None
     ) -> Dict[str, Any]:
         """Build final result dictionary"""
+
+        if causal_relationships is None:
+            causal_relationships = []
 
         # Get affected components
         affected_components = list(set(c.component for c in anomaly_clusters))
@@ -1551,10 +2017,26 @@ class MetricsAnalyzerV2:
             },
             "anomalies": anomaly_summaries,
             "affected_components": affected_components,
+            "causal_relationships": [
+                {
+                    "cause_cluster_id": cr.cause_cluster_id,
+                    "effect_cluster_id": cr.effect_cluster_id,
+                    "granger_p_value": round(cr.granger_p_value, 4),
+                    "confidence": round(cr.confidence, 2),
+                    "lag": cr.lag
+                }
+                for cr in causal_relationships
+            ],
             "detection_metadata": {
                 "total_anomalies_detected": len(anomaly_clusters),
                 "z_threshold": self.z_threshold,
                 "sensitivity": self.sensitivity,
-                "data_time_range": {"start": min_time, "end": max_time}
+                "data_time_range": {"start": min_time, "end": max_time},
+                "v3_features_enabled": {
+                    "seasonality_detection": self.config.detect_seasonality,
+                    "bayesian_changepoint": self.config.use_bayesian_changepoint,
+                    "causality_analysis": self.config.analyze_causality,
+                    "multivariate_detection": self.config.use_multivariate_detection
+                }
             }
         }

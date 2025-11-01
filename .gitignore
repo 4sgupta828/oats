@@ -112,3 +112,5 @@ kubeconfig
 *.kubeconfig
 
 output
+
+**/test_data/** 
