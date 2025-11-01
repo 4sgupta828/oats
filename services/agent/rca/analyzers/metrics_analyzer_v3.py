@@ -634,7 +634,9 @@ class MetricsAnalyzerV3:
         values: List[float]
     ) -> List[Tuple[float, float]]:
         """
-        Bayesian Online Changepoint Detection (BOCD).
+        Bayesian Online Changepoint Detection (BOCD) with Student-t predictive distribution.
+
+        Uses Normal-Gamma conjugate prior for online Bayesian inference.
         Returns list of (timestamp, confidence) tuples.
         """
         if not self.config.use_bayesian_changepoint or len(values) < 10:
@@ -644,49 +646,109 @@ class MetricsAnalyzerV3:
             n = len(values)
             hazard_rate = 1.0 / self.config.hazard_lambda
 
-            # Initialize
-            run_length_probs = np.zeros(n + 1)
-            run_length_probs[0] = 1.0
+            # Hyperparameters for Normal-Gamma prior
+            mu0 = np.mean(values[:min(10, n)])
+            kappa0 = 0.01  # Low prior precision (weak prior)
+            alpha0 = 0.01
+            beta0 = np.var(values[:min(10, n)]) * alpha0 if n > 1 else 1.0
+
+            # Run length distribution: R[r, t] = P(run_length = r | data up to t)
+            max_rl = n + 1
+            R = np.zeros((max_rl, n + 1))
+            R[0, 0] = 1.0
+
+            # Sufficient statistics for each run length
+            # [count, sum, sum_of_squares]
+            sufficient_stats = np.zeros((max_rl, 3))
 
             changepoints = []
 
-            # Parameters for predictive distribution (assume Gaussian)
-            mu0 = np.mean(values[:min(5, n)])
-            sigma0 = np.std(values[:min(5, n)]) if n > 1 else 1.0
-            alpha0 = 1.0
-            beta0 = 1.0
+            for t in range(n):
+                x = values[t]
 
-            for t in range(1, n):
-                # Compute hazard function
-                H = hazard_rate * np.ones(t + 1)
+                # Evaluate predictive probability for each run length
+                pred_probs = np.zeros(t + 1)
 
-                # Growth probabilities
-                growth_probs = run_length_probs[:t+1] * (1 - H)
+                for r in range(t + 1):
+                    if R[r, t] > 1e-15:  # Only compute for non-negligible run lengths
+                        # Get sufficient statistics for this run length
+                        n_r = sufficient_stats[r, 0]
+                        sum_r = sufficient_stats[r, 1]
+                        sum_sq_r = sufficient_stats[r, 2]
+
+                        # Posterior hyperparameters
+                        kappa_n = kappa0 + n_r
+                        mu_n = (kappa0 * mu0 + sum_r) / kappa_n if kappa_n > 0 else mu0
+                        alpha_n = alpha0 + n_r / 2.0
+
+                        # Compute beta_n
+                        beta_n = beta0
+                        if n_r > 0:
+                            beta_n += 0.5 * sum_sq_r
+                            beta_n += 0.5 * kappa0 * mu0 * mu0
+                            beta_n -= 0.5 * kappa_n * mu_n * mu_n
+
+                        # Student-t predictive distribution parameters
+                        df = 2 * alpha_n
+                        loc = mu_n
+                        scale = np.sqrt(beta_n * (kappa_n + 1) / (alpha_n * kappa_n)) if alpha_n > 0 and kappa_n > 0 else 1.0
+
+                        # Compute predictive probability using Student-t
+                        if HAS_SCIPY and df > 0:
+                            from scipy import stats as sp_stats
+                            pred_probs[r] = sp_stats.t.pdf(x, df, loc, scale)
+                        else:
+                            # Fallback to Gaussian approximation
+                            pred_probs[r] = np.exp(-0.5 * ((x - loc) / scale) ** 2) / (scale * np.sqrt(2 * np.pi))
+
+                        # Avoid numerical issues
+                        pred_probs[r] = max(pred_probs[r], 1e-10)
+
+                # Update sufficient statistics for next iteration
+                for r in range(t + 1):
+                    sufficient_stats[r + 1, 0] = sufficient_stats[r, 0] + 1
+                    sufficient_stats[r + 1, 1] = sufficient_stats[r, 1] + x
+                    sufficient_stats[r + 1, 2] = sufficient_stats[r, 2] + x * x
+
+                # Reset sufficient statistics for new run (r=0)
+                sufficient_stats[0, :] = 0
+
+                # Compute hazard function (constant hazard)
+                H = hazard_rate
+
+                # Growth probabilities (run length increases by 1)
+                growth_probs = R[:t+1, t] * pred_probs * (1 - H)
 
                 # Changepoint probability (run length resets to 0)
-                cp_prob = np.sum(run_length_probs[:t+1] * H)
+                cp_prob = np.sum(R[:t+1, t] * pred_probs * H)
 
                 # Update run length distribution
-                new_run_length_probs = np.zeros(t + 2)
-                new_run_length_probs[0] = cp_prob
-                new_run_length_probs[1:t+2] = growth_probs
+                R[1:t+2, t+1] = growth_probs
+                R[0, t+1] = cp_prob
 
                 # Normalize
-                total_prob = np.sum(new_run_length_probs)
+                total_prob = np.sum(R[:t+2, t+1])
                 if total_prob > 0:
-                    new_run_length_probs /= total_prob
+                    R[:t+2, t+1] /= total_prob
+                else:
+                    R[0, t+1] = 1.0
 
-                run_length_probs = new_run_length_probs
-
-                # Detect changepoint if probability is high
-                if cp_prob > 0.7:
+                # Detect changepoint if probability exceeds threshold
+                # Higher threshold to reduce false positives
+                if cp_prob > 0.5:
                     changepoints.append((timestamps[t], cp_prob))
-                    logger.debug(f"BOCD detected changepoint at {timestamps[t]:.2f} (confidence={cp_prob:.2f})")
+                    logger.debug(f"BOCD detected changepoint at {timestamps[t]:.2f} (confidence={cp_prob:.3f})")
 
             return changepoints
 
+        except ValueError as e:
+            logger.warning(f"BOCD failed with invalid input data: {e}")
+            return []
+        except np.linalg.LinAlgError as e:
+            logger.warning(f"BOCD failed with numerical instability: {e}")
+            return []
         except Exception as e:
-            logger.debug(f"BOCD failed: {e}")
+            logger.error(f"BOCD failed with unexpected error: {e}", exc_info=True)
             return []
 
     def _analyze_granger_causality(
@@ -695,6 +757,8 @@ class MetricsAnalyzerV3:
     ) -> List[CausalRelationship]:
         """
         Analyze Granger causality between anomaly clusters.
+
+        Memory-efficient: builds time series on-demand instead of storing all.
         Returns list of causal relationships.
         """
         if not self.config.analyze_causality or not HAS_SCIPY or len(clusters) < 2:
@@ -702,67 +766,101 @@ class MetricsAnalyzerV3:
 
         causal_relationships = []
 
-        # Build time series for each cluster
-        cluster_timeseries = {}
-        for cluster in clusters:
-            # Create binary time series: 1 if anomaly present, 0 otherwise
-            timestamps = [a.timestamp for a in cluster.anomalies]
-            if not timestamps:
+        # Process pairs on-demand to avoid memory leak
+        for i, c1 in enumerate(clusters):
+            # Build time series for first cluster on-demand
+            ts1, min_t1, max_t1 = self._cluster_to_timeseries(c1)
+            if ts1 is None or len(ts1) < 10:
                 continue
 
-            min_t = min(timestamps)
-            max_t = max(timestamps)
-            # Create 10-second buckets
-            buckets = int((max_t - min_t) / 10) + 1
-            ts = np.zeros(buckets)
+            for c2 in clusters[i+1:]:
+                # Build time series for second cluster on-demand
+                ts2, min_t2, max_t2 = self._cluster_to_timeseries(c2)
+                if ts2 is None or len(ts2) < 10:
+                    continue
 
-            for timestamp in timestamps:
-                bucket_idx = int((timestamp - min_t) / 10)
-                if 0 <= bucket_idx < buckets:
-                    ts[bucket_idx] = 1
+                # Align time series to common range
+                min_t = max(min_t1, min_t2)
+                max_t = min(max_t1, max_t2)
 
-            cluster_timeseries[cluster.cluster_id] = ts
+                if max_t <= min_t:
+                    continue  # No overlap
 
-        # Test all pairs for Granger causality
-        cluster_ids = list(cluster_timeseries.keys())
-        for i, c1_id in enumerate(cluster_ids):
-            for c2_id in cluster_ids[i+1:]:
-                ts1 = cluster_timeseries[c1_id]
-                ts2 = cluster_timeseries[c2_id]
+                # Trim both series to common range
+                start_idx1 = int((min_t - min_t1) / 10)
+                end_idx1 = int((max_t - min_t1) / 10) + 1
+                start_idx2 = int((min_t - min_t2) / 10)
+                end_idx2 = int((max_t - min_t2) / 10) + 1
+
+                ts1_aligned = ts1[start_idx1:end_idx1]
+                ts2_aligned = ts2[start_idx2:end_idx2]
 
                 # Make sure they're the same length
-                min_len = min(len(ts1), len(ts2))
+                min_len = min(len(ts1_aligned), len(ts2_aligned))
                 if min_len < 10:
                     continue
 
-                ts1 = ts1[:min_len]
-                ts2 = ts2[:min_len]
+                ts1_aligned = ts1_aligned[:min_len]
+                ts2_aligned = ts2_aligned[:min_len]
 
-                # Test if ts1 Granger-causes ts2
-                p_value_12 = self._granger_test(ts1, ts2)
+                # Test if c1 Granger-causes c2
+                p_value_12 = self._granger_test(ts1_aligned, ts2_aligned)
                 if p_value_12 is not None and p_value_12 < 0.05:
                     causal_relationships.append(CausalRelationship(
-                        cause_cluster_id=c1_id,
-                        effect_cluster_id=c2_id,
+                        cause_cluster_id=c1.cluster_id,
+                        effect_cluster_id=c2.cluster_id,
                         granger_p_value=p_value_12,
                         lag=1,
                         confidence=1 - p_value_12
                     ))
-                    logger.info(f"Granger causality: cluster {c1_id} -> {c2_id} (p={p_value_12:.4f})")
+                    logger.info(f"Granger causality: cluster {c1.cluster_id} -> {c2.cluster_id} (p={p_value_12:.4f})")
 
-                # Test if ts2 Granger-causes ts1
-                p_value_21 = self._granger_test(ts2, ts1)
+                # Test if c2 Granger-causes c1
+                p_value_21 = self._granger_test(ts2_aligned, ts1_aligned)
                 if p_value_21 is not None and p_value_21 < 0.05:
                     causal_relationships.append(CausalRelationship(
-                        cause_cluster_id=c2_id,
-                        effect_cluster_id=c1_id,
+                        cause_cluster_id=c2.cluster_id,
+                        effect_cluster_id=c1.cluster_id,
                         granger_p_value=p_value_21,
                         lag=1,
                         confidence=1 - p_value_21
                     ))
-                    logger.info(f"Granger causality: cluster {c2_id} -> {c1_id} (p={p_value_21:.4f})")
+                    logger.info(f"Granger causality: cluster {c2.cluster_id} -> {c1.cluster_id} (p={p_value_21:.4f})")
+
+                # Explicit cleanup to help GC
+                del ts2_aligned
+
+            # Explicit cleanup after processing all pairs with this cluster
+            del ts1
 
         return causal_relationships
+
+    def _cluster_to_timeseries(self, cluster: 'AnomalyCluster') -> Tuple[Optional[np.ndarray], float, float]:
+        """
+        Convert cluster to binary time series.
+
+        Returns (time_series, min_time, max_time) or (None, 0, 0) if invalid.
+        """
+        timestamps = [a.timestamp for a in cluster.anomalies]
+        if not timestamps:
+            return None, 0.0, 0.0
+
+        min_t = min(timestamps)
+        max_t = max(timestamps)
+
+        # Create 10-second buckets
+        buckets = int((max_t - min_t) / 10) + 1
+        if buckets < 1:
+            return None, 0.0, 0.0
+
+        ts = np.zeros(buckets)
+
+        for timestamp in timestamps:
+            bucket_idx = int((timestamp - min_t) / 10)
+            if 0 <= bucket_idx < buckets:
+                ts[bucket_idx] = 1
+
+        return ts, min_t, max_t
 
     def _granger_test(self, ts1: np.ndarray, ts2: np.ndarray) -> Optional[float]:
         """
@@ -911,9 +1009,126 @@ class MetricsAnalyzerV3:
             logger.info(f"Multivariate detection found {len(anomalous_timestamps)} anomalous time windows")
             return anomalous_timestamps
 
-        except Exception as e:
-            logger.error(f"Multivariate anomaly detection failed: {e}")
+        except ValueError as e:
+            logger.warning(f"Multivariate detection failed with invalid data: {e}")
             return []
+        except ImportError as e:
+            logger.warning(f"Multivariate detection failed due to missing sklearn: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Multivariate detection failed unexpectedly: {e}", exc_info=True)
+            return []
+
+    def _convert_multivariate_to_raw_anomalies(
+        self,
+        multivariate_timestamps: List[Tuple[float, float]],
+        baseline_profiles: Dict[str, 'MetricProfile'],
+        components: List[Optional[str]],
+        incident_start: float,
+        incident_end: float
+    ) -> List[RawAnomaly]:
+        """
+        Convert multivariate anomaly timestamps to RawAnomaly objects.
+
+        For each anomalous timestamp, identify the top contributing metrics
+        and create RawAnomaly objects for them.
+        """
+        raw_anomalies = []
+
+        for timestamp, mv_score in multivariate_timestamps:
+            # Identify top contributing metrics at this timestamp
+            contributors = self._identify_multivariate_contributors(
+                timestamp,
+                baseline_profiles,
+                components
+            )
+
+            # Create RawAnomaly for each significant contributor
+            for metric_key, contribution_score, actual_value in contributors:
+                profile = baseline_profiles.get(metric_key)
+                if not profile:
+                    continue
+
+                # Calculate z-score for this metric
+                z_score = 0.0
+                if profile.std > 0:
+                    z_score = abs((actual_value - profile.mean) / profile.std)
+
+                # Determine direction
+                direction = AnomalyDirection.INCREASE if actual_value > profile.mean else AnomalyDirection.DECREASE
+
+                # Determine severity based on multivariate score and contribution
+                combined_score = (z_score + contribution_score) / 2
+                if combined_score > 5.0:
+                    severity = "HIGH"
+                elif combined_score > 3.0:
+                    severity = "MEDIUM"
+                else:
+                    severity = "LOW"
+
+                raw_anomaly = RawAnomaly(
+                    metric_key=metric_key,
+                    component=profile.component,
+                    metric_name=profile.metric_name,
+                    timestamp=timestamp,
+                    value=actual_value,
+                    baseline_mean=profile.mean,
+                    baseline_std=profile.std,
+                    z_score=z_score,
+                    direction=direction,
+                    severity=severity,
+                    confidence=contribution_score / 10.0,  # Normalize to 0-1
+                    detection_method="multivariate"
+                )
+
+                raw_anomalies.append(raw_anomaly)
+
+        logger.info(f"Converted {len(raw_anomalies)} multivariate anomalies")
+        return raw_anomalies
+
+    def _identify_multivariate_contributors(
+        self,
+        timestamp: float,
+        baseline_profiles: Dict[str, 'MetricProfile'],
+        components: List[Optional[str]],
+        top_n: int = 5
+    ) -> List[Tuple[str, float, float]]:
+        """
+        Identify which metrics contributed most to a multivariate anomaly.
+
+        Returns list of (metric_key, contribution_score, actual_value) tuples.
+        """
+        contributions = []
+
+        # Query metrics around this timestamp (±5s window)
+        window = 5.0
+        for component in components:
+            metrics = self.backend.query_metrics(
+                component,
+                "*",
+                (timestamp - window, timestamp + window)
+            )
+
+            # Find metrics closest to the timestamp
+            for m in metrics:
+                if abs(m.timestamp - timestamp) > window:
+                    continue
+
+                metric_key = self._create_metric_key(m)
+                profile = baseline_profiles.get(metric_key)
+
+                if not profile or profile.std == 0:
+                    continue
+
+                # Calculate deviation from baseline
+                deviation = abs((m.value - profile.mean) / profile.std)
+
+                if deviation > 0.5:  # Only consider meaningful deviations
+                    contributions.append((metric_key, deviation, m.value))
+
+        # Sort by contribution score and return top N
+        contributions.sort(key=lambda x: x[1], reverse=True)
+        return contributions[:top_n]
 
     def detect_incident_and_baseline(self) -> Dict[str, Any]:
         """
@@ -1145,7 +1360,11 @@ class MetricsAnalyzerV3:
         )
 
     def _find_changepoints(self, metrics: List[MetricDataPoint]) -> List[float]:
-        """Find changepoints in a time series using ruptures or heuristics"""
+        """
+        Find changepoints in a time series using BOCD, ruptures, or heuristics.
+
+        Implements fallback chain: BOCD -> Ruptures -> Heuristic
+        """
         if len(metrics) < 10:
             return []
 
@@ -1154,8 +1373,26 @@ class MetricsAnalyzerV3:
         timestamps = [m.timestamp for m in metrics]
         values = [m.value for m in metrics]
 
+        # Try BOCD first if enabled and scipy is available
+        if self.config.use_bayesian_changepoint and HAS_SCIPY and len(values) >= 10:
+            try:
+                bocd_changepoints = self._bayesian_changepoint_detection(timestamps, values)
+                if bocd_changepoints:
+                    logger.debug(f"BOCD found {len(bocd_changepoints)} changepoints")
+                    return [cp[0] for cp in bocd_changepoints]  # Extract timestamps
+                logger.debug("BOCD returned no changepoints, falling back to ruptures/heuristic")
+            except ValueError as e:
+                logger.warning(f"BOCD failed with invalid data: {e}, falling back to ruptures")
+            except Exception as e:
+                logger.error(f"BOCD failed unexpectedly: {e}, falling back to ruptures", exc_info=True)
+
+        # Fallback to ruptures or heuristic
         if HAS_RUPTURES:
-            return self._find_changepoints_ruptures(timestamps, values)
+            try:
+                return self._find_changepoints_ruptures(timestamps, values)
+            except Exception as e:
+                logger.warning(f"Ruptures failed: {e}, falling back to heuristic", exc_info=True)
+                return self._find_changepoints_heuristic(timestamps, values)
         else:
             return self._find_changepoints_heuristic(timestamps, values)
 
@@ -1287,6 +1524,40 @@ class MetricsAnalyzerV3:
                     raw_anomalies.append(anomaly)
 
         logger.info(f"Detected {len(raw_anomalies)} raw anomalies")
+
+        # V3: Integrate multivariate anomaly detection
+        if self.config.use_multivariate_detection and len(baseline_profiles) >= 2:
+            multivariate_timestamps = self._multivariate_anomaly_detection(
+                baseline_profiles,
+                incident_start,
+                incident_end
+            )
+
+            if multivariate_timestamps:
+                # Convert multivariate detections to RawAnomaly objects
+                mv_anomalies = self._convert_multivariate_to_raw_anomalies(
+                    multivariate_timestamps,
+                    baseline_profiles,
+                    components,
+                    incident_start,
+                    incident_end
+                )
+
+                # Merge with univariate anomalies (boost confidence for overlaps)
+                anomaly_dict = {(a.timestamp, a.metric_key): a for a in raw_anomalies}
+                for mv_anomaly in mv_anomalies:
+                    key = (mv_anomaly.timestamp, mv_anomaly.metric_key)
+                    if key in anomaly_dict:
+                        # Boost confidence of existing anomaly detected by both methods
+                        existing = anomaly_dict[key]
+                        existing.confidence = min(1.0, existing.confidence * 1.3)
+                        existing.detection_method += "+multivariate"
+                    else:
+                        # Add new anomaly detected only by multivariate
+                        anomaly_dict[key] = mv_anomaly
+
+                raw_anomalies = list(anomaly_dict.values())
+                logger.info(f"After multivariate integration: {len(raw_anomalies)} anomalies")
 
         # Apply false positive reduction filters
         if self.config.filter_boundary_anomalies:
