@@ -125,39 +125,105 @@ class MetricProfile:
     p95: float
     p99: float
     count: int
+    distribution_type: str = "normal"  # normal, log_normal, unknown
 
     def is_counter(self) -> bool:
         """Check if this is a counter metric"""
         return self.metric_type == "COUNTER"
 
+    def is_skewed(self) -> bool:
+        """Check if metric is skewed (non-normal distribution)"""
+        return self.distribution_type in ["log_normal", "unknown"]
+
+
+@dataclass
+class AnalyzerConfig:
+    """Configuration for MetricsAnalyzerV2"""
+    # Detection sensitivity
+    sensitivity: str = "medium"
+    z_threshold: Optional[float] = None  # If None, derived from sensitivity
+
+    # Time windows
+    min_baseline_duration: float = 60.0  # seconds
+    transition_buffer: float = 30.0  # seconds before first anomaly
+    anomaly_gap_threshold: float = 20.0  # max gap to merge into same cluster
+    ongoing_threshold: float = 20.0  # if anomaly within Xs of data end → ACTIVE
+
+    # Baseline detection sampling
+    max_components_to_sample: int = 10  # For baseline changepoint detection
+    max_metrics_per_component: int = 5  # For baseline changepoint detection
+    key_metrics: Optional[List[str]] = None  # Golden signal metrics to always check
+
+    # Metric key configuration
+    exclude_labels: List[str] = field(default_factory=lambda: [
+        '__name__', 'component.id', 'sim.time', 'timestamp',
+        # High-cardinality instance labels
+        'pod_name', 'pod_id', 'instance_id', 'host_name', 'container_id',
+        'node_name', 'replica_id', 'task_id'
+    ])
+
+    # Primary symptom scoring weights
+    scoring_weights: Dict[str, Any] = field(default_factory=lambda: {
+        "NEW_ERROR": 1000,
+        "ERROR_INCREASE": 900,
+        "ERROR_MAGNITUDE_MULTIPLIER": 2,  # Per anomaly in cluster
+        "ERROR_MAGNITUDE_CAP": 200,
+        "LATENCY_INCREASE": 500,
+        "LATENCY_DECREASE": -500,
+        "RESOURCE_INCREASE": 400,
+        "RESOURCE_DECREASE": -300,
+        "REQUEST_DECREASE": -400,
+        "REQUEST_INCREASE": 100,
+        "TIME_RANK_BONUS": [300, 250, 200, 150, 100],  # First 5 get bonus
+        "SEVERITY_HIGH": 50,
+        "SEVERITY_MEDIUM": 20,
+        "Z_SCORE_DIVISOR": 10,  # z_score / 10 = bonus points
+        "Z_SCORE_CAP": 50
+    })
+
+    # Statistical detection
+    use_percentile_for_skewed: bool = True  # Use p99 instead of z-score for skewed metrics
+    skew_threshold: float = 1.0  # If abs(skewness) > threshold, consider skewed
+
 
 class MetricsAnalyzerV2:
     """
     New metrics analyzer with automatic baseline detection and accurate anomaly detection.
+
+    Configurable via AnalyzerConfig for flexibility.
     """
 
-    def __init__(self, backend: TelemetryBackend, sensitivity: str = "medium"):
+    def __init__(
+        self,
+        backend: TelemetryBackend,
+        sensitivity: str = "medium",
+        config: Optional[AnalyzerConfig] = None
+    ):
         """Initialize analyzer
 
         Args:
             backend: Telemetry backend
-            sensitivity: Detection sensitivity (high, medium, low)
+            sensitivity: Detection sensitivity (high, medium, low) - used if config not provided
+            config: Optional AnalyzerConfig for advanced configuration
         """
         self.backend = backend
-        self.sensitivity = sensitivity
 
-        # Set z-score threshold based on sensitivity
-        self.z_threshold = {
-            "high": 3.0,
-            "medium": 3.5,
-            "low": 4.0
-        }.get(sensitivity, 3.5)
+        # Use provided config or create default
+        if config is None:
+            config = AnalyzerConfig(sensitivity=sensitivity)
 
-        # Configuration
-        self.min_baseline_duration = 60.0  # seconds
-        self.transition_buffer = 30.0  # seconds before first anomaly
-        self.anomaly_gap_threshold = 20.0  # max gap to merge into same cluster
-        self.ongoing_threshold = 20.0  # if anomaly within Xs of data end → ACTIVE
+        self.config = config
+        self.sensitivity = config.sensitivity
+
+        # Set z-score threshold based on sensitivity or explicit config
+        if config.z_threshold is not None:
+            self.z_threshold = config.z_threshold
+        else:
+            self.z_threshold = {
+                "high": 3.0,
+                "medium": 3.5,
+                "low": 4.0
+            }.get(self.sensitivity, 3.5)
 
     def detect_incident_and_baseline(self) -> Dict[str, Any]:
         """
@@ -246,7 +312,27 @@ class MetricsAnalyzerV2:
         # Sample key metrics across components to find changepoints
         all_changepoints = []
 
-        for component in components[:10]:  # Sample first 10 components for efficiency
+        # Check key metrics first if configured
+        if self.config.key_metrics:
+            logger.info(f"Checking {len(self.config.key_metrics)} configured key metrics")
+            for component in components:
+                for key_metric_pattern in self.config.key_metrics:
+                    try:
+                        metrics = self.backend.query_metrics(component, key_metric_pattern, (min_time, max_time))
+                        if metrics:
+                            by_metric = defaultdict(list)
+                            for m in metrics:
+                                metric_name = m.labels.get('__name__', 'unknown')
+                                by_metric[metric_name].append(m)
+
+                            for metric_name, metric_list in by_metric.items():
+                                changepoints = self._find_changepoints(metric_list)
+                                all_changepoints.extend(changepoints)
+                    except Exception as e:
+                        logger.warning(f"Error checking key metric {key_metric_pattern}: {e}")
+
+        # Sample other components/metrics for efficiency
+        for component in components[:self.config.max_components_to_sample]:
             try:
                 # Query all metrics for this component
                 metrics = self.backend.query_metrics(component, "*", (min_time, max_time))
@@ -260,7 +346,7 @@ class MetricsAnalyzerV2:
                     by_metric[metric_name].append(m)
 
                 # Detect changepoints in key metrics
-                for metric_name, metric_list in list(by_metric.items())[:5]:  # Top 5 metrics per component
+                for metric_name, metric_list in list(by_metric.items())[:self.config.max_metrics_per_component]:
                     changepoints = self._find_changepoints(metric_list)
                     all_changepoints.extend(changepoints)
 
@@ -313,7 +399,7 @@ class MetricsAnalyzerV2:
         baseline_duration = baseline_end - baseline_start
 
         # Validate baseline quality
-        if baseline_duration < self.min_baseline_duration:
+        if baseline_duration < self.config.min_baseline_duration:
             quality = "insufficient"
         elif baseline_duration < 120:
             quality = "fair"
@@ -507,20 +593,36 @@ class MetricsAnalyzerV2:
                 # Calculate statistics
                 sorted_values = sorted(values)
                 count = len(values)
+                mean = statistics.mean(values)
+                std = statistics.stdev(values) if count > 1 else 0.0
+
+                # Detect distribution type (for latency/duration metrics)
+                distribution_type = "normal"
+                if metric_type == "GAUGE" and count > 10:
+                    # Check for skewness in gauge metrics (especially latency/duration)
+                    if 'duration' in first_metric.labels.get('__name__', '').lower() or \
+                       'latency' in first_metric.labels.get('__name__', '').lower():
+                        # Calculate skewness: (mean - median) / std
+                        median = self._percentile(sorted_values, 0.5)
+                        if std > 0:
+                            skewness = (mean - median) / std
+                            if abs(skewness) > self.config.skew_threshold:
+                                distribution_type = "log_normal" if skewness > 0 else "unknown"
 
                 profile = MetricProfile(
                     metric_key=metric_key,
                     component=first_metric.labels.get('component.id', component or 'unknown'),
                     metric_name=first_metric.labels.get('__name__', 'unknown'),
                     metric_type=metric_type,
-                    mean=statistics.mean(values),
-                    std=statistics.stdev(values) if count > 1 else 0.0,
+                    mean=mean,
+                    std=std,
                     min_val=min(values),
                     max_val=max(values),
                     p50=self._percentile(sorted_values, 0.5),
                     p95=self._percentile(sorted_values, 0.95),
                     p99=self._percentile(sorted_values, 0.99),
-                    count=count
+                    count=count,
+                    distribution_type=distribution_type
                 )
 
                 profiles[metric_key] = profile
@@ -528,14 +630,18 @@ class MetricsAnalyzerV2:
         return profiles
 
     def _create_metric_key(self, metric: MetricDataPoint) -> str:
-        """Create unique key for a metric (component + name + label signature)"""
+        """Create unique key for a metric (component + name + label signature)
+
+        Excludes high-cardinality labels (pod_name, instance_id, etc.) to prevent
+        metric cardinality explosion when instances restart.
+        """
         metric_name = metric.labels.get('__name__', 'unknown')
         component_id = metric.labels.get('component.id', 'unknown')
 
-        # Include discriminating labels (but not timestamp-like labels)
+        # Include discriminating labels (but exclude configured labels)
         label_parts = []
         for k, v in sorted(metric.labels.items()):
-            if k not in ['__name__', 'component.id', 'sim.time', 'timestamp']:
+            if k not in self.config.exclude_labels:
                 label_parts.append(f"{k}={v}")
 
         label_sig = ",".join(label_parts) if label_parts else "none"
@@ -617,30 +723,76 @@ class MetricsAnalyzerV2:
                     severity=severity
                 )
         else:
-            # For gauges, compare mean of values in bucket
+            # For gauges, use different detection based on distribution
             if profile.std == 0:
                 return None
 
-            incident_mean = statistics.mean(m.value for m in metrics)
-            z_score = (incident_mean - profile.mean) / profile.std
+            incident_values = [m.value for m in metrics]
+            incident_mean = statistics.mean(incident_values)
 
-            # Check threshold
-            if abs(z_score) >= self.z_threshold:
-                direction = AnomalyDirection.INCREASE if z_score > 0 else AnomalyDirection.DECREASE
-                severity = self._calculate_severity(abs(z_score))
+            # For skewed distributions, use percentile-based detection
+            if self.config.use_percentile_for_skewed and profile.is_skewed():
+                # Compare against p99 for upper anomalies, p01 for lower
+                incident_max = max(incident_values)
+                incident_min = min(incident_values)
 
-                return RawAnomaly(
-                    metric_key=profile.metric_key,
-                    component=profile.component,
-                    metric_name=profile.metric_name,
-                    timestamp=timestamp,
-                    value=incident_mean,
-                    baseline_mean=profile.mean,
-                    baseline_std=profile.std,
-                    z_score=z_score,
-                    direction=direction,
-                    severity=severity
-                )
+                # Check for upper anomaly (value > p99)
+                if incident_max > profile.p99:
+                    # Calculate "effective z-score" for reporting
+                    z_score = (incident_mean - profile.mean) / profile.std if profile.std > 0 else 0
+                    # But use stricter threshold since we're using p99
+                    if incident_max > profile.p99 * 1.5:  # 50% above p99
+                        return RawAnomaly(
+                            metric_key=profile.metric_key,
+                            component=profile.component,
+                            metric_name=profile.metric_name,
+                            timestamp=timestamp,
+                            value=incident_mean,
+                            baseline_mean=profile.mean,
+                            baseline_std=profile.std,
+                            z_score=z_score,
+                            direction=AnomalyDirection.INCREASE,
+                            severity="HIGH" if incident_max > profile.p99 * 2 else "MEDIUM"
+                        )
+
+                # Check for lower anomaly (value < p01 approximation)
+                p01_approx = profile.p50 - (profile.p99 - profile.p50)  # Rough p01
+                if incident_min < p01_approx:
+                    z_score = (incident_mean - profile.mean) / profile.std if profile.std > 0 else 0
+                    if incident_min < p01_approx * 0.5:  # 50% below p01
+                        return RawAnomaly(
+                            metric_key=profile.metric_key,
+                            component=profile.component,
+                            metric_name=profile.metric_name,
+                            timestamp=timestamp,
+                            value=incident_mean,
+                            baseline_mean=profile.mean,
+                            baseline_std=profile.std,
+                            z_score=z_score,
+                            direction=AnomalyDirection.DECREASE,
+                            severity="MEDIUM"
+                        )
+            else:
+                # Normal distribution - use z-score
+                z_score = (incident_mean - profile.mean) / profile.std
+
+                # Check threshold
+                if abs(z_score) >= self.z_threshold:
+                    direction = AnomalyDirection.INCREASE if z_score > 0 else AnomalyDirection.DECREASE
+                    severity = self._calculate_severity(abs(z_score))
+
+                    return RawAnomaly(
+                        metric_key=profile.metric_key,
+                        component=profile.component,
+                        metric_name=profile.metric_name,
+                        timestamp=timestamp,
+                        value=incident_mean,
+                        baseline_mean=profile.mean,
+                        baseline_std=profile.std,
+                        z_score=z_score,
+                        direction=direction,
+                        severity=severity
+                    )
 
         return None
 
@@ -698,7 +850,7 @@ class MetricsAnalyzerV2:
             for i in range(1, len(anomalies)):
                 gap = anomalies[i].timestamp - anomalies[i-1].timestamp
 
-                if gap <= self.anomaly_gap_threshold:
+                if gap <= self.config.anomaly_gap_threshold:
                     # Same cluster
                     current_cluster.append(anomalies[i])
                 else:
@@ -730,7 +882,7 @@ class MetricsAnalyzerV2:
         end_time = anomalies[-1].timestamp
 
         # Check if ongoing
-        if (max_time - end_time) < self.ongoing_threshold:
+        if (max_time - end_time) < self.config.ongoing_threshold:
             end_time = None
             duration = max_time - start_time
         else:
@@ -824,64 +976,65 @@ class MetricsAnalyzerV2:
         clusters_by_time = sorted(clusters, key=lambda c: c.start_time)
 
         # Score each cluster for likelihood of being primary symptom
+        # Use configured weights for flexibility
+        weights = self.config.scoring_weights
+
         def symptom_score(cluster: AnomalyCluster) -> float:
             score = 0.0
 
             # Errors are most likely primary
             if 'error' in cluster.metric_name.lower():
                 if cluster.direction == AnomalyDirection.NEW_ERROR:
-                    score += 1000  # New error = highest priority
+                    score += weights["NEW_ERROR"]
                 elif cluster.direction == AnomalyDirection.INCREASE:
-                    score += 900  # Error increase = very high priority
+                    score += weights["ERROR_INCREASE"]
 
                 # Add magnitude bonus: count of anomalies in cluster (indicates volume)
                 # More anomalies = more error events detected
-                magnitude_bonus = min(200, len(cluster.anomalies) * 2)  # Cap at 200
+                magnitude_bonus = min(
+                    weights["ERROR_MAGNITUDE_CAP"],
+                    len(cluster.anomalies) * weights["ERROR_MAGNITUDE_MULTIPLIER"]
+                )
                 score += magnitude_bonus
 
             # Performance degradation (latency/duration INCREASE)
             elif 'duration' in cluster.metric_name.lower() or 'latency' in cluster.metric_name.lower():
                 if cluster.direction == AnomalyDirection.INCREASE:
-                    score += 500  # Latency increase = medium priority
+                    score += weights["LATENCY_INCREASE"]
                 else:
-                    score -= 500  # Latency decrease = likely secondary, deprioritize
+                    score += weights["LATENCY_DECREASE"]  # Negative value
 
             # Resource metrics
             elif any(x in cluster.metric_name.lower() for x in ['cpu', 'memory', 'disk']):
                 if cluster.direction == AnomalyDirection.INCREASE:
-                    score += 400  # Resource increase = medium priority
+                    score += weights["RESOURCE_INCREASE"]
                 else:
-                    score -= 300  # Resource decrease = likely secondary
+                    score += weights["RESOURCE_DECREASE"]  # Negative value
 
             # Throughput decreases (likely secondary to errors)
             elif 'request' in cluster.metric_name.lower():
                 if cluster.direction == AnomalyDirection.DECREASE:
-                    score -= 400  # Request decrease = likely secondary
+                    score += weights["REQUEST_DECREASE"]  # Negative value
                 elif cluster.direction == AnomalyDirection.INCREASE:
-                    score += 100  # Request increase = possible cause
+                    score += weights["REQUEST_INCREASE"]
 
             # Earlier timestamp = more likely primary
-            # (first 5 clusters get bonus)
             time_rank = clusters_by_time.index(cluster)
-            if time_rank == 0:
-                score += 300
-            elif time_rank == 1:
-                score += 250
-            elif time_rank == 2:
-                score += 200
-            elif time_rank == 3:
-                score += 150
-            elif time_rank == 4:
-                score += 100
+            time_bonuses = weights["TIME_RANK_BONUS"]
+            if time_rank < len(time_bonuses):
+                score += time_bonuses[time_rank]
 
             # Severity bonus
             if cluster.severity == "HIGH":
-                score += 50
+                score += weights["SEVERITY_HIGH"]
             elif cluster.severity == "MEDIUM":
-                score += 20
+                score += weights["SEVERITY_MEDIUM"]
 
             # Z-score magnitude bonus (capped)
-            z_bonus = min(50, abs(cluster.peak_z_score) / 10)
+            z_bonus = min(
+                weights["Z_SCORE_CAP"],
+                abs(cluster.peak_z_score) / weights["Z_SCORE_DIVISOR"]
+            )
             score += z_bonus
 
             return score
@@ -934,11 +1087,11 @@ class MetricsAnalyzerV2:
         first_anomaly = min(clusters, key=lambda c: c.start_time)
 
         # Incident start = buffer before first anomaly
-        incident_start = max(baseline_window.end_time, first_anomaly.start_time - self.transition_buffer)
+        incident_start = max(baseline_window.end_time, first_anomaly.start_time - self.config.transition_buffer)
 
         # Check if ongoing
         latest_time = max(c.peak_time for c in clusters)
-        if (max_time - latest_time) < self.ongoing_threshold:
+        if (max_time - latest_time) < self.config.ongoing_threshold:
             incident_end = None
             status = "ACTIVE"
             duration = max_time - incident_start
