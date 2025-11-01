@@ -20,7 +20,10 @@ class DiagnosticMetadata(BaseModel):
     layer_focus: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Current layer under investigation")
     signal_quality: Literal["STRONG", "MEDIUM", "WEAK", "ABSENT", "UNKNOWN"] = Field(..., description="Quality of evidence from last action")
     causality_level: Literal["SYMPTOM", "PROXIMATE_CAUSE", "ROOT_CAUSE"] = Field(..., description="Level of causality identified")
-    confidence: Dict[str, Literal["HIGH", "MEDIUM", "LOW"]] = Field(..., description="Confidence levels for problem_definition, root_cause_identified, fix_will_work")
+    confidence: Dict[str, Literal["HIGH", "MEDIUM", "LOW"]] = Field(
+        default_factory=lambda: {"problem_definition": "LOW", "root_cause_identified": "LOW", "fix_will_work": "LOW"},
+        description="Confidence levels for problem_definition, root_cause_identified, fix_will_work. Defaults to LOW if not specified."
+    )
 
 class FailureMetadata(BaseModel):
     """Metadata for failure recovery."""
@@ -31,7 +34,7 @@ class FailureMetadata(BaseModel):
 
 class ReflectSection(BaseModel):
     """Reflection on the outcome of the last action."""
-    turn: int = Field(..., description="Current turn number")
+    turn: int = Field(default=1, description="Current turn number. Will be inferred from context if not provided.")
     outcome: Literal["SUCCESS", "FAILURE", "FIRST_TURN"] = Field(..., description="Outcome of last action")
     hypothesisResult: Literal["CONFIRMED", "INVALIDATED", "INCONCLUSIVE", "IRRELEVANT", "N/A"] = Field(..., description="Result of testing the previous hypothesis")
     insight: str = Field(..., description="Key learning from this turn")
@@ -47,17 +50,19 @@ class StrategizeSection(BaseModel):
 class Task(BaseModel):
     """A sub-task in the overall goal."""
     id: int = Field(..., description="Task identifier")
-    desc: str = Field(..., description="Clear, verifiable sub-task description")
+    desc: str = Field(..., alias="description", description="Clear, verifiable sub-task description")
     # V6 uses: active | done | pending | blocked
     # V4 uses: active | done | blocked
     status: Literal["active", "done", "pending", "blocked"] = Field(..., description="Current status of the task")
+
+    model_config = {"populate_by_name": True}
 
 class ActiveTask(BaseModel):
     """Currently active task with its metadata."""
     id: int = Field(..., description="ID of the active task")
     archetype: Literal["DIAGNOSE", "CREATE", "MODIFY", "PROVISION"] = Field(..., description="Task type (DIAGNOSE for RCA)")
-    phase: str = Field(..., description="Current phase within the archetype")
-    turns: int = Field(..., description="Number of turns spent on this task")
+    phase: str = Field(default="TRIAGE", description="Current phase within the archetype")
+    turns: int = Field(default=0, description="Number of turns spent on this task")
 
 # SRE-specific diagnostic models
 class Fact(BaseModel):

@@ -194,7 +194,7 @@ class AgentController:
 
                     # B. Reason: Parse the response
                     try:
-                        parsed_response = self._parse_llm_response(raw_response)
+                        parsed_response = self._parse_llm_response(raw_response, turn_number=turn_number)
                     except Exception as parse_error:
                         logger.error(f"Critical parsing error in turn {turn_number}: {parse_error}")
                         # Emit error event
@@ -713,12 +713,12 @@ class AgentController:
 
         return inlined
 
-    def _parse_llm_response(self, raw_response: str) -> ParsedLLMResponse:
+    def _parse_llm_response(self, raw_response: str, turn_number: int = 1) -> ParsedLLMResponse:
         """Parse LLM response in new JSON format."""
         import json
         import re
         try:
-            logger.debug(f"Parsing LLM response: {raw_response[:200]}...")
+            logger.debug(f"Parsing LLM response for turn {turn_number}: {raw_response[:200]}...")
 
             # Try to parse as direct JSON first (from structured output)
             try:
@@ -778,6 +778,12 @@ class AgentController:
             reflect_data = response_data.get("reflect")
             if not reflect_data or not isinstance(reflect_data, dict):
                 raise ValueError(f"'reflect' field is missing or invalid. Got: {type(reflect_data)}")
+
+            # Ensure turn number is set correctly (LLM may omit it)
+            if 'turn' not in reflect_data or reflect_data['turn'] != turn_number:
+                logger.debug(f"Correcting turn number from {reflect_data.get('turn')} to {turn_number}")
+                reflect_data['turn'] = turn_number
+
             reflect = ReflectSection(**reflect_data)
 
             # Parse strategize section with null-safe hypothesis handling
@@ -811,6 +817,14 @@ class AgentController:
             state_data = response_data.get("state")
             if not state_data or not isinstance(state_data, dict):
                 raise ValueError(f"'state' field is missing or invalid. Got: {type(state_data)}")
+
+            # Debug logging for state data
+            logger.debug(f"State data keys: {state_data.keys()}")
+            if 'active' in state_data and state_data['active']:
+                logger.debug(f"Active task data: {state_data['active']}")
+            if 'tasks' in state_data:
+                logger.debug(f"Tasks data: {state_data['tasks']}")
+
             state = State(**state_data)
 
             # Handle case where act might be None (when task is complete)
