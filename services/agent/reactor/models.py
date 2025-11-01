@@ -62,10 +62,10 @@ class ActiveTask(BaseModel):
 # SRE-specific diagnostic models
 class Fact(BaseModel):
     """Observable, verified truth from tool output."""
-    id: int = Field(..., description="Fact identifier")
-    desc: str = Field(..., description="Observable truth from tool output")
-    turn: int = Field(..., description="Turn when fact was discovered")
-    layer: Optional[Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"]] = Field(None, description="Which layer this fact relates to")
+    id: int = Field(..., description="Fact identifier (sequential integer)")
+    desc: str = Field(..., description="Observable truth from tool output. Include specific metrics, timestamps, and statistical significance when available (e.g., 'p99 latency increased from 150ms to 2.5s at 10:15 AM, z=12.3, p<0.001')")
+    turn: int = Field(..., description="Turn number when this fact was discovered")
+    layer: Optional[Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"]] = Field(None, description="Which layer this fact relates to: INFRASTRUCTURE (hardware, network, k8s), RUNTIME (pods, containers, resources), INTEGRATION (service-to-service calls, APIs), BUSINESS_LOGIC (application code, data processing)")
 
 class Symptom(BaseModel):
     """User-facing observable failure."""
@@ -76,35 +76,35 @@ class Symptom(BaseModel):
 
 class TimelineEvent(BaseModel):
     """Event in the system timeline."""
-    timestamp: str = Field(..., description="ISO 8601 timestamp")
-    event: str = Field(..., description="What happened")
-    relevance: Literal["HIGH", "MEDIUM", "LOW"] = Field(..., description="Relevance to symptom")
-    factIDs: List[int] = Field(default_factory=list, description="Related fact IDs")
+    timestamp: str = Field(..., description="ISO 8601 timestamp or relative time (e.g., 'T-3min (2025-10-31 10:12:00)' or '2025-10-31T10:15:00Z')")
+    event: str = Field(..., description="What happened - be specific and actionable (e.g., 'Deployed user-cache v1.2.3 with modified TTL configuration' not just 'deployment')")
+    relevance: Literal["HIGH", "MEDIUM", "LOW"] = Field(..., description="Relevance to the symptom. HIGH: Directly caused symptom or occurred at symptom onset. MEDIUM: Related but not directly causal. LOW: Tangentially related or contextual.")
+    factIDs: List[int] = Field(default_factory=list, description="List of fact IDs that support or reference this timeline event")
 
 class CausalLink(BaseModel):
     """Link in the causal chain."""
-    level: Literal["symptom", "proximate_cause", "root_cause"] = Field(..., description="Causality level")
-    layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Layer this link relates to")
-    description: str = Field(..., description="Clear description of this causal link")
-    factIDs: List[int] = Field(default_factory=list, description="Supporting fact IDs")
+    level: Literal["symptom", "proximate_cause", "root_cause"] = Field(..., description="Causality level: symptom (user-visible effect), proximate_cause (immediate technical cause), root_cause (underlying reason)")
+    layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Which layer this causal link occurs in")
+    description: str = Field(..., description="Clear description showing cause → effect relationship (e.g., 'Cache eviction bug → hit ratio collapsed 98% to 25% → 20× DB queries → API timeouts')")
+    factIDs: List[int] = Field(default_factory=list, description="List of fact IDs that support this causal link")
 
 class CompetingHypothesis(BaseModel):
     """Competing hypothesis for differential diagnosis."""
-    id: str = Field(..., description="Hypothesis identifier (e.g., 'H1', 'H2')")
-    claim: str = Field(..., description="Specific hypothesis about root cause")
-    layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Layer this hypothesis tests")
-    prior_confidence: float = Field(..., description="Confidence before latest evidence (0.0 - 1.0)")
-    current_confidence: float = Field(..., description="Updated confidence after latest evidence (0.0 - 1.0)")
-    status: Literal["ACTIVE", "RULED_OUT", "CONFIRMED"] = Field(..., description="Current status of hypothesis")
-    evidence_for: List[str] = Field(default_factory=list, description="Supporting observations")
-    evidence_against: List[str] = Field(default_factory=list, description="Contradicting observations")
+    id: str = Field(..., description="Hypothesis identifier (e.g., 'H1', 'H2', 'H3')")
+    claim: str = Field(..., description="Specific, testable hypothesis about the root cause (e.g., 'user-cache v1.2.3 deployment introduced TTL bug causing cache eviction')")
+    layer: Literal["INFRASTRUCTURE", "RUNTIME", "INTEGRATION", "BUSINESS_LOGIC"] = Field(..., description="Which layer this hypothesis tests")
+    prior_confidence: float = Field(..., description="Confidence level before the latest evidence (0.0 to 1.0, where 1.0 is certain)")
+    current_confidence: float = Field(..., description="Updated confidence level after incorporating latest evidence (0.0 to 1.0)")
+    status: Literal["ACTIVE", "RULED_OUT", "CONFIRMED"] = Field(..., description="Current status: ACTIVE (still investigating), RULED_OUT (evidence contradicts), CONFIRMED (evidence supports)")
+    evidence_for: List[str] = Field(default_factory=list, description="Supporting observations with factID references (e.g., 'factID: 1 - Cache hit ratio dropped from 98% to 25%')")
+    evidence_against: List[str] = Field(default_factory=list, description="Contradicting observations with factID references")
 
 class Context(BaseModel):
     """Four dimensions of system context."""
-    architecture: Optional[str] = Field(None, description="What this component is and its role")
-    dependencies: Optional[str] = Field(None, description="What it needs and who needs it")
-    temporal: Optional[str] = Field(None, description="When it started and what changed")
-    environment: Optional[str] = Field(None, description="Where it runs and resource limits")
+    architecture: Optional[str] = Field(None, description="What this component is and its role in the system (e.g., 'api-service is a REST API handling 10k req/s; caches user profiles via user-cache')")
+    dependencies: Optional[str] = Field(None, description="What it depends on (upstream) and what depends on it (downstream). Include isolation boundaries (e.g., 'Upstream: user-cache, postgres-db. Downstream: frontend-service. Isolation: user-cache')")
+    temporal: Optional[str] = Field(None, description="When the symptom started and what changed around that time (e.g., 'Symptom at 10:15 AM. user-cache v1.2.3 deployed at 10:12 AM (T-3min). No other changes in 24h.')")
+    environment: Optional[str] = Field(None, description="Where it runs and resource constraints (e.g., 'Production, 10 instances behind ALB, auto-scaling 5-20 pods, us-east-1, 2GB memory limit')")
 
 class Diagnosis(BaseModel):
     """Complete diagnostic state for infrastructure troubleshooting."""

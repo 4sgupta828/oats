@@ -136,75 +136,7 @@ After each evidence gathering action:
 ## Example Turn in Phase 2
 
 ```json
-{
-  "reflect": {
-    "turn": 6,
-    "outcome": "SUCCESS",
-    "hypothesisResult": "CONFIRMED",
-    "insight": "H1 strongly supported: cache hit ratio collapsed instantly (STEP_CHANGE at deployment time), not gradual",
-    "diagnostic": {
-      "investigation_phase": "EVIDENCE_GATHERING",
-      "layer_focus": "BUSINESS_LOGIC",
-      "signal_quality": "STRONG",
-      "causality_level": "PROXIMATE_CAUSE",
-      "confidence": {
-        "problem_definition": "HIGH",
-        "root_cause_identified": "MEDIUM",
-        "fix_will_work": "MEDIUM"
-      },
-      "hypothesis_update": {
-        "tested": "H1: user-cache v1.2.3 eviction bug",
-        "prior_confidence": 0.65,
-        "evidence_observed": "cache.hit_ratio: baseline 0.98, incident 0.25 (delta -74.5%, z=12.3, STEP_CHANGE)",
-        "likelihood_ratio": 9.0,
-        "posterior_confidence": 0.94,
-        "status": "STRONGLY_CONFIRMED"
-      }
-    }
-  },
-  "strategize": {
-    "reasoning": "H1 confidence now 0.94 (>0.90 threshold). Cache hit ratio collapsed by 74.5% with z-score of 12.3 in a STEP_CHANGE pattern aligned with deployment. This is smoking-gun evidence. Promoting to Phase 3 for deep validation of causal mechanism.",
-    "hypothesis": {
-      "claim": "user-cache eviction bug is dropping valid entries prematurely",
-      "test": "get_cache_stats() to examine eviction mechanism details",
-      "signal": "Eviction rate spike and cache stats showing premature evictions"
-    },
-    "ifInvalidated": "If eviction stats are normal, investigate database query patterns for alternate explanation"
-  },
-  "state": {
-    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "DEEP_VALIDATION", "turns": 1},
-    "facts": [
-      {
-        "id": 3,
-        "desc": "user-cache hit_ratio dropped 74.5% (z=12.3, STEP_CHANGE pattern)",
-        "turn": 6,
-        "source_tool": "compare_metrics",
-        "statistical_significance": "z=12.3, p<0.001"
-      }
-    ],
-    "diagnosis": {
-      "competingHypotheses": [
-        {
-          "id": "H1",
-          "claim": "user-cache v1.2.3 eviction bug",
-          "layer": "BUSINESS_LOGIC",
-          "prior_confidence": 0.65,
-          "current_confidence": 0.94,
-          "status": "ACTIVE",
-          "evidence_for": ["factID: 3"]
-        }
-      ]
-    }
-  },
-  "act": {
-    "tool": "get_cache_stats",
-    "params": {
-      "component_name": "user-cache",
-      "time_window": [1698123456.0, 1698123756.0],
-      "data_dir": "{{data_dir}}"
-    }
-  }
-}
+{{complete_response_example}}
 ```
 
 Notice: Phase transitioned to DEEP_VALIDATION.

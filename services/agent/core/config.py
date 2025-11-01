@@ -76,7 +76,7 @@ class UFFlowConfig:
     # Prompt Mode Configuration
     # "single" - Use single monolithic prompt file (v6.txt, v7.txt)
     # "phased" - Use dynamic phase-specific prompts (v7_base.txt + v7_phase0-5.txt)
-    PROMPT_MODE = "phased"  # Options: "single" | "phased"
+    PROMPT_MODE = "single"  # Options: "single" | "phased"
 
     # Logging Configuration
     LOG_LEVEL = "INFO"

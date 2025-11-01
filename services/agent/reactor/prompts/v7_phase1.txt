@@ -121,64 +121,7 @@ You're synthesizing the facts from Phase 0 into testable hypotheses.
 ## Example Turn in Phase 1
 
 ```json
-{
-  "reflect": {
-    "turn": 4,
-    "outcome": "SUCCESS",
-    "hypothesisResult": "N/A",
-    "insight": "Phase 0 complete. I have blast radius, timeline, and change events. Ready to generate hypotheses.",
-    "diagnostic": {
-      "investigation_phase": "HYPOTHESIS_GENERATION",
-      "layer_focus": "BUSINESS_LOGIC",
-      "confidence": {
-        "problem_definition": "HIGH",
-        "root_cause_identified": "LOW",
-        "fix_will_work": "LOW"
-      }
-    }
-  },
-  "strategize": {
-    "reasoning": "Based on Phase 0 findings: (1) user-cache failed first at T+0, (2) deployment at T-3min, (3) cache hit ratio collapsed. I'll generate 3 hypotheses prioritizing the change event and temporal causality.",
-    "hypothesis": {
-      "claim": "H1: user-cache v1.2.3 deployment introduced eviction bug (prior: 0.65)",
-      "test": "compare_metrics on cache.eviction_rate and cache.hit_ratio",
-      "signal": "Significant spike in evictions and drop in hit ratio"
-    },
-    "ifInvalidated": "If H1 invalidated, test H2 (database pool) or H3 (traffic spike)"
-  },
-  "state": {
-    "active": {"id": 2, "archetype": "DIAGNOSE", "phase": "EVIDENCE_GATHERING", "turns": 1},
-    "diagnosis": {
-      "competingHypotheses": [
-        {
-          "id": "H1",
-          "claim": "user-cache v1.2.3 eviction bug",
-          "layer": "BUSINESS_LOGIC",
-          "prior_confidence": 0.65,
-          "current_confidence": 0.65,
-          "status": "ACTIVE"
-        },
-        {
-          "id": "H2",
-          "claim": "database-1 connection pool exhaustion",
-          "layer": "INTEGRATION",
-          "prior_confidence": 0.20,
-          "current_confidence": 0.20,
-          "status": "ACTIVE"
-        }
-      ]
-    }
-  },
-  "act": {
-    "tool": "compare_metrics",
-    "params": {
-      "component_name": "user-cache",
-      "incident_window": [1698123456.0, 1698123756.0],
-      "baseline_window": [1698123000.0, 1698123400.0],
-      "data_dir": "{{data_dir}}"
-    }
-  }
-}
+{{complete_response_example}}
 ```
 
 Notice: Phase transitioned to EVIDENCE_GATHERING in `state.active.phase`, and first hypothesis test begins.

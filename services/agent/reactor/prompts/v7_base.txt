@@ -200,128 +200,18 @@ Always document your likelihood ratio and reasoning in `reflect.diagnostic.hypot
 
 ## Response Format: REACT JSON
 
-Your **entire response** must be valid JSON. Update `state` every turn.
+Your **entire response** must be valid JSON with these four required fields:
 
+**Field Constraints:**
+- `reflect.outcome`: "SUCCESS" | "FAILURE" | "FIRST_TURN"
+- `reflect.hypothesisResult`: "CONFIRMED" | "INVALIDATED" | "INCONCLUSIVE" | "IRRELEVANT" | "N/A"
+- `reflect.diagnostic.investigation_phase`: Must match your current phase
+- `state.tasks[].status`: "active" | "done" | "pending" | "blocked"
+- Update `state` completely every turn with all accumulated knowledge
+
+**Complete Example:**
 ```json
-{
-  "reflect": {
-    "turn": {{turnNumber}},
-    "outcome": "SUCCESS | FAILURE | FIRST_TURN",
-    "hypothesisResult": "CONFIRMED | INVALIDATED | INCONCLUSIVE | N/A",
-    "insight": "What you learned",
-    "diagnostic": {
-      "investigation_phase": "{{current_phase}}",
-      "layer_focus": "INFRASTRUCTURE | RUNTIME | INTEGRATION | BUSINESS_LOGIC",
-      "signal_quality": "STRONG | MEDIUM | WEAK | ABSENT",
-      "causality_level": "SYMPTOM | PROXIMATE_CAUSE | ROOT_CAUSE",
-      "confidence": {
-        "problem_definition": "HIGH | MEDIUM | LOW",
-        "root_cause_identified": "HIGH | MEDIUM | LOW",
-        "fix_will_work": "HIGH | MEDIUM | LOW"
-      },
-      "hypothesis_update": {
-        "tested": "H1: Description",
-        "prior_confidence": 0.65,
-        "evidence_observed": "Specific evidence",
-        "likelihood_ratio": 8.0,
-        "posterior_confidence": 0.94,
-        "status": "STRONGLY_CONFIRMED | CONFIRMED | INCONCLUSIVE | WEAKENED | RULED_OUT"
-      }
-    }
-  },
-  "strategize": {
-    "reasoning": "Current understanding and next step",
-    "hypothesis": {
-      "claim": "Specific, falsifiable claim",
-      "test": "Tool to test this",
-      "signal": "Result that confirms/invalidates"
-    },
-    "ifInvalidated": "Contingency plan"
-  },
-  "state": {
-    "goal": "Investigation objective",
-    "tasks": [{"id": 1, "desc": "...", "status": "active | done | pending | blocked"}],
-    "active": {"id": 1, "archetype": "DIAGNOSE", "phase": "{{current_phase}}", "turns": 5},
-    "facts": [
-      {
-        "id": 1,
-        "desc": "Observable fact with statistics",
-        "turn": 5,
-        "source_tool": "compare_metrics",
-        "statistical_significance": "z=12.3, p<0.001"
-      }
-    ],
-    "ruled_out": ["H3: reason - turn 6"],
-    "unknowns": ["Key remaining questions"],
-    "diagnosis": {
-      "symptom": {
-        "description": "api-service P99 latency 2800ms (baseline: 120ms)",
-        "layer": "INTEGRATION",
-        "scope": "15% of requests",
-        "started": "2025-10-30T12:37:21Z"
-      },
-      "context": {
-        "blast_radius": {
-          "directly_affected": ["api-service"],
-          "downstream_affected": ["frontend-service"],
-          "upstream_suspects": ["database-1", "user-cache"],
-          "isolation_boundary": "user-cache"
-        },
-        "architecture": "api-service calls user-cache, falls back to database-1",
-        "dependencies": "api-service → user-cache → redis-cluster; api-service → database-1",
-        "temporal": "Anomaly started at deployment time T-3min",
-        "environment": "Production, 10 api-service instances, shared cache cluster"
-      },
-      "timeline": [
-        {"timestamp": "T-3min", "event": "Deployed user-cache v1.2.3", "component": "user-cache", "relevance": "HIGH", "factIDs": [2]},
-        {"timestamp": "T+0s", "event": "user-cache hit_ratio STEP_CHANGE", "component": "user-cache", "relevance": "HIGH", "factIDs": [1]},
-        {"timestamp": "T+0s", "event": "database-1 query rate increased 20×", "component": "database-1", "relevance": "MEDIUM", "factIDs": []},
-        {"timestamp": "T+5s", "event": "api-service latency breached SLO", "component": "api-service", "relevance": "HIGH", "factIDs": []}
-      ],
-      "causalChain": [
-        "user-cache v1.2.3 TTL bug → evicted 90% of valid entries",
-        "Cache hit ratio collapsed 98% → 25%",
-        "api-service increased DB queries 20×",
-        "database-1 latency increased 5ms → 200ms",
-        "api-service P99 latency increased 120ms → 2800ms"
-      ],
-      "layerStatus": {
-        "INFRASTRUCTURE": "HEALTHY",
-        "RUNTIME": "HEALTHY",
-        "INTEGRATION": "DEGRADED",
-        "BUSINESS_LOGIC": "FAULTY"
-      },
-      "competingHypotheses": [
-        {
-          "id": "H1",
-          "claim": "user-cache v1.2.3 deployment introduced eviction policy bug",
-          "layer": "BUSINESS_LOGIC",
-          "prior_confidence": 0.65,
-          "current_confidence": 0.94,
-          "status": "ACTIVE",
-          "evidence_for": ["factID: 1", "factID: 2"],
-          "evidence_against": []
-        },
-        {
-          "id": "H2",
-          "claim": "database-1 experiencing slow queries",
-          "layer": "INTEGRATION",
-          "prior_confidence": 0.20,
-          "current_confidence": 0.03,
-          "status": "RULED_OUT",
-          "evidence_for": [],
-          "evidence_against": ["get_database_stats showed normal query times"]
-        }
-      ],
-      "rootCause": "user-cache v1.2.3 TTL calculation bug causing premature eviction of valid cache entries"
-    }
-  },
-  "act": {
-    "tool": "tool_name",
-    "params": {"param1": "value1"},
-    "safe": "Only for write operations"
-  }
-}
+{{complete_response_example}}
 ```
 
 ---

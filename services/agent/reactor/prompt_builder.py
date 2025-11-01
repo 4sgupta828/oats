@@ -415,12 +415,17 @@ class ReActPromptBuilder:
         # Get system-specific commands
         system_commands = self._get_system_specific_commands()
 
+        # Generate schema examples from Pydantic models
+        from reactor.schema_examples import generate_schema_examples
+        schema_examples = generate_schema_examples()
+
         # Replace placeholders with actual values
         prompt = system_template.format(
             os=self.system_context['os'],
             shell_notes=self.system_context['shell_notes'],
             python_version=self.system_context['python_version'],
-            system_commands=system_commands
+            system_commands=system_commands,
+            **schema_examples  # Inject all schema examples as template variables
         )
 
         return prompt
@@ -441,12 +446,17 @@ class ReActPromptBuilder:
             # Rebuild system prompt with phase-specific content
             phase_system_prompt = self._build_system_prompt(phase=current_phase)
 
+            # Generate schema examples for phase-specific prompt
+            from reactor.schema_examples import generate_schema_examples
+            schema_examples = generate_schema_examples()
+
             # Replace template variables in phase-specific prompt
             phase_system_prompt = phase_system_prompt.format(
                 os=self.system_context['os'],
                 shell_notes=self.system_context['shell_notes'],
                 python_version=self.system_context['python_version'],
-                current_phase=current_phase
+                current_phase=current_phase,
+                **schema_examples
             )
         else:
             # Use default system prompt (already built in __init__)
