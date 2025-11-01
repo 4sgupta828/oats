@@ -284,7 +284,7 @@ def get_event_store() -> EventStore:
     global _event_store
     if _event_store is None:
         connection_string = os.getenv(
-            "DATABASE_URL", "postgresql://localhost/oats"
+            "DATABASE_URL", "postgresql://localhost/oatsdb"
         )
         _event_store = EventStore(connection_string)
     return _event_store

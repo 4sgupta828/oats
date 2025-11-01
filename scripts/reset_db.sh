@@ -2,18 +2,18 @@
 
 set -euo pipefail
 
-# Simple reset script: drop and recreate the 'oats' database, then initialize schema
+# Simple reset script: drop and recreate the database, then initialize schema
 # Usage:
 #   bash scripts/reset_db.sh
 # Optional env:
-#   DATABASE_URL=postgresql://user[:pass]@host:port/oats
-#   DB_NAME=oats                 # defaults to 'oats'
+#   DATABASE_URL=postgresql://user[:pass]@host:port/oatsdb
+#   DB_NAME=oatsdb               # defaults to 'oatsdb' (matches AWS production)
 #   PSQL_DB=postgres            # control the maintenance DB for DROP (defaults to 'postgres')
 #   PYTHON_BIN="venv/bin/python"  # use project venv if present; otherwise falls back to 'python'
 
 echo "[reset_db] Starting database reset..."
 
-DB_NAME="${DB_NAME:-oats}"
+DB_NAME="${DB_NAME:-oatsdb}"
 PSQL_DB="${PSQL_DB:-postgres}"
 
 # Choose python interpreter

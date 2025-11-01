@@ -95,7 +95,7 @@ metadata:
 data:
   host: "postgres-service"
   port: "5432"
-  database: "oats"
+  database: "oatsdb"
   user: "oats_user"
 ---
 apiVersion: v1
@@ -105,5 +105,5 @@ metadata:
 type: Opaque
 data:
   # Base64 encoded database URL
-  # Example: postgresql://oats_user:password@postgres-service:5432/oats
-  url: cG9zdGdyZXNxbDovL29hdHNfdXNlcjpwYXNzd29yZEBwb3N0Z3Jlcy1zZXJ2aWNlOjU0MzIvb2F0cw==
+  # Example: postgresql://oats_user:password@postgres-service:5432/oatsdb
+  url: cG9zdGdyZXNxbDovL29hdHNfdXNlcjpwYXNzd29yZEBwb3N0Z3Jlcy1zZXJ2aWNlOjU0MzIvb2F0c2Ri
