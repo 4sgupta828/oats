@@ -389,26 +389,27 @@ class ReActPromptBuilder:
         system_template = '\n'.join(system_lines)
         
         # Escape single braces in JSON examples (but preserve template variables)
-        # Template variables are already in {{variable}} format, so we need to be careful
+        # Template variables use {variable} format for Python .format()
         import re
-        
-        # First, protect template variables
+
+        # First, protect template variables (single braces with valid Python identifiers)
         template_vars = {}
         var_counter = 0
-        
-        # Find all template variables like {{variable}}
-        template_pattern = r'\{\{([^}]+)\}\}'
+
+        # Find all template variables like {variable} where variable is alphanumeric/underscore
+        # Use negative lookbehind/lookahead to NOT match {{variable}} (double braces)
+        template_pattern = r'(?<!\{)\{([a-zA-Z_][a-zA-Z0-9_]*)\}(?!\})'
         for match in re.finditer(template_pattern, system_template):
             var_name = match.group(1)
             placeholder = f"__TEMPLATE_VAR_{var_counter}__"
             template_vars[placeholder] = match.group(0)
             system_template = system_template.replace(match.group(0), placeholder, 1)
             var_counter += 1
-        
-        # Now escape all remaining single braces
+
+        # Now escape all remaining single braces (these are literal braces in JSON examples)
         system_template = system_template.replace('{', '{{').replace('}', '}}')
-        
-        # Restore template variables
+
+        # Restore template variables (single braces)
         for placeholder, original in template_vars.items():
             system_template = system_template.replace(placeholder, original)
         

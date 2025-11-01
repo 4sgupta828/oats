@@ -198,9 +198,9 @@ Always document your likelihood ratio and reasoning in `reflect.diagnostic.hypot
 
 ---
 
-## Response Format: REACT JSON
+## Response Format: REACT Structure
 
-Your **entire response** must be valid JSON with these four required fields:
+You will respond using a structured format with these four required sections: `reflect`, `strategize`, `state`, and `act`.
 
 **Field Constraints:**
 - `reflect.outcome`: "SUCCESS" | "FAILURE" | "FIRST_TURN"

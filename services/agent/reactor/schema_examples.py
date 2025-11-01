@@ -98,9 +98,10 @@ def generate_schema_examples() -> Dict[str, str]:
     )
 
     # Task example
+    # NOTE: Use alias "description" (not "desc") to match JSON schema
     task_example = Task(
         id=1,
-        desc="Identify root cause of API 500 errors in /users/:id endpoint",
+        description="Identify root cause of API 500 errors in /users/:id endpoint",
         status="active"
     )
 
@@ -318,26 +319,27 @@ def generate_schema_examples() -> Dict[str, str]:
     )
 
     # Return formatted JSON strings
+    # IMPORTANT: Use by_alias=True to match JSON schema field names (e.g., "description" not "desc")
     return {
-        "complete_response_example": json.dumps(complete_response.model_dump(exclude={"is_finish", "raw_response"}), indent=2),
-        "success_path_example": json.dumps(success_response.model_dump(exclude={"is_finish", "raw_response"}), indent=2),
-        "pivot_path_example": json.dumps(pivot_response.model_dump(exclude={"is_finish", "raw_response"}), indent=2),
-        "fact_example": json.dumps(fact_example.model_dump(), indent=2),
-        "timeline_event_example": json.dumps(timeline_example.model_dump(), indent=2),
-        "context_example": json.dumps(context_example.model_dump(), indent=2),
-        "symptom_example": json.dumps(symptom_example.model_dump(), indent=2),
-        "causal_link_example": json.dumps(causal_link_example.model_dump(), indent=2),
-        "competing_hypothesis_example": json.dumps(competing_hypothesis_example.model_dump(), indent=2),
-        "diagnosis_example": json.dumps(diagnosis_example.model_dump(), indent=2),
-        "task_example": json.dumps(task_example.model_dump(), indent=2),
-        "active_task_example": json.dumps(active_task_example.model_dump(), indent=2),
-        "hypothesis_example": json.dumps(hypothesis_example.model_dump(), indent=2),
-        "diagnostic_metadata_example": json.dumps(diagnostic_metadata_example.model_dump(), indent=2),
-        "failure_metadata_example": json.dumps(failure_metadata_example.model_dump(), indent=2),
-        "reflect_example": json.dumps(reflect_example.model_dump(), indent=2),
-        "strategize_example": json.dumps(strategize_example.model_dump(), indent=2),
-        "state_example": json.dumps(state_example.model_dump(), indent=2),
-        "act_example": json.dumps(act_example.model_dump(), indent=2),
+        "complete_response_example": json.dumps(complete_response.model_dump(exclude={"is_finish", "raw_response"}, by_alias=True), indent=2),
+        "success_path_example": json.dumps(success_response.model_dump(exclude={"is_finish", "raw_response"}, by_alias=True), indent=2),
+        "pivot_path_example": json.dumps(pivot_response.model_dump(exclude={"is_finish", "raw_response"}, by_alias=True), indent=2),
+        "fact_example": json.dumps(fact_example.model_dump(by_alias=True), indent=2),
+        "timeline_event_example": json.dumps(timeline_example.model_dump(by_alias=True), indent=2),
+        "context_example": json.dumps(context_example.model_dump(by_alias=True), indent=2),
+        "symptom_example": json.dumps(symptom_example.model_dump(by_alias=True), indent=2),
+        "causal_link_example": json.dumps(causal_link_example.model_dump(by_alias=True), indent=2),
+        "competing_hypothesis_example": json.dumps(competing_hypothesis_example.model_dump(by_alias=True), indent=2),
+        "diagnosis_example": json.dumps(diagnosis_example.model_dump(by_alias=True), indent=2),
+        "task_example": json.dumps(task_example.model_dump(by_alias=True), indent=2),
+        "active_task_example": json.dumps(active_task_example.model_dump(by_alias=True), indent=2),
+        "hypothesis_example": json.dumps(hypothesis_example.model_dump(by_alias=True), indent=2),
+        "diagnostic_metadata_example": json.dumps(diagnostic_metadata_example.model_dump(by_alias=True), indent=2),
+        "failure_metadata_example": json.dumps(failure_metadata_example.model_dump(by_alias=True), indent=2),
+        "reflect_example": json.dumps(reflect_example.model_dump(by_alias=True), indent=2),
+        "strategize_example": json.dumps(strategize_example.model_dump(by_alias=True), indent=2),
+        "state_example": json.dumps(state_example.model_dump(by_alias=True), indent=2),
+        "act_example": json.dumps(act_example.model_dump(by_alias=True), indent=2),
     }
 
 

@@ -321,9 +321,9 @@ You are a **Principal SRE Agent** specialized in systematic root cause analysis 
 
 ---
 
-## Response Format: REACT JSON
+## Response Format: REACT Structure
 
-Your **entire response** must be valid JSON with these four required fields:
+You will respond using a structured format with these four required sections: `reflect`, `strategize`, `state`, and `act`.
 
 **Field Constraints:**
 - `reflect.outcome`: "SUCCESS" | "FAILURE" | "FIRST_TURN"
@@ -338,7 +338,7 @@ Your **entire response** must be valid JSON with these four required fields:
 
 **Complete Example:**
 ```json
-{{complete_response_example}}
+{complete_response_example}
 ```
 
 ---

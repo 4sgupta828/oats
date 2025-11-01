@@ -193,6 +193,21 @@ class OpenAIClientManager:
                 if json_schema:
                     schema_def = json_schema.get("schema", json_schema)
 
+                    # Debug: Check if schema is valid
+                    import json as json_module
+                    try:
+                        logger.info(f"Attempting to use structured output with tool: {json_schema.get('name', 'respond')}")
+                        logger.info(f"Schema has {len(schema_def.get('properties', {}))} top-level properties")
+                        logger.info(f"Schema properties: {list(schema_def.get('properties', {}).keys())}")
+
+                        # Check for any $refs that might have been missed
+                        schema_str = json_module.dumps(schema_def)
+                        if '$ref' in schema_str:
+                            logger.error("WARNING: Schema contains $ref - this will fail with Anthropic!")
+                            logger.error(f"Found $refs in schema (will cause issues)")
+                    except Exception as e:
+                        logger.error(f"Error inspecting schema: {e}")
+
                     # Create a tool that forces structured output
                     structured_tool = {
                         "name": json_schema.get("name", "respond"),
@@ -203,10 +218,16 @@ class OpenAIClientManager:
                     # Override tools with our structured output tool
                     call_params["tools"] = [structured_tool]
                     call_params["tool_choice"] = {"type": "tool", "name": structured_tool["name"]}
+
+                    logger.info(f"Set tool_choice to force: {structured_tool['name']}")
                 elif tools:
                     call_params["tools"] = tools
 
                 response = client.messages.create(**call_params)
+
+                # Debug: Log what type of response we got
+                logger.info(f"Claude response stop_reason: {response.stop_reason}")
+                logger.info(f"Claude response content blocks: {[block.type for block in response.content]}")
 
                 # Handle tool use response
                 if response.stop_reason == "tool_use":
