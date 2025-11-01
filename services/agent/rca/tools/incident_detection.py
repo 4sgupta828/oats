@@ -54,8 +54,24 @@ def detect_incident_window(inputs: DetectIncidentWindowInput) -> Dict[str, Any]:
         # Initialize backend
         backend = SimulationBackend(inputs.data_dir)
 
-        # Initialize analyzer
-        analyzer = MetricsAnalyzerV2(backend, sensitivity=inputs.sensitivity)
+        # Create enhanced config with all v2 improvements enabled
+        config = AnalyzerConfig(
+            sensitivity=inputs.sensitivity,
+            # Enable all robust statistical methods
+            use_mad_for_skewed=True,
+            use_adaptive_thresholds=True,
+            min_confidence_threshold=0.5,
+            # Enable baseline validation
+            validate_baseline_stability=True,
+            min_baseline_stability=0.6,
+            # Enable false positive filtering
+            filter_boundary_anomalies=True,
+            boundary_buffer=30.0,
+            min_baseline_samples=10
+        )
+
+        # Initialize analyzer with enhanced config
+        analyzer = MetricsAnalyzerV2(backend, config=config)
 
         # Run detection (all phases)
         result = analyzer.detect_incident_and_baseline()
