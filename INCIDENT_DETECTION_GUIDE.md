@@ -5,15 +5,38 @@
 Run incident detection on any simulation dataset:
 
 ```bash
+# Standard output with absolute timestamps
 python run_incident_detection.py ~/oats/output/data_YYYYMMDD_HHMMSS
+
+# With relative timestamps (T+seconds from data start) - easier to read!
+python run_incident_detection.py ~/oats/output/data_YYYYMMDD_HHMMSS --relative-time
 ```
 
 ## Output Files
 
-The tool generates two JSON files in the data directory:
+The tool generates JSON files in the data directory:
 
 1. **`incident_detection_raw.json`** - Raw output from the detection tool
-2. **`incident_detection_report.json`** - Comprehensive structured report for RCA
+2. **`incident_detection_report.json`** - Comprehensive structured report for RCA (absolute timestamps)
+3. **`incident_detection_report_relative.json`** - Same report with relative timestamps (when using `--relative-time`)
+
+### Relative Time Mode
+
+When using `--relative-time`, all timestamps are displayed as **T+seconds** from the data start, making it much easier to understand the sequence of events:
+
+**Standard output:**
+```
+[1] 2025-10-30 12:38:30.000 (ts: 1761853110.00)
+    EVENT: Anomaly START
+```
+
+**Relative time output:**
+```
+[1] T+68.5s (2025-10-30 12:38:30.000)
+    EVENT: Anomaly START
+```
+
+This makes it much easier to see that the anomaly started 68.5 seconds after data collection began, rather than trying to mentally calculate differences between large Unix timestamps.
 
 ## Comprehensive Report Structure
 
@@ -99,6 +122,7 @@ The comprehensive report (`incident_detection_report.json`) provides everything 
       "cluster_id": 1,
       "timestamp": 1761853110.0,
       "timestamp_formatted": "2025-10-30 12:38:30.000",
+      "timestamp_relative": "T+68.5s",  // Only present when using --relative-time
       "event_type": "anomaly_start",
       "component": "aws_lb.api_gateway",
       "metric": "http.server.request.duration",
@@ -113,11 +137,14 @@ The comprehensive report (`incident_detection_report.json`) provides everything 
     {
       "event_type": "anomaly_end",
       "timestamp": 1761853290.0,
+      "timestamp_relative": "T+248.5s",  // Only present when using --relative-time
       "duration": 180.0
     }
   ]
 }
 ```
+
+**Note:** When using `--relative-time`, each event gets an additional `timestamp_relative` field showing T+seconds from data start.
 
 ### 5. **Anomaly Clusters** (All detected anomalies)
 

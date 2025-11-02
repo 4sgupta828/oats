@@ -22,8 +22,17 @@ sys.path.insert(0, str(Path(__file__).parent / "services" / "agent"))
 from rca.tools.incident_detection import detect_incident_window, DetectIncidentWindowInput
 
 
-def format_timestamp(ts: float) -> str:
-    """Format timestamp as readable datetime"""
+def format_timestamp(ts: float, relative_to: float = None, use_relative: bool = False) -> str:
+    """Format timestamp as readable datetime or relative time
+
+    Args:
+        ts: Timestamp to format
+        relative_to: Base timestamp for relative time calculation
+        use_relative: If True, format as T+seconds, otherwise as datetime
+    """
+    if use_relative and relative_to is not None:
+        delta = ts - relative_to
+        return f"T+{delta:.1f}s"
     return datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
 
@@ -39,8 +48,13 @@ def format_duration(seconds: float) -> str:
         return f"{hours:.2f}h ({seconds:.1f}s)"
 
 
-def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
-    """Build comprehensive structured report for RCA tool"""
+def build_comprehensive_report(result: Dict[str, Any], use_relative_time: bool = False) -> Dict[str, Any]:
+    """Build comprehensive structured report for RCA tool
+
+    Args:
+        result: Raw detection result
+        use_relative_time: If True, add relative timestamps (T+seconds from start)
+    """
 
     if not result.get("incident_detected"):
         return {
@@ -56,6 +70,9 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
     primary = result.get("primary_symptom", {})
     causal_rels = result.get("causal_relationships", [])
 
+    # Base timestamp for relative time calculations
+    base_time = data_range.get("start", 0)
+
     # Build anomaly lookup by cluster_id
     anomaly_map = {a["cluster_id"]: a for a in anomalies}
 
@@ -68,7 +85,7 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
     # Build timeline: chronological order of all anomaly starts
     timeline = []
     for anomaly in sorted(anomalies, key=lambda x: x["start_time"]):
-        timeline.append({
+        entry = {
             "cluster_id": anomaly["cluster_id"],
             "timestamp": anomaly["start_time"],
             "timestamp_formatted": format_timestamp(anomaly["start_time"]),
@@ -82,11 +99,14 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
             "peak_z_score": anomaly["peak_z_score"],
             "confidence": anomaly["confidence"],
             "detection_methods": anomaly["detection_methods"]
-        })
+        }
+        if use_relative_time:
+            entry["timestamp_relative"] = format_timestamp(anomaly["start_time"], base_time, True)
+        timeline.append(entry)
 
         # Add end event if anomaly has resolved
         if anomaly["end_time"]:
-            timeline.append({
+            end_entry = {
                 "cluster_id": anomaly["cluster_id"],
                 "timestamp": anomaly["end_time"],
                 "timestamp_formatted": format_timestamp(anomaly["end_time"]),
@@ -94,7 +114,10 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
                 "component": anomaly["component"],
                 "metric": anomaly["metric"],
                 "duration": anomaly["duration"]
-            })
+            }
+            if use_relative_time:
+                end_entry["timestamp_relative"] = format_timestamp(anomaly["end_time"], base_time, True)
+            timeline.append(end_entry)
 
     # Sort timeline chronologically
     timeline.sort(key=lambda x: x["timestamp"])
@@ -117,14 +140,16 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
                     "metric": cause["metric"],
                     "direction": cause["direction"],
                     "start_time": cause["start_time"],
-                    "start_time_formatted": format_timestamp(cause["start_time"])
+                    "start_time_formatted": format_timestamp(cause["start_time"]),
+                    **({"start_time_relative": format_timestamp(cause["start_time"], base_time, True)} if use_relative_time else {})
                 },
                 "effect_details": {
                     "component": effect["component"],
                     "metric": effect["metric"],
                     "direction": effect["direction"],
                     "start_time": effect["start_time"],
-                    "start_time_formatted": format_timestamp(effect["start_time"])
+                    "start_time_formatted": format_timestamp(effect["start_time"]),
+                    **({"start_time_relative": format_timestamp(effect["start_time"], base_time, True)} if use_relative_time else {})
                 },
                 "interpretation": f"{cause['component']}.{cause['metric']} ({cause['direction']}) → {effect['component']}.{effect['metric']} ({effect['direction']})"
             })
@@ -151,9 +176,10 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
                 processed.add(a2["cluster_id"])
 
         if len(group) > 1:
-            correlation_groups.append({
-                "group_start_time": min(a["start_time"] for a in group),
-                "group_start_time_formatted": format_timestamp(min(a["start_time"] for a in group)),
+            group_start = min(a["start_time"] for a in group)
+            group_entry = {
+                "group_start_time": group_start,
+                "group_start_time_formatted": format_timestamp(group_start),
                 "time_window": time_threshold,
                 "cluster_count": len(group),
                 "clusters": [
@@ -167,7 +193,10 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
                     }
                     for a in sorted(group, key=lambda x: x["start_time"])
                 ]
-            })
+            }
+            if use_relative_time:
+                group_entry["group_start_time_relative"] = format_timestamp(group_start, base_time, True)
+            correlation_groups.append(group_entry)
 
     # Build comprehensive report
     report = {
@@ -179,7 +208,8 @@ def build_comprehensive_report(result: Dict[str, Any]) -> Dict[str, Any]:
             "affected_components": result.get("affected_components", []),
             "affected_component_count": len(result.get("affected_components", [])),
             "causal_relationships_found": len(causal_rels),
-            "correlation_groups_found": len(correlation_groups)
+            "correlation_groups_found": len(correlation_groups),
+            "use_relative_time": use_relative_time
         },
 
         "time_windows": {
@@ -385,6 +415,7 @@ def print_comprehensive_report(report: Dict[str, Any]):
     clusters = report["anomaly_clusters"]
     timeline = report["timeline"]
     relationships = report["relationships"]
+    use_relative_time = summary.get("use_relative_time", False)
 
     # Summary
     print("\n" + "=" * 100)
@@ -452,10 +483,17 @@ def print_comprehensive_report(report: Dict[str, Any]):
     print("CHRONOLOGICAL TIMELINE OF ALL ANOMALIES")
     print("=" * 100)
     print(f"\nTotal events in timeline: {len(timeline)}")
+    if use_relative_time:
+        print("Note: Using relative timestamps (T+seconds from data start)")
     print("\nTimeline:")
     for i, event in enumerate(timeline, 1):
         if event["event_type"] == "anomaly_start":
-            print(f"\n  [{i}] {event['timestamp_formatted']} (ts: {event['timestamp']:.2f})")
+            if use_relative_time:
+                time_display = f"{event.get('timestamp_relative', 'N/A')} ({event['timestamp_formatted']})"
+            else:
+                time_display = f"{event['timestamp_formatted']} (ts: {event['timestamp']:.2f})"
+
+            print(f"\n  [{i}] {time_display}")
             print(f"      EVENT: Anomaly START")
             print(f"      Cluster: {event['cluster_id']}")
             print(f"      Component: {event['component']}")
@@ -465,7 +503,12 @@ def print_comprehensive_report(report: Dict[str, Any]):
             print(f"      Z-Score: {event['peak_z_score']:.2f} | Confidence: {event['confidence']:.2f}")
             print(f"      Detection: {', '.join(event['detection_methods'])}")
         else:
-            print(f"\n  [{i}] {event['timestamp_formatted']} (ts: {event['timestamp']:.2f})")
+            if use_relative_time:
+                time_display = f"{event.get('timestamp_relative', 'N/A')} ({event['timestamp_formatted']})"
+            else:
+                time_display = f"{event['timestamp_formatted']} (ts: {event['timestamp']:.2f})"
+
+            print(f"\n  [{i}] {time_display}")
             print(f"      EVENT: Anomaly END")
             print(f"      Cluster: {event['cluster_id']}")
             print(f"      Duration: {format_duration(event['duration'])}")
@@ -515,8 +558,16 @@ def print_comprehensive_report(report: Dict[str, Any]):
         for i, rel in enumerate(causal, 1):
             print(f"\n  [{i}] {rel['interpretation']}")
             print(f"      Confidence: {rel['confidence']:.2%} | P-value: {rel['granger_p_value']:.4f} | Lag: {rel['lag_buckets']} buckets")
-            print(f"      Cause:  Cluster {rel['cause_cluster_id']} at {rel['cause_details']['start_time_formatted']}")
-            print(f"      Effect: Cluster {rel['effect_cluster_id']} at {rel['effect_details']['start_time_formatted']}")
+
+            if use_relative_time:
+                cause_time = rel['cause_details'].get('start_time_relative', rel['cause_details']['start_time_formatted'])
+                effect_time = rel['effect_details'].get('start_time_relative', rel['effect_details']['start_time_formatted'])
+            else:
+                cause_time = rel['cause_details']['start_time_formatted']
+                effect_time = rel['effect_details']['start_time_formatted']
+
+            print(f"      Cause:  Cluster {rel['cause_cluster_id']} at {cause_time}")
+            print(f"      Effect: Cluster {rel['effect_cluster_id']} at {effect_time}")
     else:
         print("\nNo causal relationships detected.")
 
@@ -527,7 +578,12 @@ def print_comprehensive_report(report: Dict[str, Any]):
     if corr_groups:
         print(f"\nFound {len(corr_groups)} correlation groups:")
         for i, group in enumerate(corr_groups, 1):
-            print(f"\n  Group {i}: {group['cluster_count']} clusters starting around {group['group_start_time_formatted']}")
+            if use_relative_time:
+                group_time = group.get('group_start_time_relative', group['group_start_time_formatted'])
+            else:
+                group_time = group['group_start_time_formatted']
+
+            print(f"\n  Group {i}: {group['cluster_count']} clusters starting around {group_time}")
             for cluster in group["clusters"]:
                 print(f"    • Cluster {cluster['cluster_id']}: {cluster['component']}.{cluster['metric']}")
                 print(f"      {cluster['direction']} | {cluster['severity']} | {cluster['relationship']}")
@@ -549,17 +605,23 @@ def print_comprehensive_report(report: Dict[str, Any]):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python run_incident_detection.py <data_dir>")
+        print("Usage: python run_incident_detection.py <data_dir> [--relative-time]")
         print("Example: python run_incident_detection.py ~/oats/output/data_20251030_124211")
+        print("         python run_incident_detection.py ~/oats/output/data_20251030_124211 --relative-time")
+        print("\nOptions:")
+        print("  --relative-time    Display timestamps as T+seconds from data start")
         sys.exit(1)
 
     data_dir = os.path.expanduser(sys.argv[1])
+    use_relative_time = "--relative-time" in sys.argv
 
     if not os.path.exists(data_dir):
         print(f"Error: Data directory does not exist: {data_dir}")
         sys.exit(1)
 
     print(f"Running incident detection on: {data_dir}")
+    if use_relative_time:
+        print("Using relative timestamps (T+seconds from data start)")
     print("=" * 100)
 
     # Create input with all V3 features enabled (defaults)
@@ -585,7 +647,7 @@ def main():
     result = detect_incident_window(inputs)
 
     # Build comprehensive report
-    report = build_comprehensive_report(result)
+    report = build_comprehensive_report(result, use_relative_time=use_relative_time)
 
     # Save raw result
     raw_output_file = os.path.join(data_dir, "incident_detection_raw.json")
@@ -594,7 +656,8 @@ def main():
     print(f"\nRaw result saved to: {raw_output_file}")
 
     # Save comprehensive report
-    report_output_file = os.path.join(data_dir, "incident_detection_report.json")
+    report_file_suffix = "_relative" if use_relative_time else ""
+    report_output_file = os.path.join(data_dir, f"incident_detection_report{report_file_suffix}.json")
     with open(report_output_file, 'w') as f:
         json.dump(report, f, indent=2)
     print(f"Comprehensive report saved to: {report_output_file}")
