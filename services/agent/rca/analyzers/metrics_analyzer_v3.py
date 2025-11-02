@@ -1972,7 +1972,108 @@ class MetricsAnalyzerV3:
                 cluster_id += 1
 
         logger.info(f"Created {len(clusters)} anomaly clusters (deduplicated by base metric)")
-        return clusters
+
+        # Phase 3b: Merge clusters that represent the same incident-level phenomenon
+        merged_clusters = self._merge_incident_level_clusters(clusters, max_time)
+        logger.info(f"After incident-level merging: {len(merged_clusters)} clusters (merged {len(clusters) - len(merged_clusters)} clusters)")
+
+        return merged_clusters
+
+    def _merge_incident_level_clusters(
+        self,
+        clusters: List['AnomalyCluster'],
+        max_time: float = None
+    ) -> List['AnomalyCluster']:
+        """
+        Phase 3b: Merge clusters that represent the same incident-level phenomenon.
+
+        For error/counter metrics, multiple spikes across similar components during
+        the same incident window should be treated as one logical cluster.
+
+        Merging criteria:
+        1. Same metric name (e.g., component.errors.total)
+        2. Same direction (e.g., NEW_ERROR)
+        3. Similar component type/group (e.g., product_compute_1/2/3)
+        4. Temporally overlapping or within incident window (within 5 minutes)
+
+        This prevents "flapping" error counters from being split into 10+ clusters.
+        """
+        if len(clusters) <= 1:
+            return clusters
+
+        # Extract component group (e.g., "product_compute" from "product_compute_1_vprod_cat")
+        def get_component_group(component: str) -> str:
+            """Extract the service/group name from component ID"""
+            # Remove instance numbers/suffixes
+            import re
+            # Pattern: remove trailing numbers, instance IDs, etc.
+            base = re.sub(r'[_-]\d+[_-]?.*$', '', component)
+            return base
+
+        # Build groups of potentially mergeable clusters
+        from collections import defaultdict
+        merge_groups = defaultdict(list)
+
+        for cluster in clusters:
+            # Only merge error/counter metrics (not gauges like CPU, latency)
+            if 'error' not in cluster.metric_name.lower():
+                # Keep non-error metrics as-is
+                merge_groups[f"singleton_{cluster.cluster_id}"].append(cluster)
+                continue
+
+            # Build merge key
+            component_group = get_component_group(cluster.component)
+            merge_key = (
+                cluster.metric_name,
+                cluster.direction.value,
+                component_group
+            )
+            merge_groups[merge_key].append(cluster)
+
+        # Merge clusters in each group
+        merged_clusters = []
+        next_cluster_id = 1
+
+        for merge_key, group in merge_groups.items():
+            if isinstance(merge_key, str) and merge_key.startswith("singleton_"):
+                # Non-error metrics: keep as-is
+                merged_clusters.extend(group)
+                continue
+
+            if len(group) == 1:
+                # Only one cluster in group: keep as-is
+                merged_clusters.append(group[0])
+                continue
+
+            # Check temporal overlap/proximity (5 minute window for incident-level)
+            group.sort(key=lambda c: c.start_time)
+            first_start = group[0].start_time
+            last_start = group[-1].start_time
+
+            # If all clusters are within 5 minutes, merge them
+            if (last_start - first_start) <= 300:  # 5 minutes
+                # Merge: combine all anomalies from all clusters
+                all_anomalies = []
+                for c in group:
+                    all_anomalies.extend(c.anomalies)
+
+                # Create merged cluster (use provided max_time or estimate from anomalies)
+                cluster_max_time = max_time if max_time else max(a.timestamp for a in all_anomalies)
+                merged = self._create_cluster(next_cluster_id, all_anomalies, cluster_max_time)
+
+                # Update metadata to reflect merge
+                merged.component = f"{get_component_group(group[0].component)}_*"  # Indicate multiple instances
+                merged.relationship = group[0].relationship  # Keep first cluster's relationship
+
+                merged_clusters.append(merged)
+                next_cluster_id += 1
+
+                logger.debug(f"Merged {len(group)} clusters for {merge_key} into cluster {merged.cluster_id}")
+            else:
+                # Too spread out temporally: keep separate
+                merged_clusters.extend(group)
+
+        return merged_clusters
 
     def _create_cluster(
         self,
