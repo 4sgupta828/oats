@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List
+from collections import defaultdict
 
 # Add the services/agent directory to the path
 sys.path.insert(0, str(Path(__file__).parent / "services" / "agent"))
@@ -46,6 +47,53 @@ def format_duration(seconds: float) -> str:
     else:
         hours = seconds / 3600
         return f"{hours:.2f}h ({seconds:.1f}s)"
+
+
+def _generate_rca_hypothesis(report: Dict[str, Any]) -> str:
+    """Generates a plain-English hypothesis for RCA
+
+    Args:
+        report: The comprehensive report structure
+
+    Returns:
+        A human-readable hypothesis string
+    """
+    try:
+        summary = report["summary"]
+        primary = report["primary_symptom"]
+
+        # Format primary symptom time relative to data window
+        primary_time = primary.get("start_time_formatted", "Unknown time")
+
+        # Build base hypothesis
+        hypothesis = (
+            f"Incident started at {primary_time} with a {primary['direction']} ({primary['pattern']}) "
+            f"on {primary['component']}:{primary['metric']} (Primary Symptom). "
+        )
+
+        # Find the first correlation group after the primary
+        first_group = None
+        if report.get("relationships", {}).get("correlation_groups"):
+            for group in report["relationships"]["correlation_groups"]:
+                if group["group_start_time"] > primary.get("start_time", 0):
+                    first_group = group
+                    break
+
+        if first_group:
+            group_time = first_group.get('group_start_time_formatted', 'shortly after')
+            hypothesis += (
+                f"This was immediately followed at {group_time} by a cluster of "
+                f"{first_group['cluster_count']} correlated anomalies, suggesting a cascading failure. "
+            )
+
+        hypothesis += (
+            f"The incident involved {summary['affected_component_count']} components and "
+            f"{summary['total_anomaly_clusters']} total anomaly clusters."
+        )
+
+        return hypothesis
+    except Exception as e:
+        return f"Hypothesis generation failed: {str(e)}"
 
 
 def build_comprehensive_report(result: Dict[str, Any], use_relative_time: bool = False) -> Dict[str, Any]:
@@ -399,6 +447,9 @@ def build_comprehensive_report(result: Dict[str, Any], use_relative_time: bool =
 
     report["anomaly_clusters"]["by_component"] = by_component
 
+    # Generate RCA hypothesis
+    report["summary"]["rca_hypothesis"] = _generate_rca_hypothesis(report)
+
     return report
 
 
@@ -433,6 +484,11 @@ def print_comprehensive_report(report: Dict[str, Any]):
     for feature, enabled in v3_features.items():
         status = "✓" if enabled else "✗"
         print(f"  {status} {feature}")
+
+    # RCA Hypothesis
+    if summary.get("rca_hypothesis"):
+        print("\nRCA Hypothesis:")
+        print(f"  > {summary['rca_hypothesis']}")
 
     # Time Windows
     print("\n" + "=" * 100)
@@ -478,40 +534,40 @@ def print_comprehensive_report(report: Dict[str, Any]):
     print(f"Start Time: {primary['start_time_formatted']} (ts: {primary['start_time']})")
     print(f"Description: {primary['description']}")
 
-    # Timeline
-    print("\n" + "=" * 100)
-    print("CHRONOLOGICAL TIMELINE OF ALL ANOMALIES")
-    print("=" * 100)
-    print(f"\nTotal events in timeline: {len(timeline)}")
-    if use_relative_time:
-        print("Note: Using relative timestamps (T+seconds from data start)")
-    print("\nTimeline:")
-    for i, event in enumerate(timeline, 1):
-        if event["event_type"] == "anomaly_start":
-            if use_relative_time:
-                time_display = f"{event.get('timestamp_relative', 'N/A')} ({event['timestamp_formatted']})"
-            else:
-                time_display = f"{event['timestamp_formatted']} (ts: {event['timestamp']:.2f})"
-
-            print(f"\n  [{i}] {time_display}")
-            print(f"      EVENT: Anomaly START")
-            print(f"      Cluster: {event['cluster_id']}")
-            print(f"      Component: {event['component']}")
-            print(f"      Metric: {event['metric']}")
-            print(f"      Direction: {event['direction']} | Pattern: {event['pattern']}")
-            print(f"      Severity: {event['severity']} | Relationship: {event['relationship']}")
-            print(f"      Z-Score: {event['peak_z_score']:.2f} | Confidence: {event['confidence']:.2f}")
-            print(f"      Detection: {', '.join(event['detection_methods'])}")
-        else:
-            if use_relative_time:
-                time_display = f"{event.get('timestamp_relative', 'N/A')} ({event['timestamp_formatted']})"
-            else:
-                time_display = f"{event['timestamp_formatted']} (ts: {event['timestamp']:.2f})"
-
-            print(f"\n  [{i}] {time_display}")
-            print(f"      EVENT: Anomaly END")
-            print(f"      Cluster: {event['cluster_id']}")
-            print(f"      Duration: {format_duration(event['duration'])}")
+    # Timeline - COMMENTED OUT (too noisy for RCA report)
+    # print("\n" + "=" * 100)
+    # print("CHRONOLOGICAL TIMELINE OF ALL ANOMALIES")
+    # print("=" * 100)
+    # print(f"\nTotal events in timeline: {len(timeline)}")
+    # if use_relative_time:
+    #     print("Note: Using relative timestamps (T+seconds from data start)")
+    # print("\nTimeline:")
+    # for i, event in enumerate(timeline, 1):
+    #     if event["event_type"] == "anomaly_start":
+    #         if use_relative_time:
+    #             time_display = f"{event.get('timestamp_relative', 'N/A')} ({event['timestamp_formatted']})"
+    #         else:
+    #             time_display = f"{event['timestamp_formatted']} (ts: {event['timestamp']:.2f})"
+    #
+    #         print(f"\n  [{i}] {time_display}")
+    #         print(f"      EVENT: Anomaly START")
+    #         print(f"      Cluster: {event['cluster_id']}")
+    #         print(f"      Component: {event['component']}")
+    #         print(f"      Metric: {event['metric']}")
+    #         print(f"      Direction: {event['direction']} | Pattern: {event['pattern']}")
+    #         print(f"      Severity: {event['severity']} | Relationship: {event['relationship']}")
+    #         print(f"      Z-Score: {event['peak_z_score']:.2f} | Confidence: {event['confidence']:.2f}")
+    #         print(f"      Detection: {', '.join(event['detection_methods'])}")
+    #     else:
+    #         if use_relative_time:
+    #             time_display = f"{event.get('timestamp_relative', 'N/A')} ({event['timestamp_formatted']})"
+    #         else:
+    #             time_display = f"{event['timestamp_formatted']} (ts: {event['timestamp']:.2f})"
+    #
+    #         print(f"\n  [{i}] {time_display}")
+    #         print(f"      EVENT: Anomaly END")
+    #         print(f"      Cluster: {event['cluster_id']}")
+    #         print(f"      Duration: {format_duration(event['duration'])}")
 
     # Anomaly Clusters by Relationship
     print("\n" + "=" * 100)
@@ -528,11 +584,30 @@ def print_comprehensive_report(report: Dict[str, Any]):
             print(f"    Start: {a['start_time_formatted']} | Z-Score: {a['z_score']:.2f}")
 
     if by_rel["CASCADING"]:
-        print(f"\nCASCADING Anomalies ({len(by_rel['CASCADING'])}):")
-        for a in by_rel["CASCADING"]:
-            print(f"  • Cluster {a['cluster_id']}: {a['component']}.{a['metric']}")
-            print(f"    {a['direction']} | {a['pattern']} | Severity: {a['severity']}")
-            print(f"    Start: {a['start_time_formatted']} | Delay from primary: {format_duration(a['delay_from_primary_seconds'])}")
+        cascading = by_rel["CASCADING"]
+        print(f"\nCASCADING Anomalies ({len(cascading)}):")
+
+        # Group by metric name, pattern, and direction to collapse flapping anomalies
+        grouped_by_key = defaultdict(list)
+        for a in cascading:
+            key = (a['metric'], a['pattern'], a['direction'])
+            grouped_by_key[key].append(a)
+
+        for (metric, pattern, direction), group in grouped_by_key.items():
+            # If a group is large (> 3), collapse it to reduce noise
+            if len(group) > 3:
+                first_event = min(group, key=lambda x: x['start_time'])
+                components = list(set(a['component'] for a in group))
+                print(f"  • {metric} (flapping with {len(group)} occurrences)")
+                print(f"    {direction} | {pattern} | Severity: {first_event['severity']}")
+                print(f"    First occurrence: {first_event['start_time_formatted']} | Delay: {format_duration(first_event['delay_from_primary_seconds'])}")
+                print(f"    Affected Components: {', '.join(components)}")
+            else:
+                # Otherwise, print them normally
+                for a in group:
+                    print(f"  • Cluster {a['cluster_id']}: {a['component']}.{a['metric']}")
+                    print(f"    {a['direction']} | {a['pattern']} | Severity: {a['severity']}")
+                    print(f"    Start: {a['start_time_formatted']} | Delay from primary: {format_duration(a['delay_from_primary_seconds'])}")
 
     if by_rel["CORRELATED"]:
         print(f"\nCORRELATED Anomalies ({len(by_rel['CORRELATED'])}):")
@@ -590,17 +665,17 @@ def print_comprehensive_report(report: Dict[str, Any]):
     else:
         print("\nNo correlation groups found (all anomalies are temporally separated).")
 
-    # Anomalies by Component
-    print("\n" + "=" * 100)
-    print("ANOMALIES GROUPED BY COMPONENT")
-    print("=" * 100)
-    by_comp = clusters["by_component"]
-    for comp, comp_anomalies in sorted(by_comp.items()):
-        print(f"\n{comp} ({len(comp_anomalies)} anomalies):")
-        for a in sorted(comp_anomalies, key=lambda x: x["start_time"]):
-            print(f"  • Cluster {a['cluster_id']}: {a['metric']}")
-            print(f"    {a['direction']} | {a['pattern']} | {a['severity']} | {a['relationship']}")
-            print(f"    Start: {a['start_time_formatted']}")
+    # Anomalies by Component - COMMENTED OUT (redundant with other sections)
+    # print("\n" + "=" * 100)
+    # print("ANOMALIES GROUPED BY COMPONENT")
+    # print("=" * 100)
+    # by_comp = clusters["by_component"]
+    # for comp, comp_anomalies in sorted(by_comp.items()):
+    #     print(f"\n{comp} ({len(comp_anomalies)} anomalies):")
+    #     for a in sorted(comp_anomalies, key=lambda x: x["start_time"]):
+    #         print(f"  • Cluster {a['cluster_id']}: {a['metric']}")
+    #         print(f"    {a['direction']} | {a['pattern']} | {a['severity']} | {a['relationship']}")
+    #         print(f"    Start: {a['start_time_formatted']}")
 
 
 def main():

@@ -804,8 +804,9 @@ class MetricsAnalyzerV3:
                 ts2_aligned = ts2_aligned[:min_len]
 
                 # Test if c1 Granger-causes c2
+                # Only accept if c1 starts before or at same time as c2 (temporal ordering)
                 p_value_12 = self._granger_test(ts1_aligned, ts2_aligned)
-                if p_value_12 is not None and p_value_12 < 0.05:
+                if p_value_12 is not None and p_value_12 < 0.05 and c1.start_time <= c2.start_time:
                     causal_relationships.append(CausalRelationship(
                         cause_cluster_id=c1.cluster_id,
                         effect_cluster_id=c2.cluster_id,
@@ -814,10 +815,13 @@ class MetricsAnalyzerV3:
                         confidence=1 - p_value_12
                     ))
                     logger.info(f"Granger causality: cluster {c1.cluster_id} -> {c2.cluster_id} (p={p_value_12:.4f})")
+                elif p_value_12 is not None and p_value_12 < 0.05 and c1.start_time > c2.start_time:
+                    logger.debug(f"Rejected Granger causality (temporal violation): cluster {c1.cluster_id} (t={c1.start_time}) -> {c2.cluster_id} (t={c2.start_time}), cause starts after effect")
 
                 # Test if c2 Granger-causes c1
+                # Only accept if c2 starts before or at same time as c1 (temporal ordering)
                 p_value_21 = self._granger_test(ts2_aligned, ts1_aligned)
-                if p_value_21 is not None and p_value_21 < 0.05:
+                if p_value_21 is not None and p_value_21 < 0.05 and c2.start_time <= c1.start_time:
                     causal_relationships.append(CausalRelationship(
                         cause_cluster_id=c2.cluster_id,
                         effect_cluster_id=c1.cluster_id,
@@ -826,6 +830,8 @@ class MetricsAnalyzerV3:
                         confidence=1 - p_value_21
                     ))
                     logger.info(f"Granger causality: cluster {c2.cluster_id} -> {c1.cluster_id} (p={p_value_21:.4f})")
+                elif p_value_21 is not None and p_value_21 < 0.05 and c2.start_time > c1.start_time:
+                    logger.debug(f"Rejected Granger causality (temporal violation): cluster {c2.cluster_id} (t={c2.start_time}) -> {c1.cluster_id} (t={c1.start_time}), cause starts after effect")
 
                 # Explicit cleanup to help GC
                 del ts2_aligned
