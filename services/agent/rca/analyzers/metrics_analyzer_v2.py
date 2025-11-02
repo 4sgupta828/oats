@@ -645,6 +645,37 @@ class MetricsAnalyzerV2:
         baseline_end = first_changepoint
         baseline_duration = baseline_end - baseline_start
 
+        # Special case: If incident starts at the very beginning (no pre-incident baseline),
+        # try to find a stable period AFTER the incident as the baseline
+        if baseline_duration < self.config.min_baseline_duration:
+            logger.info(f"Incident starts at beginning (baseline duration={baseline_duration:.1f}s < {self.config.min_baseline_duration}s)")
+            logger.info("Attempting to find post-incident baseline period")
+
+            # Find the largest gap between changepoints that's stable and long enough
+            # This represents a stable period that can serve as baseline
+            best_gap_start = None
+            best_gap_end = None
+            best_gap_duration = 0
+
+            # Check all gaps between consecutive changepoints
+            for i in range(len(valid_changepoints)):
+                gap_start = valid_changepoints[i] + 30  # Skip 30s after changepoint for stabilization
+                gap_end = valid_changepoints[i + 1] if i + 1 < len(valid_changepoints) else max_time
+                gap_duration = gap_end - gap_start
+
+                if gap_duration > best_gap_duration and gap_duration >= self.config.min_baseline_duration:
+                    best_gap_start = gap_start
+                    best_gap_end = gap_end
+                    best_gap_duration = gap_duration
+
+            if best_gap_start is not None:
+                logger.info(f"Using stable period [{best_gap_start:.2f}, {best_gap_end:.2f}] ({best_gap_duration:.1f}s) as baseline")
+                baseline_start = best_gap_start
+                baseline_end = best_gap_end
+                baseline_duration = best_gap_duration
+            else:
+                logger.info(f"No suitable post-incident baseline period found")
+
         # Validate baseline stability
         stability_score = 0.0
         if self.config.validate_baseline_stability:

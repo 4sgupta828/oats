@@ -460,6 +460,14 @@ def print_comprehensive_report(report: Dict[str, Any]):
     print("COMPREHENSIVE INCIDENT DETECTION REPORT FOR RCA")
     print("=" * 100)
 
+    # Handle no incident case
+    if report.get("status") == "no_incident":
+        print(f"\nStatus: {report['status']}")
+        print(f"Message: {report.get('message', 'No incident detected')}")
+        if report.get("data_window"):
+            print(f"Data window: {report['data_window']}")
+        return
+
     summary = report["summary"]
     windows = report["time_windows"]
     primary = report["primary_symptom"]
