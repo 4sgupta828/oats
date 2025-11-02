@@ -254,6 +254,32 @@ class AnalyzerConfig:
     use_adaptive_thresholds: bool = True  # Calculate thresholds based on metric characteristics
     min_confidence_threshold: float = 0.5  # Minimum confidence to report anomaly
 
+    # Phase 1: Hybrid detection for subtle changes (20% latency increases)
+    enable_hybrid_percentage_detection: bool = True  # Enable percentage-based detection alongside z-score
+    percentage_change_threshold: float = 0.15  # Minimum percentage change (15%) for hybrid detection
+    hybrid_z_threshold: float = 2.0  # Lower z-score threshold when percentage change is significant
+    filter_zero_baseline_values: bool = True  # Filter out zero/error values from baseline
+    min_nonzero_samples: int = 30  # Minimum non-zero samples required for robust baseline
+
+    # Phase 1.4: Multi-metric correlation (telemetry-only, no deployment bias)
+    enable_multi_metric_correlation: bool = True  # Boost confidence when multiple metrics show weak anomalies
+    correlation_time_window: float = 30.0  # Seconds - metrics within this window are considered correlated
+    min_correlated_metrics: int = 2  # Minimum number of metrics needed for correlation boost
+    weak_signal_z_threshold: float = 1.5  # Minimum z-score to be considered a "weak signal"
+    correlation_confidence_boost: float = 0.2  # Confidence boost when signals are correlated
+
+    # Phase 2.1: Alternative statistical tests (non-parametric)
+    enable_mann_whitney_test: bool = True  # Use Mann-Whitney U test for distribution shifts
+    enable_ks_test: bool = True  # Use Kolmogorov-Smirnov test for distribution changes
+    statistical_test_p_value: float = 0.01  # P-value threshold (0.01 = 99% confidence)
+    min_samples_for_statistical_tests: int = 20  # Minimum samples needed for tests
+
+    # Phase 2.2: Adaptive thresholds by metric type
+    enable_adaptive_thresholds_by_type: bool = True  # Different thresholds for different metric types
+    latency_metrics_z_threshold: float = 2.5  # Lower threshold for latency (business-critical)
+    error_metrics_z_threshold: float = 2.0  # Lower threshold for errors (high impact)
+    resource_metrics_z_threshold: float = 4.0  # Higher threshold for CPU/memory (natural variance)
+
     # Baseline validation
     validate_baseline_stability: bool = True  # Validate baseline is stable
     min_baseline_stability: float = 0.6  # Minimum stability score (0-1)
@@ -336,11 +362,22 @@ class MetricsAnalyzerV3:
 
         base_threshold = self.z_threshold
 
-        # Adjust for metric type
+        # Phase 2.2: Metric-type-specific thresholds
         metric_name_lower = profile.metric_name.lower()
-        if 'error' in metric_name_lower:
-            # Strict for errors
-            return base_threshold - 1.0
+        if self.config.enable_adaptive_thresholds_by_type:
+            # Latency/duration metrics - business-critical, lower threshold
+            if 'duration' in metric_name_lower or 'latency' in metric_name_lower:
+                base_threshold = self.config.latency_metrics_z_threshold
+            # Error metrics - high impact, lower threshold
+            elif 'error' in metric_name_lower:
+                base_threshold = self.config.error_metrics_z_threshold
+            # Resource metrics (CPU, memory) - higher variance, higher threshold
+            elif 'cpu' in metric_name_lower or 'memory' in metric_name_lower or 'utilization' in metric_name_lower:
+                base_threshold = self.config.resource_metrics_z_threshold
+        else:
+            # Legacy behavior: simple error check
+            if 'error' in metric_name_lower:
+                base_threshold = base_threshold - 1.0
 
         # Adjust for signal-to-noise ratio
         if profile.mean != 0:
@@ -1183,6 +1220,9 @@ class MetricsAnalyzerV3:
                 "data_time_range": {"start": min_time, "end": max_time}
             }
 
+        # Phase 1.4: Boost correlated weak signals (multi-metric correlation)
+        raw_anomalies = self._boost_correlated_weak_signals(raw_anomalies)
+
         # Phase 3: Deduplicate and cluster anomalies
         anomaly_clusters = self._cluster_anomalies(raw_anomalies, max_time)
 
@@ -1634,6 +1674,19 @@ class MetricsAnalyzerV3:
                 first_metric = metrics[0]
                 metric_type = self._infer_metric_type(first_metric)
 
+                # Phase 1.2: Filter zero/error values from baseline if enabled
+                if self.config.filter_zero_baseline_values:
+                    non_zero_values = [v for v in values if v > 0]
+
+                    # Check if we have enough non-zero samples
+                    if len(non_zero_values) >= self.config.min_nonzero_samples:
+                        values = non_zero_values
+                        logger.debug(f"Filtered baseline for {metric_key}: {len(non_zero_values)}/{len(values)} non-zero samples")
+                    elif len(non_zero_values) > 0 and len(non_zero_values) < self.config.min_nonzero_samples:
+                        # Not enough non-zero samples, skip this metric
+                        logger.debug(f"Skipping {metric_key}: insufficient non-zero samples ({len(non_zero_values)} < {self.config.min_nonzero_samples})")
+                        continue
+
                 # Calculate statistics
                 sorted_values = sorted(values)
                 count = len(values)
@@ -1852,10 +1905,30 @@ class MetricsAnalyzerV3:
                 if profile.std > 0:
                     z_score = (incident_mean - profile.mean) / profile.std
 
-                    # Check threshold
+                    # Phase 1.1: Hybrid detection - percentage + z-score
+                    pct_change = abs((incident_mean - profile.mean) / profile.mean) if profile.mean != 0 else 0
+
+                    # Check threshold (standard z-score)
                     if abs(z_score) >= threshold:
                         direction = AnomalyDirection.INCREASE if z_score > 0 else AnomalyDirection.DECREASE
                         detection_method = "z_score"
+
+                    # Phase 1.1: Hybrid threshold - check percentage change with lower z-score
+                    elif (self.config.enable_hybrid_percentage_detection and
+                          pct_change >= self.config.percentage_change_threshold and
+                          abs(z_score) >= self.config.hybrid_z_threshold):
+                        direction = AnomalyDirection.INCREASE if z_score > 0 else AnomalyDirection.DECREASE
+                        detection_method = "hybrid_percentage_z"
+                        logger.info(f"Hybrid detection triggered for {profile.metric_key}: {pct_change:.1%} change, z={z_score:.2f}")
+
+                    # Phase 2.1: Try statistical tests as fallback (if z-score too low but we want to check)
+                    # Note: This requires baseline values, which we'd need to query or store
+                    # For now, we could add this when z_score is between 1.5 and threshold
+                    elif (abs(z_score) >= 1.5 and abs(z_score) < threshold):
+                        # Statistical tests could help here, but need baseline raw values
+                        # For future: store baseline_values in profile or re-query
+                        # For now, rely on hybrid detection above
+                        pass
 
             # If anomaly detected, create RawAnomaly with enhanced metadata
             if direction is not None:
@@ -1954,6 +2027,117 @@ class MetricsAnalyzerV3:
             return sorted_values[f] * (1 - c) + sorted_values[f + 1] * c
         else:
             return sorted_values[f]
+
+    def _detect_with_statistical_tests(
+        self,
+        baseline_values: List[float],
+        incident_values: List[float],
+        profile: MetricProfile
+    ) -> Tuple[bool, float, str]:
+        """
+        Phase 2.1: Use alternative statistical tests (Mann-Whitney U, KS test).
+
+        Non-parametric tests that don't assume normal distribution.
+        Returns: (detected, p_value, test_name)
+
+        NOTE: Currently not integrated into detection flow because it requires raw baseline values,
+        which are aggregated into summary statistics (mean/std) before detection.
+
+        TO ENABLE:
+        1. Option A: Store raw baseline values in MetricProfile (memory overhead)
+        2. Option B: Re-query baseline data during detection (performance overhead)
+        3. Option C: Use streaming approach to compare distributions on-the-fly
+
+        For now, hybrid detection (percentage + z-score) achieves the goal of catching
+        20% latency increases without needing the full statistical test suite.
+        """
+        if not HAS_SCIPY:
+            return False, 1.0, "none"
+
+        if (len(baseline_values) < self.config.min_samples_for_statistical_tests or
+            len(incident_values) < self.config.min_samples_for_statistical_tests):
+            return False, 1.0, "insufficient_samples"
+
+        detected = False
+        best_p_value = 1.0
+        best_test = "none"
+
+        # Mann-Whitney U Test (non-parametric, detects location shifts)
+        if self.config.enable_mann_whitney_test:
+            try:
+                u_stat, u_p_value = scipy_stats.mannwhitneyu(
+                    baseline_values,
+                    incident_values,
+                    alternative='two-sided'
+                )
+                if u_p_value < self.config.statistical_test_p_value:
+                    detected = True
+                    if u_p_value < best_p_value:
+                        best_p_value = u_p_value
+                        best_test = "mann_whitney"
+            except Exception as e:
+                logger.debug(f"Mann-Whitney test failed: {e}")
+
+        # Kolmogorov-Smirnov Test (detects any distribution change)
+        if self.config.enable_ks_test:
+            try:
+                ks_stat, ks_p_value = scipy_stats.ks_2samp(
+                    baseline_values,
+                    incident_values
+                )
+                if ks_p_value < self.config.statistical_test_p_value:
+                    detected = True
+                    if ks_p_value < best_p_value:
+                        best_p_value = ks_p_value
+                        best_test = "kolmogorov_smirnov"
+            except Exception as e:
+                logger.debug(f"KS test failed: {e}")
+
+        if detected:
+            logger.info(f"Statistical test detected shift in {profile.metric_key}: {best_test} p={best_p_value:.4f}")
+
+        return detected, best_p_value, best_test
+
+    def _boost_correlated_weak_signals(self, raw_anomalies: List[RawAnomaly]) -> List[RawAnomaly]:
+        """
+        Phase 1.4: Multi-metric correlation - boost weak signals that appear together.
+
+        Purely telemetry-based: if multiple metrics from the same component show weak
+        anomalies at the same time, upgrade their severity (evidence aggregation).
+
+        NO deployment or external context - only metric correlation.
+        """
+        if not self.config.enable_multi_metric_correlation:
+            return raw_anomalies
+
+        # Group anomalies by component and time window
+        from collections import defaultdict
+        component_time_groups = defaultdict(list)
+
+        for anomaly in raw_anomalies:
+            # Only consider weak signals (between weak_signal_z_threshold and z_threshold)
+            if (self.config.weak_signal_z_threshold <= abs(anomaly.z_score) < self.z_threshold):
+                # Group by component and time bucket
+                time_bucket = round(anomaly.timestamp / self.config.correlation_time_window)
+                key = (anomaly.component, time_bucket)
+                component_time_groups[key].append(anomaly)
+
+        # Find groups with multiple correlated metrics
+        boosted = set()
+        for (component, time_bucket), group_anomalies in component_time_groups.items():
+            if len(group_anomalies) >= self.config.min_correlated_metrics:
+                # Multiple weak signals at same time = upgrade
+                logger.info(f"Multi-metric correlation detected: {component} at T+{time_bucket * self.config.correlation_time_window:.0f}s "
+                           f"has {len(group_anomalies)} correlated weak signals")
+
+                for anomaly in group_anomalies:
+                    boosted.add(id(anomaly))
+                    # Boost confidence (but keep z-score intact for transparency)
+                    if hasattr(anomaly, 'confidence'):
+                        anomaly.confidence = min(anomaly.confidence + self.config.correlation_confidence_boost, 0.95)
+
+        logger.info(f"Boosted {len(boosted)} anomalies through multi-metric correlation")
+        return raw_anomalies
 
     def _cluster_anomalies(
         self,
