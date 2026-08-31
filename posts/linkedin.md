@@ -134,9 +134,20 @@ That's the entire reason a sibling project exists — **Dataraft** — a simulat
 | Under existing observability | A causal-RCA layer beneath Datadog/CloudWatch/etc. |
 | Regulated ops | An interruptible, fully-audited investigation record |
 
-## 11. To understand the space
+## 11. The provocation
 
-Granger causality · Bayesian Online Changepoint Detection · `ruptures` · `drain3` (log-template mining) · the **ReAct** agent paper · event sourcing / CQRS · Datadog Watchdog · the AIOps / incident-management literature.
+> **The dirty secret of "AI SRE" demos: they're graded on incidents the tool already solved.** Correlation-as-causation is not a prompt-engineering problem you can iterate away — it's a mathematical one. An LLM asked to name a root cause will *always* produce a confident, plausible, fluent answer, whether or not it's right, because that is what the objective rewards. Confidence is not calibration. So the question is never whether your agent *sounds* like a senior SRE at 2 a.m. — it's whether it is ever wrong in a way you cannot tell. If the only thing standing between a hallucinated root cause and a `kubectl delete` is the model's own conviction, you don't have an SRE. You have an outage generator with excellent prose.
+
+## 12. Further reading (high-quality references)
+
+- **Yao et al. (2023)** — "ReAct: Synergizing Reasoning and Acting in Language Models." *ICLR.* The loop this agent runs.
+- **Shinn et al. (2023)** — "Reflexion: Language Agents with Verbal Reinforcement Learning." *NeurIPS.*
+- **Granger (1969)** — "Investigating Causal Relations by Econometric Models and Cross-Spectral Methods." *Econometrica.* The 55-year-old idea doing the causal work an LLM can't.
+- **Adams & MacKay (2007)** — "Bayesian Online Changepoint Detection."
+- **Killick, Fearnhead & Eckley (2012)** — "Optimal Detection of Changepoints with a Linear Computational Cost" (**PELT**). *JASA.*
+- **Liu, Ting & Zhou (2008)** — "Isolation Forest." *ICDM.*
+- **Beyer et al. (2016)** — "Site Reliability Engineering" (the Google SRE book). *O'Reilly.*
+- Background: `drain3` (streaming log-template mining) · event sourcing / CQRS · Datadog Watchdog · the AIOps / incident-management literature.
 
 ---
 
